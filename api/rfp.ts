@@ -33,7 +33,7 @@ const Suggest = z.object({ worldView: z.string().max(20_000), results: z.array(z
 
 export async function POST(request: Request): Promise<Response> {
   try {
-    checkAccess(request);
+    await checkAccess(request);
     const action = request.headers.get("x-action");
     const body = await request.json().catch(() => null);
 

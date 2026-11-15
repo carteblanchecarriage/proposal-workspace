@@ -16,14 +16,13 @@ const Body = z.object({
 
 export async function POST(request: Request): Promise<Response> {
   try {
-    checkAccess(request);
+    await checkAccess(request);
     if (Number(request.headers.get("content-length") ?? 0) > MAX_BODY) throw new UserFacingError("That schedule is too large to print.", 413);
     const parsed = Body.safeParse(await request.json().catch(() => null));
     if (!parsed.success) throw new UserFacingError("Invalid PDF request.");
     const { schedule, paper, showToday, showLegend, filename } = parsed.data;
     const pdf = await schedulePdf({
       origin: appOrigin(request),
-      accessCode: request.headers.get("x-access-code") ?? "",
       schedule,
       paper: paper as Paper,
       showToday,

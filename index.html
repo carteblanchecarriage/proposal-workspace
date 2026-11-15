@@ -4,10 +4,11 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Proposal Workspace</title>
-    <!-- With a saved access code, the gate stays blank while the code is checked, so the form doesn't flash on every load. -->
+    <!-- With a saved sign-in (or a sign-in link's ?code=), the gate stays blank while it's checked, so the form doesn't flash on every load. -->
     <script>
       try {
-        if (localStorage.getItem("access-code")) document.documentElement.classList.add("gate-checking");
+        if (/[?&]code=/.test(location.search) || location.hash.startsWith("#schedule-print") || Object.keys(localStorage).some((k) => /^sb-.*-auth-token$/.test(k)))
+          document.documentElement.classList.add("gate-checking");
       } catch {}
     </script>
     <link rel="stylesheet" href="/src/style.css" />
@@ -17,10 +18,15 @@
       <form id="gate-form">
         <span class="mark">Proposal Workspace</span>
         <label class="field">
-          <span class="label">Access code</span>
-          <input id="gate-input" type="password" autocomplete="current-password" autofocus />
+          <span class="label">Email</span>
+          <input id="gate-email" type="email" autocomplete="username" required autofocus />
         </label>
-        <button class="btn primary" type="submit">Enter</button>
+        <label class="field">
+          <span class="label">Password</span>
+          <input id="gate-password" type="password" autocomplete="current-password" />
+        </label>
+        <button class="btn primary" type="submit">Sign in</button>
+        <button class="link" type="button" id="gate-link">Email me a sign-in link instead</button>
         <span id="gate-error" class="status error"></span>
       </form>
     </div>
@@ -36,6 +42,7 @@
         <a href="#fee" data-tab="fee">Fee</a>
       </nav>
       <a class="worldview-link" href="#worldview" data-tab="worldview">World view</a>
+      <button class="link signout" id="signout" type="button" hidden>Sign out</button>
     </header>
 
     <main>

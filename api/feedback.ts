@@ -7,7 +7,7 @@ const Body = z.object({ message: z.string().trim().min(1).max(5000), tab: z.stri
 
 export async function POST(request: Request): Promise<Response> {
   try {
-    checkAccess(request);
+    await checkAccess(request);
     if (!dbConfigured()) throw new UserFacingError("Feedback isn't set up on this site yet.", 503);
     const parsed = Body.safeParse(await request.json().catch(() => null));
     if (!parsed.success) throw new UserFacingError("Please write a message first.");

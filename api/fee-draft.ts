@@ -28,7 +28,7 @@ const MAX_CHAT_BYTES = 1_000_000;
 
 export async function POST(request: Request): Promise<Response> {
   try {
-    checkAccess(request);
+    await checkAccess(request);
     if (request.headers.get("x-action") === "chat") {
       if (Number(request.headers.get("content-length") ?? 0) > MAX_CHAT_BYTES) throw new UserFacingError("This fee is too large to send.", 413);
       const chat = ChatBody.safeParse(await request.json().catch(() => null));

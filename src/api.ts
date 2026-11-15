@@ -1,18 +1,16 @@
-// Shared by every tab: POSTs to /api/* with the access code, and throws the server's readable error message.
+// Shared by every tab: POSTs to /api/* with the signed-in user's token, and throws the server's readable error message.
+import { authHeaders, refreshAuth } from "./auth";
 
 let onUnauthorized = () => {};
 export const setUnauthorizedHandler = (fn: () => void) => (onUnauthorized = fn);
-
-export function accessCode(): string {
-  try {
-    return localStorage.getItem("access-code") ?? "";
-  } catch {
-    return (document.getElementById("gate-input") as HTMLInputElement | null)?.value ?? "";
-  }
-}
+/** Shows the sign-in form again; for callers that make their own requests. */
+export const unauthorized = () => onUnauthorized();
 
 export async function post<T>(url: string, body: BodyInit, headers: Record<string, string>): Promise<T> {
-  const res = await fetch(url, { method: "POST", body, headers: { ...headers, "x-access-code": accessCode() } });
+  const send = async () => fetch(url, { method: "POST", body, headers: { ...headers, ...(await authHeaders()) } });
+  let res = await send();
+  // A stale token: renew it quietly and try once more before asking the person to sign in.
+  if (res.status === 401 && (await refreshAuth())) res = await send();
   if (res.status === 401) onUnauthorized();
   const data = await res.json().catch(() => ({ error: `Server returned ${res.status}` }));
   if (!res.ok) throw Object.assign(new Error(data.error ?? `Server returned ${res.status}`), { status: res.status });

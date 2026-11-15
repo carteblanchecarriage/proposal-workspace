@@ -30,7 +30,6 @@ export function appOrigin(request: Request): string {
 
 export async function schedulePdf(opts: {
   origin: string;
-  accessCode: string;
   schedule: unknown;
   paper: Paper;
   showToday: boolean;
@@ -53,15 +52,10 @@ export async function schedulePdf(opts: {
       if (url.protocol === "data:" || url.protocol === "blob:" || url.host === own || FONT_HOSTS.has(url.host)) req.continue();
       else req.abort();
     });
-    // The print page reads the schedule from session storage, and the app asks for the access code before it opens.
-    await page.evaluateOnNewDocument(
-      (schedule: string, code: string) => {
-        sessionStorage.setItem("YourFirm_preview", schedule);
-        localStorage.setItem("access-code", code);
-      },
-      JSON.stringify(opts.schedule),
-      opts.accessCode,
-    );
+    // The print page reads the schedule from session storage; it needs no sign-in (it shows only what it's handed).
+    await page.evaluateOnNewDocument((schedule: string) => {
+      sessionStorage.setItem("YourFirm_preview", schedule);
+    }, JSON.stringify(opts.schedule));
     const params = new URLSearchParams({ paper: opts.paper, today: opts.showToday ? "1" : "0", legend: opts.showLegend ? "1" : "0", pdf: "1" });
     await page.goto(`${opts.origin}/#schedule-print?${params}`, { waitUntil: "networkidle0", timeout: 30_000 });
     await page.waitForSelector(".preview-pg", { timeout: 15_000 });

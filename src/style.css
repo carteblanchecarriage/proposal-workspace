@@ -96,6 +96,8 @@ body > main section { padding-top: 40px; }
 .gate-checking .gate form { visibility: hidden; }
 .gate form { width: 100%; max-width: 320px; display: flex; flex-direction: column; gap: 20px; }
 .gate .field { margin: 0; }
+.gate .link { align-self: flex-start; }
+.gate .status:not(.error) { color: var(--muted); }
 
 /* Saved comparisons */
 .saved { margin-top: 48px; }
@@ -518,6 +520,9 @@ a.worldview-link {
 }
 a.worldview-link:hover, a.worldview-link.on { background: var(--ink); color: var(--bg); }
 @media (max-width: 640px) { a.worldview-link { margin-left: 0; } }
+/* Sits just right of World view; gap shrinks so the pair reads as one group. */
+header.site .signout { align-self: center; margin-left: -24px; white-space: nowrap; }
+@media (max-width: 640px) { header.site .signout { margin-left: 0; } }
 
 .wv-intro { font-size: 14px; margin: -4px 0 16px; max-width: 640px; }
 #wv-status { display: block; min-height: 18px; font-size: 13px; margin-bottom: 24px; }

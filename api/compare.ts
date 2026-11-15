@@ -7,7 +7,7 @@ const Body = z.object({ projectName: z.string().nullable(), proposals: z.array(P
 
 export async function POST(request: Request): Promise<Response> {
   try {
-    checkAccess(request);
+    await checkAccess(request);
     const parsed = Body.safeParse(await request.json().catch(() => null));
     if (!parsed.success) throw new UserFacingError("Invalid comparison request.");
     // Each run also clears out PDFs uploaded more than a day ago.

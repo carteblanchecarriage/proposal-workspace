@@ -9,7 +9,7 @@ const Body = z.object({ rfp: z.object({}).passthrough(), proposals: z.array(Prop
 
 export async function POST(request: Request): Promise<Response> {
   try {
-    checkAccess(request);
+    await checkAccess(request);
     const parsed = Body.safeParse(await request.json().catch(() => null));
     if (!parsed.success) throw new UserFacingError("Invalid project check request.");
     return Response.json(await checkProject(parsed.data.rfp as Rfp, parsed.data.proposals as Proposal[], await worldViewContext()));

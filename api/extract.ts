@@ -6,7 +6,7 @@ import { extractProposal, errorResponse, summarizeOwnProposal, UserFacingError }
 // past pursuits); the body is then JSON naming a PDF already passed to Anthropic through /api/upload.
 export async function POST(request: Request): Promise<Response> {
   try {
-    checkAccess(request);
+    await checkAccess(request);
     if (request.headers.get("x-action") === "summarize-own") {
       const body = (await request.json().catch(() => null)) as { file_id?: unknown; filename?: unknown } | null;
       if (typeof body?.file_id !== "string" || !/^[\w-]{1,200}$/.test(body.file_id)) throw new UserFacingError("Invalid request.");

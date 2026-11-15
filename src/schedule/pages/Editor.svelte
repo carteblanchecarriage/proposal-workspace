@@ -8,7 +8,7 @@
   import PrintPanel   from '../lib/components/PrintPanel.svelte';
   import { goto } from '../lib/nav.js';
   import { confirmDelete } from '../../modal';
-  import { accessCode } from '../../api';
+  import { authHeaders } from '../../auth';
   import { pointerDrag } from '../lib/utils/pointer.js';
 
   let { data } = $props();
@@ -455,7 +455,7 @@
     const filename = [project.number?.trim(), yyyymmdd, 'Project Schedule'].filter(Boolean).join('_');
     const res = await fetch('/api/schedule-pdf', {
       method: 'POST',
-      headers: { 'content-type': 'application/json', 'x-access-code': accessCode() },
+      headers: { 'content-type': 'application/json', ...(await authHeaders()) },
       body: JSON.stringify({ schedule: project, paper, showToday, showLegend, filename }),
     });
     if (!res.ok) throw new Error((await res.json().catch(() => null))?.error ?? `Couldn't make the PDF (${res.status}).`);

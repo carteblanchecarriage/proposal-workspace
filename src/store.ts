@@ -2,7 +2,8 @@ import { emptyWorldView, type Pursuit, type WorldView } from "../lib/worldview";
 import type { Comparison, ProjectCheck, Proposal, Rfp } from "../lib/claude";
 import type { Contact } from "./contacts";
 import type { Sourced } from "./table";
-import { accessCode } from "./api";
+import { authHeaders, authHeadersNow, refreshAuth } from "./auth";
+import { unauthorized } from "./api";
 
 
 export type ChatMessage = { role: "user" | "assistant"; text: string; updated?: boolean; cost?: number | null };
@@ -151,17 +152,20 @@ export const savesShared = () => !local;
 async function remote<T>(method: string, kind: Kind, opts: { key?: string; body?: unknown; keepalive?: boolean } = {}): Promise<T | undefined> {
   if (local) return undefined;
   const q = new URLSearchParams({ table: kind, ...(opts.key ? { key: opts.key } : {}) });
-  const res = await fetch(`/api/db?${q}`, {
+  const send = async () => fetch(`/api/db?${q}`, {
     method,
-    headers: { "x-access-code": accessCode(), ...(opts.body ? { "content-type": "application/json" } : {}) },
+    headers: { ...(opts.keepalive ? authHeadersNow() : await authHeaders()), ...(opts.body ? { "content-type": "application/json" } : {}) },
     body: opts.body ? JSON.stringify(opts.body) : undefined,
     // Lets a save started as the page closes finish after it's gone.
     keepalive: opts.keepalive,
   });
+  let res = await send();
+  if (res.status === 401 && !opts.keepalive && (await refreshAuth())) res = await send();
   if (res.status === 503) {
     local = true;
     return undefined;
   }
+  if (res.status === 401) unauthorized();
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error ?? `Couldn't save (${res.status}).`);
   return data as T;

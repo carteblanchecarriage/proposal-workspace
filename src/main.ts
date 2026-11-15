@@ -13,7 +13,8 @@ import {
   type ChatMessage,
   type SavedComparison,
 } from "./store";
-import { accessCode, post, setUnauthorizedHandler } from "./api";
+import { post, setUnauthorizedHandler } from "./api";
+import { authEnabled, currentEmail, hasSession, initAuth, sendSignInLink, signInWithPassword, signOut } from "./auth";
 import { confirmDelete, noticeModal } from "./modal";
 import { getCurrentRfp, initRfp, openRfp, showRfpStart } from "./rfp";
 import { showCalls } from "./calls";
@@ -625,53 +626,102 @@ savedList.addEventListener("click", async (e) => {
   }
 });
 
-// ---------- Access code (live site only; the server decides whether one is required) ----------
+/** True once the app has loaded (after sign-in). */
+let started = false;
+
+// ---------- Sign-in (Supabase Auth; the server decides whether login is on) ----------
+// A sign-in is remembered in this browser: the session is saved and refreshes itself, so people sign in once and
+// stay signed in until they choose Sign out.
 
 const gate = $<HTMLDivElement>("gate");
 const gateForm = $<HTMLFormElement>("gate-form");
-const gateInput = $<HTMLInputElement>("gate-input");
+const gateEmail = $<HTMLInputElement>("gate-email");
+const gatePassword = $<HTMLInputElement>("gate-password");
+const gateLink = $<HTMLButtonElement>("gate-link");
 const gateError = $<HTMLSpanElement>("gate-error");
+const signoutBtn = $<HTMLButtonElement>("signout");
+
+// The schedule print page only shows the schedule handed to it in this browser (it's what the server opens to make a
+// PDF), so it needs no sign-in; every API call still checks one.
+const onPrintPage = () => location.hash.startsWith("#schedule-print");
 
 function showGate() {
+  if (onPrintPage()) return;
   document.documentElement.classList.remove("gate-checking");
+  signoutBtn.hidden = true;
   gate.hidden = false;
-  gateInput.focus();
+  (gateEmail.value ? gatePassword : gateEmail).focus();
 }
 setUnauthorizedHandler(showGate);
 
-async function codeAccepted(code: string): Promise<boolean> {
-  const res = await fetch("/api/auth", { method: "POST", headers: { "x-access-code": code } });
-  return res.ok;
+function setGateMessage(text: string, isError = true) {
+  gateError.textContent = text;
+  gateError.classList.toggle("error", isError);
+}
+
+/** Asks the server whether this browser's sign-in is good (or that none is needed). */
+async function signedIn(): Promise<boolean> {
+  return (await post<{ ok: boolean }>("/api/auth", "", {}).catch(() => null))?.ok === true;
+}
+
+async function enter() {
+  gate.hidden = true;
+  document.documentElement.classList.remove("gate-checking");
+  if (authEnabled()) {
+    signoutBtn.hidden = false;
+    signoutBtn.title = (await currentEmail()) ?? "";
+  }
+  start();
 }
 
 gateForm.addEventListener("submit", async (e) => {
   e.preventDefault();
-  const code = gateInput.value.trim();
-  gateError.textContent = "";
-  if (await codeAccepted(code)) {
-    try {
-      localStorage.setItem("access-code", code);
-    } catch {}
-    gate.hidden = true;
-    start();
-  } else {
-    gateError.textContent = "That code isn't right.";
-    gateInput.select();
+  const email = gateEmail.value.trim();
+  setGateMessage("");
+  if (!gatePassword.value) return sendLink();
+  const err = await signInWithPassword(email, gatePassword.value);
+  if (err) {
+    setGateMessage(/invalid/i.test(err) ? "That email and password don't match." : err);
+    gatePassword.select();
+    return;
   }
+  gatePassword.value = "";
+  if (await signedIn()) enter();
+  else setGateMessage("This account doesn't have access.");
 });
 
-// The gate is shown from the first paint; nothing loads until the code checks out (or none is required).
-codeAccepted(accessCode()).then(
-  (ok) => {
-    if (!ok) return showGate();
+async function sendLink() {
+  const email = gateEmail.value.trim();
+  if (!gateEmail.reportValidity()) return;
+  gateLink.disabled = true;
+  const err = await sendSignInLink(email);
+  gateLink.disabled = false;
+  if (err) setGateMessage(/signups not allowed|not found/i.test(err) ? "There's no account for that email." : err);
+  else setGateMessage(`Check ${email} for a sign-in link. Open it in this browser.`, false);
+}
+gateLink.addEventListener("click", sendLink);
+
+signoutBtn.addEventListener("click", async () => {
+  await signOut();
+  location.reload();
+});
+
+// The gate is shown from the first paint; nothing loads until the sign-in checks out (or none is required).
+(async () => {
+  if (onPrintPage()) {
     gate.hidden = true;
-    start();
-  },
-  () => {
+    started = true;
+    return showTab();
+  }
+  try {
+    const loginOn = await initAuth();
+    if ((!loginOn || hasSession()) && (await signedIn())) return enter();
     showGate();
-    gateError.textContent = "Can't reach the server. Refresh to try again.";
-  },
-);
+  } catch {
+    showGate();
+    setGateMessage("Can't reach the server. Refresh to try again.");
+  }
+})();
 
 // Default PDF name: the open RFP review or comparison on the visible tab.
 setPrintName(() => {
@@ -686,7 +736,6 @@ setPrintName(() => {
   return null;
 });
 
-let started = false;
 function start() {
   if (started) return;
   started = true;
@@ -711,7 +760,7 @@ function showTab() {
   const reset = fromTabClick;
   fromTabClick = false;
   if (onSchedule()) {
-    if (!started) return; // waits for the access code; start() calls showTab again
+    if (!started) return; // waits for sign-in; start() calls showTab again
     for (const t of TABS) $(`tab-${t}`).hidden = true;
     document.querySelectorAll("nav.tabs a, a.worldview-link").forEach((a) => a.classList.toggle("on", a.getAttribute("data-tab") === "schedule"));
     setChatOpen(false);
@@ -735,7 +784,7 @@ function showTab() {
   }
   if (tab === "proposals") showIntakeProject();
   if (tab !== "proposals") setChatOpen(false);
-  // A shared link (#rfp/<id> or #proposals/<id>) opens that item once the access code has been accepted.
+  // A shared link (#rfp/<id> or #proposals/<id>) opens that item once signed in.
   if (id && started) tab === "rfp" ? openRfp(id) : tab === "proposals" ? openComparison(id) : tab === "project" && openProject(id);
   if (!id && tab === "project" && started) showProjectList();
   if (tab === "consultants" && started) showConsultants();

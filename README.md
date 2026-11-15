@@ -23,24 +23,41 @@ Upload one consultant proposal (PDF) to get its key facts, or several to compare
 
 ```
 npm install
-copy .env.example .env.local    # then paste your key into .env.local
+cp .env.example .env.local    # then fill in your keys
 npm run dev
 ```
 
 Open http://localhost:5173.
 
+Run `bash scripts/install-hooks.sh` once per clone: it adds git hooks that block commits and pushes containing secrets (API keys, `.env` files and similar). The repo is public.
+
 ## Supabase
 
 1. In the Supabase SQL Editor, run `supabase/schema.sql` once.
-2. Add `SUPABASE_URL` (`https://<project-id>.supabase.co`) and `SUPABASE_SECRET_KEY` (`sb_secret_...`) to `.env.local` and to Vercel's environment variables.
+2. Add `SUPABASE_URL` (`https://<project-id>.supabase.co`), `SUPABASE_SECRET_KEY` (`sb_secret_...`) and `SUPABASE_PUBLISHABLE_KEY` (`sb_publishable_...`) to `.env.local` and to Vercel's environment variables.
 
-Only the server talks to Supabase; the secret key never reaches the browser. Without these, saving falls back to the browser.
+Only the server reads and writes the tables; the secret key never reaches the browser. Without these, saving falls back to the browser and there's no login.
+
+### Login (Supabase Auth)
+
+With `SUPABASE_PUBLISHABLE_KEY` set, the site asks people to sign in (email and password, or an emailed sign-in link), and every API endpoint rejects requests without a valid session. A sign-in is remembered in that browser and renews itself, so people stay signed in until they click **Sign out**.
+
+1. **Turn off public sign-ups:** Authentication → Sign In / Providers → turn off **Allow new users to sign up**. Otherwise anyone could make an account and use your API key.
+2. **Add people:** Authentication → Users → **Add user** → *Create new user* (set a password, tick *Auto Confirm User*), or **Send invitation**.
+3. **Set the site address:** Authentication → URL Configuration → set **Site URL** to the live address and add `http://localhost:5173` under **Redirect URLs**, so sign-in links come back to the app.
+4. Optional: `AUTH_ALLOWED_EMAILS` (e.g. `@yourfirm.com,someone@gmail.com`) limits access to those people even if an account exists.
+
+On a production deploy, if login isn't configured the API refuses every request instead of staying open. Locally without the publishable key, no login is asked for.
+
+### Moving to a new Supabase project
+
+Run `supabase/schema.sql` in the new project, fill in `.env.migrate` (old and new URL and secret key), then run `node --env-file=.env.migrate scripts/migrate-supabase.mjs`. It copies every table and the stored RFP PDFs, and is safe to re-run. User accounts aren't copied; add people again in the new project.
 
 ## Deploy (Vercel)
 
 1. `vercel` (or import the repo in the Vercel dashboard; it auto-detects Vite).
 2. Add `ANTHROPIC_API_KEY` under Project → Settings → Environment Variables.
-3. **Set the access code:** add `ACCESS_CODE` (e.g. `YourFirm`; matching ignores case) to the environment variables. The site then asks for it once per browser, and every API endpoint rejects requests without it, so nobody can use your API key without the code. Keep it out of the code, since the repo is public. When `ACCESS_CODE` isn't set (local dev), no code is asked for.
+3. Add the three Supabase variables (see **Supabase** above) so login is on. Without them the live site refuses every request.
 
 Limits on Vercel: each PDF must be under ~4.4 MB (the platform caps request bodies at 4.5 MB), so compress larger PDFs first. Each request can run for up to 5 minutes. Locally there's no size cap.
 

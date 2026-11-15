@@ -14,7 +14,7 @@ const isPdf = (pdf: Buffer) => pdf.subarray(0, 5).toString() === "%PDF-";
 
 export async function POST(request: Request): Promise<Response> {
   try {
-    checkAccess(request);
+    await checkAccess(request);
     const action = request.headers.get("x-action");
 
     if (action === "estimate") {

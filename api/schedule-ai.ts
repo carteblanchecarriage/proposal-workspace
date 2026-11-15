@@ -10,7 +10,7 @@ const MAX_BODY = 4.4 * 1024 * 1024; // just under Vercel's 4.5 MB request limit
 
 export async function POST(request: Request): Promise<Response> {
   try {
-    checkAccess(request);
+    await checkAccess(request);
     if (Number(request.headers.get("content-length") ?? 0) > MAX_BODY)
       throw new UserFacingError("Request too large — attach a smaller file or a screenshot.", 413);
     const body = (await request.json().catch(() => null)) as { project?: unknown; rfp?: unknown; messages?: { role: string; content: unknown }[] } | null;
