@@ -1,0 +1,108 @@
+-- Run once in Supabase → SQL Editor → New query → paste → Run.
+-- Each row stores what the app saved as JSON in `data`; `project` is pulled out so projects can be listed later.
+-- RLS is on with no policies: only the server (secret key) can read or write. The public key gets nothing.
+
+create table if not exists rfp_reviews (
+  id uuid primary key,
+  project text,
+  data jsonb not null,
+  saved_at timestamptz not null default now()
+);
+
+create table if not exists comparisons (
+  id uuid primary key,
+  project text,
+  data jsonb not null,
+  saved_at timestamptz not null default now()
+);
+
+-- A PDF's reading, keyed by a hash of the file, so the same PDF is never paid for twice.
+create table if not exists readings (
+  hash text primary key,
+  data jsonb not null,
+  saved_at timestamptz not null default now()
+);
+
+alter table rfp_reviews enable row level security;
+alter table comparisons enable row level security;
+alter table readings enable row level security;
+
+-- Newer Supabase projects don't grant table access automatically; let the server's secret key (service_role) in.
+grant select, insert, update, delete on rfp_reviews, comparisons, readings to service_role;
+
+-- Messages from the Feedback button.
+create table if not exists feedback (
+  id uuid primary key default gen_random_uuid(),
+  message text not null,
+  tab text,
+  created_at timestamptz not null default now()
+);
+alter table feedback enable row level security;
+grant select, insert, update, delete on feedback to service_role;
+
+-- Projects: an RFP review and its comparisons link to one by id (stored in their data as projectId).
+create table if not exists projects (
+  id uuid primary key,
+  name text,
+  data jsonb not null,
+  saved_at timestamptz not null default now()
+);
+alter table projects enable row level security;
+grant select, insert, update, delete on projects to service_role;
+
+-- Consultants: firms added by hand (firms from proposals are listed from the proposals themselves).
+create table if not exists consultants (
+  id uuid primary key,
+  name text,
+  data jsonb not null,
+  saved_at timestamptz not null default now()
+);
+alter table consultants enable row level security;
+grant select, insert, update, delete on consultants to service_role;
+
+-- Schedules (moved from the schedule maker). Ids are text, not uuids: the schedule maker made its own.
+-- project_id links a schedule to a project here (empty for schedules made on their own).
+create table if not exists schedules (
+  id text primary key,
+  project_id text,
+  title text,
+  data jsonb not null,
+  saved_at timestamptz not null default now()
+);
+alter table schedules enable row level security;
+grant select, insert, update, delete on schedules to service_role;
+
+-- Fees (the fee builder). project_id links a fee to a project here (empty for fees made on their own).
+create table if not exists fees (
+  id text primary key,
+  project_id text,
+  title text,
+  data jsonb not null,
+  saved_at timestamptz not null default now()
+);
+alter table fees enable row level security;
+grant select, insert, update, delete on fees to service_role;
+
+-- Large PDF uploads (over Vercel's 4.5 MB limit) pass through a private Storage bucket, "pdf-uploads".
+-- Nothing to run: the app creates the bucket itself the first time it's needed, and deletes each PDF as soon as
+-- it has been handed to Anthropic (anything left behind is removed after a day).
+
+-- World view: the team's settings (one row, id "worldview") and past pursuits (an RFP review, our proposal, the
+-- outcome). Both feed the RFP review; see the World view page.
+create table if not exists settings (
+  id text primary key,
+  data jsonb not null,
+  saved_at timestamptz not null default now()
+);
+alter table settings enable row level security;
+grant select, insert, update, delete on settings to service_role;
+
+create table if not exists pursuits (
+  id text primary key,
+  rfp_id text,
+  outcome text,
+  data jsonb not null,
+  saved_at timestamptz not null default now()
+);
+alter table pursuits enable row level security;
+grant select, insert, update, delete on pursuits to service_role;

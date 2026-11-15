@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Proposal Workspace</title>
+    <!-- With a saved access code, the gate stays blank while the code is checked, so the form doesn't flash on every load. -->
+    <script>
+      try {
+        if (localStorage.getItem("access-code")) document.documentElement.classList.add("gate-checking");
+      } catch {}
+    </script>
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <div id="gate" class="gate">
+      <form id="gate-form">
+        <span class="mark">Proposal Workspace</span>
+        <label class="field">
+          <span class="label">Access code</span>
+          <input id="gate-input" type="password" autocomplete="current-password" autofocus />
+        </label>
+        <button class="btn primary" type="submit">Enter</button>
+        <span id="gate-error" class="status error"></span>
+      </form>
+    </div>
+    <header class="site">
+      <a class="mark" href="/">Proposal Workspace</a>
+      <nav class="tabs">
+        <a href="#project" data-tab="project">Projects</a>
+        <a href="#calls" data-tab="calls">Open Calls</a>
+        <a href="#rfp" data-tab="rfp">RFP</a>
+        <a href="#proposals" data-tab="proposals">Proposals</a>
+        <a href="#consultants" data-tab="consultants">Consultants</a>
+        <a href="#schedule" data-tab="schedule">Schedule</a>
+        <a href="#fee" data-tab="fee">Fee</a>
+      </nav>
+      <a class="worldview-link" href="#worldview" data-tab="worldview">World view</a>
+    </header>
+
+    <main>
+      <div id="tab-rfp" class="tab" hidden>
+        <section id="rfp-intake">
+          <p class="lede">Drop in an RFP to see its key dates, critical components and questions to ask.</p>
+          <label id="rfp-drop" class="drop">
+            <input id="rfp-input" type="file" accept="application/pdf,.pdf" multiple hidden />
+            <span>Drop the RFP and any addenda here, or <u>browse</u></span>
+          </label>
+          <p class="estimate tip">Tip: every page costs money to read. Leave out pages you don't need, like blank forms and sample documents.</p>
+          <ol id="rfp-files" class="files"></ol>
+          <div class="actions">
+            <button id="rfp-run" class="btn primary" disabled>Review</button>
+            <span id="rfp-status" class="status"></span>
+          </div>
+          <p id="rfp-estimate" class="estimate"></p>
+          <div id="rfp-saved" class="saved" hidden>
+            <h2 class="label">Recent RFPs</h2>
+            <ol id="rfp-saved-list"></ol>
+          </div>
+        </section>
+        <section id="rfp-results" hidden></section>
+      </div>
+
+      <div id="tab-fee" class="tab" hidden>
+        <div class="wip" role="note" aria-label="Work in progress: fees here are drafts and may change">
+          <div class="wip-track" aria-hidden="true">
+            <span>Work in progress · Fees here are drafts and may change</span><span>Work in progress · Fees here are drafts and may change</span><span>Work in progress · Fees here are drafts and may change</span><span>Work in progress · Fees here are drafts and may change</span>
+          </div>
+        </div>
+        <section id="fee-page"></section>
+      </div>
+
+      <div id="tab-home" class="tab" hidden>
+        <section class="splash">
+          <h1 class="splash-line" id="splash-line">Really<br />Fast<br />Proposals.</h1>
+          <div class="splash-actions"><a class="btn primary" href="#rfp">Start with an RFP</a><a class="btn" href="#project">Projects</a></div>
+        </section>
+      </div>
+
+      <div id="tab-worldview" class="tab" hidden>
+        <section id="worldview-page"></section>
+      </div>
+
+      <div id="tab-calls" class="tab" hidden>
+        <section id="calls-page"></section>
+      </div>
+
+      <div id="tab-consultants" class="tab" hidden>
+        <section id="consultants-page"></section>
+      </div>
+
+      <div id="tab-project" class="tab" hidden>
+        <section id="project-page"></section>
+      </div>
+
+      <div id="tab-proposals" class="tab" hidden>
+      <section id="intake">
+        <p class="lede">
+          Drop in one consultant proposal to get its key facts, or several to
+          compare them. Works for any architecture or engineering discipline. Scopes
+          are normalized into a single checklist and the fees lined up side by
+          side.
+        </p>
+
+        <label id="drop" class="drop">
+          <input
+            id="file-input"
+            type="file"
+            accept="application/pdf,.pdf"
+            multiple
+            hidden
+          />
+          <span>Drop PDFs here, or <u>browse</u></span>
+        </label>
+        <p class="estimate tip">
+          Tip: every page costs money to read. Upload only the pages that matter: scope, fees, assumptions and
+          exclusions. Leave out resumes, firm history, project sheets and marketing pages. A trimmed PDF is cheaper,
+          faster and often more accurate.
+        </p>
+
+        <ol id="files" class="files"></ol>
+
+        <p id="intake-project" class="intake-project" hidden></p>
+        <div class="actions">
+          <button id="run" class="btn primary" disabled>Compare</button>
+          <button id="clear" class="btn" hidden>Clear</button>
+          <span id="status" class="status"></span>
+        </div>
+        <p id="run-estimate" class="estimate"></p>
+
+        <div id="saved" class="saved" hidden>
+          <h2 class="label">Recent comparisons <span class="note">saved in this browser only</span></h2>
+          <ol id="saved-list"></ol>
+        </div>
+      </section>
+
+      <section id="results" hidden>
+        <div class="print-head">
+          <div class="mark">Proposal Comparison</div>
+          <div class="meta" id="print-meta"></div>
+        </div>
+
+        <div class="toolbar">
+          <select id="project" class="project" aria-label="Project"></select>
+          <label class="toggle"
+            ><input id="diff-only" type="checkbox" /> Show differences
+            only</label
+          >
+          <span id="cost" class="cost"></span>
+          <span class="tools">
+            <button id="chat-open" class="btn">Ask / correct</button>
+            <button id="share" class="btn">Share</button>
+            <button id="print" class="btn">Print / PDF</button>
+          </span>
+        </div>
+
+        <div class="block briefing">
+          <h2 class="label">Briefing</h2>
+          <div id="briefing"></div>
+        </div>
+
+        <div class="block">
+          <h2 class="label">Fees</h2>
+          <div class="scroll"><table id="fees" class="grid"></table></div>
+        </div>
+
+        <div class="block">
+          <h2 class="label">Scope</h2>
+          <p class="legend">
+            <span><b class="st-included">Included</b> in the proposal's scope</span>
+            <span><b class="st-optional">Optional</b> offered as an add-on at extra cost</span>
+            <span><b class="st-excluded">Excluded</b> the proposal says it is not included</span>
+            <span><b class="st-not_mentioned">Not mentioned</b> the proposal doesn't say; ask before assuming</span>
+          </p>
+          <div class="scroll"><table id="scope" class="grid"></table></div>
+        </div>
+
+        <details class="block more">
+          <summary class="label">Proposal details — exclusions, assumptions, deliverables</summary>
+          <div id="notes" class="notes"></div>
+        </details>
+      </section>
+      </div>
+    </main>
+
+    <aside id="chat" class="chat" hidden>
+      <div class="chat-head">
+        <span class="label">Ask or correct</span>
+        <button id="chat-close" class="link">Close</button>
+      </div>
+      <div id="chat-log" class="chat-log">
+        <p class="chat-hint">
+          Ask about anything in the proposals, or tell me what to fix. For example, "Are site visits during
+          construction included?" or "The fee for design development looks wrong, check page 9". Corrections
+          update the analysis in place.
+        </p>
+      </div>
+      <input id="reattach-input" type="file" accept="application/pdf,.pdf" multiple hidden />
+      <form id="chat-form" class="chat-form">
+        <textarea id="chat-input" rows="3" placeholder="Ask a question or request a correction…"></textarea>
+        <p id="chat-cost" class="estimate"></p>
+        <div class="chat-actions">
+          <span id="chat-status" class="status"></span>
+          <button id="chat-send" class="btn primary" type="submit">Send</button>
+        </div>
+      </form>
+    </aside>
+
+    <footer class="site">
+      Built on SOC 2 Type II audited services: Anthropic, Supabase and Vercel. Documents aren't used to train AI models, and uploaded PDFs are deleted from Anthropic after a day. AI can make mistakes, so check important details against the original documents.
+    </footer>
+
+    <div id="feedback" class="feedback">
+      <form id="feedback-form" class="feedback-panel" hidden>
+        <div class="feedback-head"><span class="label">Feedback</span><button id="feedback-close" class="link" type="button" aria-label="Close">Close</button></div>
+        <textarea id="feedback-input" rows="4" placeholder="What's working, what isn't?"></textarea>
+        <div class="feedback-actions">
+          <span id="feedback-status" class="status"></span>
+          <button class="btn primary" type="submit">Send</button>
+        </div>
+      </form>
+      <button id="feedback-toggle" class="btn feedback-toggle" type="button">Feedback</button>
+    </div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

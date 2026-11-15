@@ -1,0 +1,57 @@
+{
+  "framework": "vite",
+  "functions": {
+    "api/auth.ts": {
+      "maxDuration": 300
+    },
+    "api/chat.ts": {
+      "maxDuration": 300
+    },
+    "api/check.ts": {
+      "maxDuration": 300
+    },
+    "api/compare.ts": {
+      "maxDuration": 300
+    },
+    "api/db.ts": {
+      "maxDuration": 300
+    },
+    "api/extract.ts": {
+      "maxDuration": 300
+    },
+    "api/fee-draft.ts": {
+      "maxDuration": 300
+    },
+    "api/feedback.ts": {
+      "maxDuration": 300
+    },
+    "api/rfp.ts": {
+      "maxDuration": 300
+    },
+    "api/schedule-ai.ts": {
+      "maxDuration": 300
+    },
+    "api/schedule-pdf.ts": {
+      "maxDuration": 60,
+      "includeFiles": "node_modules/@sparticuz/chromium/bin/**"
+    },
+    "api/upload.ts": {
+      "maxDuration": 300
+    }
+  },
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        {
+          "key": "X-Frame-Options",
+          "value": "SAMEORIGIN"
+        },
+        {
+          "key": "Content-Security-Policy",
+          "value": "frame-ancestors 'self'"
+        }
+      ]
+    }
+  ]
+}
