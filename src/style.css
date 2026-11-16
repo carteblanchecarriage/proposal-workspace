@@ -732,7 +732,9 @@ table.outline { table-layout: auto; }
 .landing { position: fixed; inset: 0; z-index: 90; background: var(--bg); overflow-y: auto; padding: 0 32px 64px; }
 .landing[hidden] { display: none; }
 .landing-bar { position: sticky; top: 0; z-index: 1; background: var(--bg); display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 20px 0; border-bottom: 1px solid var(--ink); }
-.landing-bar-actions { display: flex; align-items: center; gap: 20px; }
+.landing-bar-actions { display: flex; align-items: center; gap: 20px; flex-shrink: 0; }
+.landing-bar-actions > * { white-space: nowrap; }
+.landing-bar .mark { min-width: 0; }
 .landing-bar .link { font-size: 15px; }
 .landing > section, .landing-bar { max-width: 1120px; margin: 0 auto; }
 .landing-hero { min-height: calc(100vh - 140px); display: flex; flex-direction: column; justify-content: center; padding: 48px 0; }
@@ -751,7 +753,9 @@ table.outline { table-layout: auto; }
   .landing { padding: 0 16px 48px; }
   .landing-feature { grid-template-columns: minmax(0, 1fr); gap: 24px; padding: 48px 0; }
   .landing-hero { min-height: 0; padding: 56px 0 48px; }
-  .landing-bar-actions { gap: 12px; }
+  .landing-bar-actions { gap: 14px; }
+  .landing-bar .btn { padding: 6px 12px; font-size: 13px; }
+  .landing-bar .link { font-size: 14px; }
 }
 
 /* Screenshot-style previews: small, real-looking pieces of each page, drawn in HTML. */
