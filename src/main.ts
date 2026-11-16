@@ -707,7 +707,19 @@ const session = {
   del: (k: string) => { try { sessionStorage.removeItem(k); } catch {} },
 };
 
+/** The landing page's sample dates, counted from today like the demo's RFP (e.g. "Tue, Dec 1, 2026 · 10:00 AM"). */
+function fillLandingDates() {
+  landing.querySelectorAll<HTMLElement>("[data-in-days]").forEach((el) => {
+    const d = new Date(Date.now() + Number(el.dataset.inDays) * 24 * 60 * 60 * 1000);
+    // Weekends move to Monday, as in the demo's sample RFP (src/demo/data.ts, weekdayIn).
+    d.setDate(d.getDate() + (d.getDay() === 6 ? 2 : d.getDay() === 0 ? 1 : 0));
+    const day = d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" });
+    el.textContent = el.dataset.time ? `${day} · ${el.dataset.time}` : day;
+  });
+}
+
 function showLanding() {
+  fillLandingDates();
   document.documentElement.classList.remove("gate-checking");
   gate.hidden = true;
   landing.hidden = false;
@@ -715,7 +727,8 @@ function showLanding() {
   typeSplash("landing-line");
 }
 
-async function enterDemo() {
+/** Opens the demo; page is where to start (a #hash such as "#worldview"), the projects list by default. */
+async function enterDemo(page?: string) {
   const { demoSeed } = await import("./demo/data");
   // The firm's name first: the sample schedule's notes name it.
   setOrgName("Demo Architects");
@@ -727,8 +740,9 @@ async function enterDemo() {
   demoBanner.hidden = false;
   orgName.textContent = "Demo Architects";
   orgName.hidden = false;
-  // Open on the sample project: everything else is linked from it.
-  if (!started && !parseHash().tab) history.replaceState(null, "", "#project/demo-project-library");
+  // Open on the page asked for, or the projects list, like the app.
+  if (page) history.replaceState(null, "", page);
+  else if (!started && !parseHash().tab) history.replaceState(null, "", "#project");
   start();
 }
 
@@ -744,7 +758,11 @@ function leaveDemo(then?: "signup" | "signin") {
 document.addEventListener("click", (e) => {
   const action = (e.target as HTMLElement).closest<HTMLElement>("[data-landing]")?.dataset.landing;
   if (!action) return;
-  if (action === "demo") return void enterDemo();
+  if (action === "demo") {
+    // A link into a particular demo page (data-open="#worldview"); only the app's own page names are allowed.
+    const open = (e.target as HTMLElement).closest<HTMLElement>("[data-landing]")?.dataset.open;
+    return void enterDemo(open && /^#[a-z]+$/.test(open) ? open : undefined);
+  }
   const mode = action === "signup" ? "signup" : "signin";
   if (isDemo()) leaveDemo(mode);
   else showGate(mode);
@@ -881,7 +899,7 @@ signoutBtn.addEventListener("click", async () => {
     // A reload inside the demo stays in it (its pages and sample records); a link to a real record means sign in.
     const realRecord = !!id && !id.startsWith("demo-");
     if (session.get(DEMO_FLAG) && !realRecord) return enterDemo();
-    if (tab && tab !== "home") {
+    if (tab) {
       session.del(DEMO_FLAG);
       return showGate("signin");
     }
@@ -919,7 +937,7 @@ function start() {
 
 // ---------- Tabs ----------
 
-const TABS = ["home", "rfp", "proposals", "fee", "project", "consultants", "calls", "worldview", "org"];
+const TABS = ["rfp", "proposals", "fee", "project", "consultants", "calls", "worldview", "org"];
 // The schedule screens (#schedule, #schedule/<id>, …) are loaded only when first opened.
 type ScheduleModule = typeof import("./schedule/mount");
 let schedule: ScheduleModule | null = null;
@@ -946,8 +964,8 @@ function showTab() {
   }
   schedule?.hideSchedule();
   const { tab: t, id } = parseHash();
-  // Opening the site (no page in the address, or the name in the header) shows the splash page.
-  const tab = TABS.includes(t) ? t : "home";
+  // Opening the site (no page in the address, or the name in the header) shows the projects list.
+  const tab = TABS.includes(t) ? t : "project";
   for (const t of TABS) $(`tab-${t}`).hidden = t !== tab;
   document.querySelectorAll("nav.tabs a, a.worldview-link, a.org-name").forEach((a) => a.classList.toggle("on", a.getAttribute("data-tab") === tab));
   if (reset && started) {
@@ -963,7 +981,6 @@ function showTab() {
   if (tab === "calls" && started) showCalls();
   if (tab === "worldview" && started) showWorldView();
   if (tab === "org" && started) showOrg();
-  if (tab === "home") typeSplash();
   if (tab === "fee" && started) showFee(id);
   else {
     flushFee();

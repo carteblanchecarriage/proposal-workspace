@@ -14,6 +14,12 @@ const DAY = 24 * 60 * 60 * 1000;
 const now = Date.now();
 const iso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 const inDays = (n: number) => new Date(now + n * DAY);
+/** n days out, moved to the Monday after when it lands on a weekend (RFP deadlines and walkthroughs are weekdays). */
+export const weekdayIn = (n: number) => {
+  const d = inDays(n);
+  const shift = d.getDay() === 6 ? 2 : d.getDay() === 0 ? 1 : 0;
+  return new Date(d.getTime() + shift * DAY);
+};
 const say = (d: Date) => d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 
 const PROJECT_ID = "demo-project-library";
@@ -23,10 +29,10 @@ const PROJECT_NAME = "Maple Hollow Library Renovation + Addition";
 
 // ---------- The RFP review ----------
 
-const due = inDays(19);
-const walk = inDays(6);
-const questionsDue = inDays(11);
-const interviews = inDays(40);
+const due = weekdayIn(19);
+const walk = weekdayIn(6);
+const questionsDue = weekdayIn(11);
+const interviews = weekdayIn(40);
 
 const requested: Record<string, ["yes" | "no" | "unclear", string, number]> = {
   Architecture: ["yes", "Prime consultant: renovation of the 1968 building and a 6,500 SF addition.", 4],
@@ -51,7 +57,7 @@ const rfp: Rfp = {
     verdict: "pursue",
     reasons: [
       "Civic library renovation with an addition: squarely the kind of work we want more of.",
-      "Budget ($7.8M) is in our sweet spot, and the fee is evaluated at only 20%, so qualifications decide it.",
+      "Budget ($7.8M) is in our sweet spot, and fee is only 20% of the RFP's scoring, so qualifications decide it.",
       "We know the county's permitting process from two recent projects nearby.",
       "Watch the schedule: substantial completion is tight for a phased, occupied renovation.",
     ],
@@ -338,7 +344,7 @@ const worldView: WorldView = {
   whoWeAre:
     "Demo Architects is a 25-person studio focused on civic, library and higher-education work. We're strongest at renovations of occupied buildings and at community engagement.",
   goodPursuit: "Public clients, $3M–$20M construction, renovation or additions, where qualifications count for more than fee.",
-  redFlags: "Fee weighted over 40%. Design-build led by a contractor we haven't worked with. No budget stated.",
+  redFlags: "Fee counts for more than 40% of the RFP's scoring. Design-build led by a contractor we haven't worked with. No construction budget given.",
   weighing: "Favor projects within two hours' drive. Libraries and schools over offices.",
   marketConditions: "Construction costs are rising about 4% a year; mechanical equipment lead times are 20–30 weeks.",
   feeCurve: [

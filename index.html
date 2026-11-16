@@ -4,6 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Proposal Workspace</title>
+    <meta name="description" content="Proposal tools for architecture firms: read RFPs, level your consultants' fees, and build your fee and schedule in one shared project." />
     <!-- With a saved sign-in (or a sign-in link's ?code=), the gate stays blank while it's checked, so the form doesn't flash on every load. -->
     <script>
       try {
@@ -49,9 +50,10 @@
       </div>
 
       <section class="landing-hero">
+        <span class="landing-eyebrow">For architecture firms</span>
         <h1 class="splash-line" id="landing-line">Really<br />Fast<br />Proposals.</h1>
         <p class="landing-lede">
-          Read an RFP in minutes, line up consultant proposals side by side, and build the fee and schedule from them, all in one project your whole team shares.
+          Read the owner's RFP in minutes, level your consultants' fees side by side, and build your fee and schedule from them, all in one project your whole studio shares.
         </p>
         <div class="splash-actions">
           <button class="btn primary" type="button" data-landing="demo">Try the demo</button>
@@ -64,13 +66,14 @@
         <div class="landing-copy">
           <span class="landing-step">01</span>
           <h2>Read the RFP</h2>
-          <p>Drop in the RFP and any addenda. Get the key facts, every date that matters, the watch-outs, the questions to ask, and whether it's worth pursuing for your firm.</p>
+          <p>Drop in the owner's RFP and any addenda. Get the key facts, every date that matters, which consultants the project calls for, the watch-outs, the questions to ask, and a go/no-go for your firm.</p>
         </div>
         <div class="landing-shot" aria-hidden="true">
           <div class="shot-head"><b>Library Renovation + Addition</b><span class="shot-chip">Pursue</span></div>
-          <div class="shot-row"><span>Walkthrough</span><span>Mandatory</span></div>
-          <div class="shot-row"><span>Questions due</span><span>4:00 PM</span></div>
-          <div class="shot-row"><span>Proposals due</span><span>2:00 PM</span></div>
+          <!-- Dates are filled in relative to today (as in the demo's sample RFP), so they never look stale. -->
+          <div class="shot-row"><span>Walkthrough <b class="shot-tag">Mandatory</b></span><span data-in-days="6" data-time="10:00 AM"></span></div>
+          <div class="shot-row"><span>Questions due</span><span data-in-days="11" data-time="4:00 PM"></span></div>
+          <div class="shot-row"><span>Proposals due <b class="shot-tag">Mandatory</b></span><span data-in-days="19" data-time="2:00 PM"></span></div>
           <div class="shot-flag">Fee goes in a separate sealed envelope, or the proposal is disqualified.</div>
         </div>
       </section>
@@ -78,12 +81,12 @@
       <section class="landing-feature">
         <div class="landing-copy">
           <span class="landing-step">02</span>
-          <h2>Compare proposals</h2>
-          <p>Upload your consultants' proposals. Fees line up phase by phase, scope becomes one checklist, and gaps get flagged, with the questions to send back to each firm.</p>
+          <h2>Level your consultants' fees</h2>
+          <p>Drop in the MEP, structural or civil proposals you've collected. Fees line up phase by phase, scope becomes one checklist, and gaps get flagged, like the sprinkler design one firm left out, with the questions to send back to each engineer.</p>
         </div>
         <div class="landing-shot" aria-hidden="true">
           <table class="shot-table">
-            <thead><tr><th></th><th>Firm A</th><th>Firm B</th><th>Firm C</th></tr></thead>
+            <thead><tr><th></th><th>MEP A</th><th>MEP B</th><th>MEP C</th></tr></thead>
             <tbody>
               <tr><td>Total fee</td><td>$225k</td><td>$198k</td><td><b>$175k</b></td></tr>
               <tr><td>Fire protection</td><td>✓</td><td>✓</td><td class="shot-bad">✕</td></tr>
@@ -97,12 +100,12 @@
       <section class="landing-feature landing-fee">
         <div class="landing-copy">
           <span class="landing-step">03</span>
-          <h2>Build the fee, not another spreadsheet</h2>
-          <p>Most fees live in a spreadsheet that's been copied, tweaked and emailed around for years. One wrong cell and the total is off. Here the worksheet does the math for you:</p>
+          <h2>Build your fee, not another spreadsheet</h2>
+          <p>Most studios' fees live in a spreadsheet that's been copied, tweaked and emailed around for years. One wrong cell and the total is off. Here the worksheet does the math for you:</p>
           <ul class="landing-points">
-            <li><b>No broken formulas.</b> Hours × rates by phase and role, consultants with your markup, and every total worked out the same way, every time.</li>
+            <li><b>No broken formulas.</b> Hours × rates by phase and role from programming through CA, your consultants with your markup, and every total worked out the same way, every time.</li>
             <li><b>One fee per project, shared.</b> No "Fee_v7_FINAL.xlsx": the whole team opens the same, current fee.</li>
-            <li><b>A built-in sanity check.</b> Your bottom-up fee is compared with the percent you'd expect for a project this size, from your own fee curve.</li>
+            <li><b>A built-in sanity check.</b> Your bottom-up fee is compared with the percent of construction you'd expect for a project this size, from your own fee curve.</li>
             <li><b>Ready for the proposal.</b> A clean fee table by phase and consultant, to copy straight in. Or let AI draft the hours from the RFP.</li>
           </ul>
         </div>
@@ -127,7 +130,7 @@
         <div class="landing-copy">
           <span class="landing-step">04</span>
           <h2>Plan the schedule</h2>
-          <p>Draft the schedule from the RFP's dates: phases, reviews, permits and milestones, ready to adjust and print at a proper paper size.</p>
+          <p>Draft the project schedule from the RFP's dates: SD, DD and CD submissions, owner reviews, permitting, bidding and construction, ready to adjust and print at letter or tabloid size.</p>
         </div>
         <div class="landing-shot" aria-hidden="true">
           <div class="shot-gantt">
@@ -140,12 +143,51 @@
         </div>
       </section>
 
+      <section class="landing-feature">
+        <div class="landing-copy">
+          <span class="landing-step">05</span>
+          <h2>Change it by asking</h2>
+          <p>Fee and schedule each have an assistant. Tell it what changed, the way you'd tell your PM, and it edits the worksheet or the schedule for you, keeping every total and date in step. One Undo takes it back.</p>
+          <ul class="landing-points">
+            <li><b>Fees:</b> add or remove tasks, adjust hours, change the target, markup or expenses. Your billing rates stay yours.</li>
+            <li><b>Schedules:</b> shift phases, add reviews and permitting, set milestones, and the legend follows.</li>
+          </ul>
+        </div>
+        <div class="landing-shot shot-chat" aria-hidden="true">
+          <div class="shot-msg shot-you">Add weekly design meetings through DD, 1.5 hours for the PM and project architect.</div>
+          <div class="shot-msg shot-ai">Added “Design meetings” to Schematic Design and Design Development: 66 hours. The fee is now 8.1% of the budget, up from 7.9%.</div>
+          <div class="shot-msg shot-you">Push construction start two weeks and add permitting.</div>
+          <div class="shot-msg shot-ai">Moved Bidding and Construction two weeks later, and added Permit Submission and a 6-week Permit Review after the CDs. Milestones updated.</div>
+        </div>
+      </section>
+
+      <section class="landing-feature">
+        <div class="landing-copy">
+          <span class="landing-step">World view</span>
+          <h2>Tuned to your firm, not generic AI</h2>
+          <p>Tell it once what kind of practice you are and how you decide. Every tool reads it, so a go/no-go, a fee draft or an answer in chat sounds like your firm, not a template.</p>
+          <ul class="landing-points">
+            <li><b>Your judgment.</b> The project types and clients you want, your red flags and deal-breakers (contract terms, fee-heavy scoring), how you weigh fee against fit, and where the market is.</li>
+            <li><b>Your numbers.</b> The fee you expect at each construction budget, your split by phase, and your usual proposal sections.</li>
+            <li><b>Your track record.</b> Add past pursuits, won or lost, with the debrief. The app checks your world view against how they turned out and suggests changes.</li>
+          </ul>
+          <button class="link landing-more" type="button" data-landing="demo" data-open="#worldview">See the demo's world view →</button>
+        </div>
+        <div class="landing-shot" aria-hidden="true">
+          <div class="shot-wv"><span>Who we are</span>Civic and library work, $3M–$20M, renovations of occupied buildings.</div>
+          <div class="shot-wv"><span>Red flags</span>Fee counts for over 40% of the RFP's scoring. No construction budget given.</div>
+          <div class="shot-wv"><span>Expected fee</span>8.5% at $5M · 7.5% at $10M</div>
+          <div class="shot-head shot-verdict"><b>Library Renovation + Addition</b><span class="shot-chip">Pursue</span></div>
+          <div class="shot-reason">Civic library renovation: squarely the work you want, and fee is only 20% of the RFP's scoring.</div>
+        </div>
+      </section>
+
       <section class="landing-private">
         <h2>Your fees stay private.</h2>
         <ul class="landing-points landing-points-row">
           <li><b>Encrypted before it's stored.</b> Your RFP reviews, comparisons, fees and schedules are encrypted with a key unique to your organization, so the database holds only scrambled data.</li>
           <li><b>Only your team.</b> Each organization's work is kept separate, and only people signed in to it can open it.</li>
-          <li><b>Never used for training.</b> Your documents go to the AI only when you run a feature, and aren't used to train AI models.</li>
+          <li><b>Never used for training.</b> Your documents are read only when you run a feature, and they're never used to train AI models.</li>
         </ul>
       </section>
 
@@ -209,13 +251,6 @@
           </div>
         </div>
         <section id="fee-page"></section>
-      </div>
-
-      <div id="tab-home" class="tab" hidden>
-        <section class="splash">
-          <h1 class="splash-line" id="splash-line">Really<br />Fast<br />Proposals.</h1>
-          <div class="splash-actions"><a class="btn primary" href="#rfp">Start with an RFP</a><a class="btn" href="#project">Projects</a></div>
-        </section>
       </div>
 
       <div id="tab-org" class="tab" hidden>
@@ -352,7 +387,7 @@
     </aside>
 
     <footer class="site">
-      Built on SOC 2 Type II audited services: Anthropic, Supabase and Vercel. Documents aren't used to train AI models, and uploaded PDFs are deleted from Anthropic after a day. AI can make mistakes, so check important details against the original documents.
+      This site is in development, so features and how they work may change.
     </footer>
 
     <div id="feedback" class="feedback">
