@@ -15,6 +15,10 @@ type Info = {
   createdAt: string;
   aiLimitUsd: number | null;
   aiSpentUsd: number;
+  subscriptionStatus: string | null;
+  renewsAt: string | null;
+  /** null when billing isn't set up on the server */
+  billing: { price: string | null; capUsd: number } | null;
   you: string | null;
   people: { email: string | null; role: string; you: boolean }[];
 };
@@ -36,6 +40,15 @@ export async function showOrg() {
   page.innerHTML = `<h1 class="headline">Organization</h1><span class="status">Loading…</span>`;
   try {
     info = await orgAction<Info>("org-info");
+    // Back from Stripe Checkout: the subscription switches on when Stripe's webhook arrives, usually within seconds.
+    if (location.hash === "#org/subscribed") {
+      history.replaceState(null, "", "#org");
+      for (let i = 0; i < 8 && info.plan !== "pro"; i++) {
+        page.innerHTML = `<h1 class="headline">${esc(info.name)}</h1><span class="status">Thanks! Turning on your subscription…</span>`;
+        await new Promise((r) => setTimeout(r, 1500));
+        info = await orgAction<Info>("org-info");
+      }
+    }
   } catch (err) {
     page.innerHTML = `<h1 class="headline">Organization</h1><span class="status error">${esc((err as Error).message)}</span>`;
     return;
@@ -47,12 +60,27 @@ function render() {
   if (!info) return;
   const owner = info.you === "owner";
   const limit = info.aiLimitUsd;
+  const period = info.plan === "pro" ? "this billing period" : "this month";
   const usage =
     limit == null
-      ? `${usd(info.aiSpentUsd)} this month (no limit)`
+      ? `${usd(info.aiSpentUsd)} ${period} (no limit)`
       : limit === 0
         ? "AI features aren't turned on for this organization yet."
-        : `${usd(info.aiSpentUsd)} of ${usd(limit)} this month`;
+        : `${usd(info.aiSpentUsd)} of ${usd(limit)} ${period}`;
+  const day = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }) : "");
+  const b = info.billing;
+  const price = b?.price ? ` · ${esc(b.price)}` : "";
+  const plan =
+    info.plan === "owner"
+      ? `<p>Internal plan: no subscription and no AI limit.</p>`
+      : info.plan === "pro"
+        ? `<p><b>Pro</b>${price}${info.renewsAt ? `. Renews ${esc(day(info.renewsAt))}.` : ""}</p>
+           ${info.subscriptionStatus === "past_due" ? `<p class="status error">The last payment didn't go through. Update the card under Manage billing; AI stays on while Stripe retries.</p>` : ""}
+           ${owner ? `<button class="btn" type="button" id="org-portal">Manage billing</button>` : ""}`
+        : b
+          ? `<p>Free: AI features are off.${b.price ? ` Subscribe for <b>${esc(b.price)}</b>, which includes ${usd(b.capUsd)} of AI use each billing period.` : ""}</p>
+             ${owner ? `<button class="btn primary" type="button" id="org-subscribe">Subscribe</button>` : `<p class="org-muted">Ask your organization's owner to subscribe.</p>`}`
+          : `<p>Free.</p>`;
   $("org-page").innerHTML = `
     <h1 class="headline">${esc(info.name)}</h1>
     <p class="wv-intro">Your organization: everything saved in the app belongs to it.</p>
@@ -72,6 +100,12 @@ function render() {
         ${info.people.map((p) => `<li>${esc(p.email ?? "(unknown)")}${p.role === "owner" ? " · owner" : ""}${p.you ? " · you" : ""}</li>`).join("")}
       </ul>
       ${info.joinDomain ? `<p class="org-muted">Anyone who signs up with an @${esc(info.joinDomain)} email joins automatically.</p>` : ""}
+    </div>
+
+    <div class="block">
+      <h2 class="label">Plan</h2>
+      ${plan}
+      <span class="status" id="org-billing-status"></span>
     </div>
 
     <div class="block">
@@ -113,6 +147,21 @@ function render() {
       status.classList.add("error");
     }
   });
+
+  // Subscribe / Manage billing: Stripe's own pages.
+  for (const [id, action] of [["org-subscribe", "billing-checkout"], ["org-portal", "billing-portal"]] as const) {
+    $(id)?.addEventListener("click", async () => {
+      const status = $("org-billing-status");
+      status.classList.remove("error");
+      status.textContent = "Opening Stripe…";
+      try {
+        location.href = (await orgAction<{ url: string }>(action)).url;
+      } catch (err) {
+        status.textContent = (err as Error).message;
+        status.classList.add("error");
+      }
+    });
+  }
 
   $("org-export").addEventListener("click", async () => {
     const status = $("org-export-status");

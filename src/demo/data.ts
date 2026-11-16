@@ -423,6 +423,10 @@ function schedule(): SavedSchedule {
 
 function fee(): SavedFee {
   const medium = TEMPLATES.find((t) => t.key === "medium")!;
+  const phases = templatePhases(medium, DEFAULT_PHASES);
+  // Consultant fees by phase name. Copperleaf's match its proposal in the comparison ($225,000).
+  const byName = (amounts: Record<string, number>) =>
+    Object.fromEntries(phases.filter((p) => amounts[p.name] != null).map((p) => [p.id, amounts[p.name]]));
   return {
     id: "demo-fee-library",
     savedAt: now - DAY,
@@ -432,11 +436,26 @@ function fee(): SavedFee {
     budget: { by: "amount", amount: 7_800_000, area: 24_500, costPerSf: null },
     targetPercent: 8,
     roles: DEFAULT_ROLES.map((r) => ({ ...r })),
-    phases: templatePhases(medium, DEFAULT_PHASES),
+    phases,
     consultants: [
-      { id: "demo-fc-1", discipline: "Mechanical", firm: "Copperleaf Engineering", byPhase: {} },
-      { id: "demo-fc-2", discipline: "Structural", firm: "Granite Ridge Structural", byPhase: {} },
-      { id: "demo-fc-3", discipline: "Civil", firm: "Bluestem Civil + Landscape", byPhase: {} },
+      {
+        id: "demo-fc-1",
+        discipline: "Mechanical",
+        firm: "Copperleaf Engineering",
+        byPhase: byName({ "Schematic Design": 38_000, "Design Development": 52_000, "Construction Documents": 86_000, Bidding: 8_000, "Construction Administration": 41_000 }),
+      },
+      {
+        id: "demo-fc-2",
+        discipline: "Structural",
+        firm: "Granite Ridge Structural",
+        byPhase: byName({ "Schematic Design": 9_000, "Design Development": 14_000, "Construction Documents": 22_000, Bidding: 2_000, "Construction Administration": 11_000 }),
+      },
+      {
+        id: "demo-fc-3",
+        discipline: "Civil",
+        firm: "Bluestem Civil + Landscape",
+        byPhase: byName({ "Schematic Design": 8_000, "Design Development": 11_000, "Construction Documents": 18_000, Bidding: 1_500, "Construction Administration": 6_500 }),
+      },
     ],
     markupPercent: 10,
     expenses: 12_000,

@@ -1,6 +1,7 @@
 import { getClient, UserFacingError } from "./claude.js";
 import { listAll, query, TABLES, type Table } from "./db.js";
 import { remove as removeStored, RFP_PATH } from "./storage.js";
+import { billingConfigured, cancelSubscription, planCapUsd, planPrice } from "./billing.js";
 
 // The organization page: its name, who's in it, this month's AI use, export, and delete. Deliberately simple: no
 // roles to manage or invites (a firm may well share one login). Owners can rename and delete; everyone can view and
@@ -10,7 +11,17 @@ const q = encodeURIComponent;
 const authBase = () => `${process.env.SUPABASE_URL!.replace(/\/rest\/v1\/?$/, "").replace(/\/$/, "")}/auth/v1`;
 const adminHeaders = () => ({ apikey: process.env.SUPABASE_SECRET_KEY!, Authorization: `Bearer ${process.env.SUPABASE_SECRET_KEY!}` });
 
-type OrgRow = { id: string; name: string; join_domain: string | null; ai_monthly_limit_usd: number | null; plan: string; created_at: string };
+type OrgRow = {
+  id: string;
+  name: string;
+  join_domain: string | null;
+  ai_monthly_limit_usd: number | null;
+  plan: string;
+  created_at: string;
+  subscription_status: string | null;
+  current_period_start: string | null;
+  current_period_end: string | null;
+};
 
 export async function roleOf(org: string, user: string | null): Promise<string | null> {
   if (!user) return null;
@@ -29,14 +40,15 @@ async function emailOf(user: string): Promise<string | null> {
 }
 
 export async function orgInfo(org: string, user: string | null) {
-  const [o] = await query<OrgRow[]>(`organizations?select=id,name,join_domain,ai_monthly_limit_usd,plan,created_at&id=eq.${q(org)}`);
+  const [o] = await query<OrgRow[]>(`organizations?select=id,name,join_domain,ai_monthly_limit_usd,plan,created_at,subscription_status,current_period_start,current_period_end&id=eq.${q(org)}`);
   if (!o) throw new UserFacingError("Organization not found.", 404);
   const members = await query<{ user_id: string; role: string; created_at: string }[]>(
     `org_members?select=user_id,role,created_at&org_id=eq.${q(org)}&order=created_at.asc&limit=200`,
   );
-  const monthStart = new Date();
-  monthStart.setUTCDate(1);
-  monthStart.setUTCHours(0, 0, 0, 0);
+  // The same window the AI cap uses (supabase/billing.sql, ai_window_start): a paying organization's billing period,
+  // else the calendar month.
+  const paying = ["active", "trialing", "past_due"].includes(o.subscription_status ?? "") && o.current_period_start;
+  const monthStart = paying ? new Date(o.current_period_start!) : new Date(Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), 1));
   const usage = await query<{ cost_usd: number | null }[]>(
     `usage_events?select=cost_usd&org_id=eq.${q(org)}&created_at=gte.${q(monthStart.toISOString())}&limit=100000`,
   );
@@ -45,6 +57,9 @@ export async function orgInfo(org: string, user: string | null) {
     name: o.name,
     joinDomain: o.join_domain,
     plan: o.plan,
+    subscriptionStatus: o.subscription_status,
+    renewsAt: o.current_period_end,
+    billing: billingConfigured() ? { price: await planPrice(), capUsd: planCapUsd() } : null,
     createdAt: o.created_at,
     aiLimitUsd: o.ai_monthly_limit_usd == null ? null : Number(o.ai_monthly_limit_usd),
     aiSpentUsd: Math.round(spent * 100) / 100,
@@ -79,6 +94,9 @@ export async function deleteOrg(org: string, user: string | null, typedName: str
   const [o] = await query<{ name: string }[]>(`organizations?select=name&id=eq.${q(org)}`);
   if (!o) throw new UserFacingError("Organization not found.", 404);
   if (typedName.trim() !== o.name.trim()) throw new UserFacingError("The name you typed doesn't match.");
+
+  // Stop billing first: a deleted organization must never be charged again.
+  await cancelSubscription(org);
 
   // Files outside the database first, while their records still say where they are. Best effort: anything missed
   // is removed by the usual clean-ups (kept RFP PDFs after 30 days, Anthropic copies after a day).

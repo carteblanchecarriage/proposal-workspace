@@ -1,6 +1,5 @@
 import chromium from "@sparticuz/chromium";
 import puppeteer from "puppeteer-core";
-import { UserFacingError } from "./claude.js";
 
 // Schedule PDFs made on the server: a headless Chrome opens the app's own print page for the schedule and saves it
 // as a vector PDF at the exact paper size and orientation, on one page. The same file for everyone, whatever their browser or PDF
@@ -15,18 +14,7 @@ const SHEET: Record<Paper, { width: number; height: number }> = {
 // The only other hosts the print page may load: the web fonts it uses.
 const FONT_HOSTS = new Set(["fonts.googleapis.com", "fonts.gstatic.com"]);
 
-/**
- * The app's own address, which the browser is allowed to open. On Vercel it comes from Vercel's settings, never from
- * the request, so a forged Host header can't point the server's browser at another site.
- */
-export function appOrigin(request: Request): string {
-  if (process.env.VERCEL_ENV === "production" && process.env.VERCEL_PROJECT_PRODUCTION_URL) return `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`;
-  if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`;
-  // Local development: the dev server on this machine only.
-  const host = request.headers.get("host") ?? "";
-  if (!/^(localhost|127\.0\.0\.1)(:\d+)?$/.test(host)) throw new UserFacingError("PDFs can't be made from this address.", 400);
-  return `http://${host}`;
-}
+export { appOrigin } from "./origin.js";
 
 export async function schedulePdf(opts: {
   origin: string;

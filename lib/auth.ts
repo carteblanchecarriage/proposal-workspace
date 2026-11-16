@@ -172,8 +172,8 @@ export function route(handler: Handler, opts: { ai?: boolean } = {}): Handler {
       if (opts.ai && org && org.limitUsd != null && org.spentUsd >= org.limitUsd) {
         throw new UserFacingError(
           org.limitUsd === 0
-            ? "AI features aren't turned on for your organization yet."
-            : `Your organization has reached its AI limit for this month ($${org.limitUsd.toFixed(2)}).`,
+            ? "AI features need a subscription. The owner can subscribe on the Organization page (click your organization's name at the top)."
+            : `Your organization has used this billing period's AI ($${org.limitUsd.toFixed(2)}). It resets on your billing date.`,
           402,
         );
       }

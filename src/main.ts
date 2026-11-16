@@ -18,7 +18,7 @@ import {
 import { post, setDemoBlockedHandler, setUnauthorizedHandler } from "./api";
 import { setOrgName } from "./org";
 import { authEnabled, currentEmail, hasSession, initAuth, isInviteOnly, isRecovering, sendPasswordReset, sendSignInLink, setNewPassword, signInWithPassword, signOut, signUp } from "./auth";
-import { confirmDelete, confirmModal, noticeModal } from "./modal";
+import { confirmDelete, confirmModal, formModal, noticeModal } from "./modal";
 import { getCurrentRfp, initRfp, openRfp, showRfpStart } from "./rfp";
 import { showCalls } from "./calls";
 import { showConsultants } from "./consultants";
@@ -746,6 +746,32 @@ async function enterDemo(page?: string) {
   start();
 }
 
+/** "Request access" (while sign-ups are invite-only): a short form, saved for the team to review and invite from. */
+async function requestAccess() {
+  const values = await formModal({
+    title: "Request access",
+    fields: [
+      { label: "Name", value: "", required: true },
+      { label: "Work email", value: "", required: true, placeholder: "you@yourfirm.com" },
+      { label: "Firm", value: "" },
+      { label: "Anything you'd like us to know (optional)", value: "" },
+    ],
+    confirm: "Send request",
+    validate: (v) => !!v[0].trim() && /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v[1].trim()),
+  });
+  if (!values) return;
+  const [name, email, firm, note] = values.map((v) => v.trim());
+  // Sent without the API helper: it's public (no sign-in), and the demo blocks the helper's server calls.
+  const res = await fetch("/api/auth", {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-action": "request-access" },
+    body: JSON.stringify({ name, email, firm, note }),
+  }).catch(() => null);
+  const data = (await res?.json().catch(() => ({}))) as { error?: string } | undefined;
+  if (res?.ok) await noticeModal("Thanks!", `We've got your request. We'll email ${email} when your invite is ready.`);
+  else await noticeModal("Couldn't send", data?.error ?? "Couldn't reach the server. Try again in a moment.");
+}
+
 /** Leaves the demo (its data goes with it), optionally straight to the sign-up or sign-in form. */
 function leaveDemo(then?: "signup" | "signin") {
   session.del(DEMO_FLAG);
@@ -758,6 +784,7 @@ function leaveDemo(then?: "signup" | "signin") {
 document.addEventListener("click", (e) => {
   const action = (e.target as HTMLElement).closest<HTMLElement>("[data-landing]")?.dataset.landing;
   if (!action) return;
+  if (action === "request") return void requestAccess();
   if (action === "demo") {
     // A link into a particular demo page (data-open="#worldview"); only the app's own page names are allowed.
     const open = (e.target as HTMLElement).closest<HTMLElement>("[data-landing]")?.dataset.open;
@@ -771,7 +798,13 @@ $("demo-exit").addEventListener("click", () => leaveDemo());
 
 setDemoBlockedHandler(async () => {
   if (isInviteOnly()) {
-    return noticeModal("Not available in the demo", "The demo runs on sample data, so it can't read files or use AI. Accounts are invite only for now.");
+    const ok = await confirmModal({
+      title: "Not available in the demo",
+      body: "The demo runs on sample data, so it can't read files or use AI. Accounts are invite only for now: request access and we'll email you an invite.",
+      confirm: "Request access",
+    });
+    if (ok) await requestAccess();
+    return;
   }
   const ok = await confirmModal({
     title: "Create an account to use this",

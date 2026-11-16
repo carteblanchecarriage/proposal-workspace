@@ -796,6 +796,10 @@ table.outline { table-layout: auto; }
 .invite-only .invite-note { display: block; }
 .invite-only .demo-banner .invite-note { display: inline; }
 .invite-only [data-landing="signup"], .invite-only [data-go="signup"] { display: none !important; }
+.request-access { display: none; }
+.invite-only .request-access { display: inline-block; }
+/* The top bar offers one button: Request access while invite-only, otherwise Try the demo. */
+.invite-only .landing-bar .bar-demo { display: none; }
 
 /* The demo banner, under the site header while the demo is on. */
 .demo-banner { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding: 10px 32px; background: var(--site-blue); color: #fff; font-size: 14px; }

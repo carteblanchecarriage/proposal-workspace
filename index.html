@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Proposal Workspace</title>
-    <meta name="description" content="Proposal tools for architecture firms: read RFPs, level your consultants' fees, and build your fee and schedule in one shared project." />
+    <meta name="description" content="Proposal tools for architecture firms: level your consultants' fees, read RFPs, and build your fee and schedule in one shared project." />
     <!-- With a saved sign-in (or a sign-in link's ?code=), the gate stays blank while it's checked, so the form doesn't flash on every load. -->
     <script>
       try {
@@ -45,7 +45,8 @@
         <span class="mark">Proposal Workspace</span>
         <span class="landing-bar-actions">
           <button class="link" type="button" data-landing="signin">Sign in</button>
-          <button class="btn" type="button" data-landing="demo">Try the demo</button>
+          <button class="btn bar-demo" type="button" data-landing="demo">Try the demo</button>
+          <button class="btn request-access" type="button" data-landing="request">Request access</button>
         </span>
       </div>
 
@@ -53,35 +54,20 @@
         <span class="landing-eyebrow">For architecture firms</span>
         <h1 class="splash-line" id="landing-line">Really<br />Fast<br />Proposals.</h1>
         <p class="landing-lede">
-          Read the owner's RFP in minutes, level your consultants' fees side by side, and build your fee and schedule from them, all in one project your whole studio shares.
+          Level your consultants' fees side by side in minutes, read the owner's RFP, and build your fee and schedule from them, all in one project your whole studio shares.
         </p>
         <div class="splash-actions">
           <button class="btn primary" type="button" data-landing="demo">Try the demo</button>
           <button class="btn" type="button" data-landing="signup">Create an account</button>
+          <button class="btn request-access" type="button" data-landing="request">Request access</button>
         </div>
         <p class="landing-note">The demo uses sample data. No sign-up, nothing to upload.</p>
-        <p class="landing-note invite-note">Accounts are invite only for now.</p>
+        <p class="landing-note invite-note">Accounts are invite only for now. Request access and we'll email you an invite.</p>
       </section>
 
       <section class="landing-feature">
         <div class="landing-copy">
           <span class="landing-step">01</span>
-          <h2>Read the RFP</h2>
-          <p>Drop in the owner's RFP and any addenda. Get the key facts, every date that matters, which consultants the project calls for, the watch-outs, the questions to ask, and a go/no-go for your firm.</p>
-        </div>
-        <div class="landing-shot" aria-hidden="true">
-          <div class="shot-head"><b>Library Renovation + Addition</b><span class="shot-chip">Pursue</span></div>
-          <!-- Dates are filled in relative to today (as in the demo's sample RFP), so they never look stale. -->
-          <div class="shot-row"><span>Walkthrough <b class="shot-tag">Mandatory</b></span><span data-in-days="6" data-time="10:00 AM"></span></div>
-          <div class="shot-row"><span>Questions due</span><span data-in-days="11" data-time="4:00 PM"></span></div>
-          <div class="shot-row"><span>Proposals due <b class="shot-tag">Mandatory</b></span><span data-in-days="19" data-time="2:00 PM"></span></div>
-          <div class="shot-flag">Fee goes in a separate sealed envelope, or the proposal is disqualified.</div>
-        </div>
-      </section>
-
-      <section class="landing-feature">
-        <div class="landing-copy">
-          <span class="landing-step">02</span>
           <h2>Level your consultants' fees</h2>
           <p>Drop in the MEP, structural or civil proposals you've collected. Fees line up phase by phase, scope becomes one checklist, and gaps get flagged, like the sprinkler design one firm left out, with the questions to send back to each engineer.</p>
         </div>
@@ -95,6 +81,22 @@
               <tr><td>CA site visits</td><td>12</td><td>14</td><td>6</td></tr>
             </tbody>
           </table>
+        </div>
+      </section>
+
+      <section class="landing-feature">
+        <div class="landing-copy">
+          <span class="landing-step">02</span>
+          <h2>Read the RFP</h2>
+          <p>Drop in the owner's RFP and any addenda. Get the key facts, every date that matters, which consultants the project calls for, the watch-outs, the questions to ask, and a go/no-go for your firm.</p>
+        </div>
+        <div class="landing-shot" aria-hidden="true">
+          <div class="shot-head"><b>Library Renovation + Addition</b><span class="shot-chip">Pursue</span></div>
+          <!-- Dates are filled in relative to today (as in the demo's sample RFP), so they never look stale. -->
+          <div class="shot-row"><span>Walkthrough <b class="shot-tag">Mandatory</b></span><span data-in-days="6" data-time="10:00 AM"></span></div>
+          <div class="shot-row"><span>Questions due</span><span data-in-days="11" data-time="4:00 PM"></span></div>
+          <div class="shot-row"><span>Proposals due <b class="shot-tag">Mandatory</b></span><span data-in-days="19" data-time="2:00 PM"></span></div>
+          <div class="shot-flag">Fee goes in a separate sealed envelope, or the proposal is disqualified.</div>
         </div>
       </section>
 
@@ -197,8 +199,9 @@
         <div class="splash-actions">
           <button class="btn primary" type="button" data-landing="demo">Try the demo</button>
           <button class="btn" type="button" data-landing="signup">Create an account</button>
+          <button class="btn request-access" type="button" data-landing="request">Request access</button>
         </div>
-        <p class="landing-note invite-note">Accounts are invite only for now.</p>
+        <p class="landing-note invite-note">Accounts are invite only for now. Request access and we'll email you an invite.</p>
       </section>
     </div>
 
@@ -218,8 +221,9 @@
       <button class="link signout" id="signout" type="button" hidden>Sign out</button>
     </header>
     <div id="demo-banner" class="demo-banner" hidden>
-      <span>You're exploring a demo with sample data. Changes reset when you leave.<span class="invite-note"> Accounts are invite only for now.</span></span>
+      <span>You're exploring a demo with sample data. AI features and file uploads aren't available in the demo, and changes reset when you leave.<span class="invite-note"> Accounts are invite only for now.</span></span>
       <button class="btn primary" type="button" data-landing="signup">Create an account</button>
+      <button class="btn primary request-access" type="button" data-landing="request">Request access</button>
       <button class="link" type="button" id="demo-exit">Exit demo</button>
     </div>
 
