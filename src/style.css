@@ -791,6 +791,12 @@ table.outline { table-layout: auto; }
 .shot-you { align-self: flex-end; background: var(--ink); color: var(--bg); }
 .shot-ai { align-self: flex-start; background: var(--soft); border-left: 3px solid var(--site-blue); }
 
+/* Invite-only sign-ups (the server's setting): no "Create an account" anywhere; a note says so instead. */
+.invite-note { display: none; }
+.invite-only .invite-note { display: block; }
+.invite-only .demo-banner .invite-note { display: inline; }
+.invite-only [data-landing="signup"], .invite-only [data-go="signup"] { display: none !important; }
+
 /* The demo banner, under the site header while the demo is on. */
 .demo-banner { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding: 10px 32px; background: var(--site-blue); color: #fff; font-size: 14px; }
 .demo-banner[hidden] { display: none; }

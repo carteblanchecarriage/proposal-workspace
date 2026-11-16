@@ -17,7 +17,7 @@ import {
 } from "./store";
 import { post, setDemoBlockedHandler, setUnauthorizedHandler } from "./api";
 import { setOrgName } from "./org";
-import { authEnabled, currentEmail, hasSession, initAuth, isRecovering, sendPasswordReset, sendSignInLink, setNewPassword, signInWithPassword, signOut, signUp } from "./auth";
+import { authEnabled, currentEmail, hasSession, initAuth, isInviteOnly, isRecovering, sendPasswordReset, sendSignInLink, setNewPassword, signInWithPassword, signOut, signUp } from "./auth";
 import { confirmDelete, confirmModal, noticeModal } from "./modal";
 import { getCurrentRfp, initRfp, openRfp, showRfpStart } from "./rfp";
 import { showCalls } from "./calls";
@@ -770,6 +770,9 @@ document.addEventListener("click", (e) => {
 $("demo-exit").addEventListener("click", () => leaveDemo());
 
 setDemoBlockedHandler(async () => {
+  if (isInviteOnly()) {
+    return noticeModal("Not available in the demo", "The demo runs on sample data, so it can't read files or use AI. Accounts are invite only for now.");
+  }
   const ok = await confirmModal({
     title: "Create an account to use this",
     body: "The demo runs on sample data, so it can't read files or use AI. With an account you can run this on your own RFPs and proposals.",
@@ -885,6 +888,7 @@ signoutBtn.addEventListener("click", async () => {
   }
   try {
     const loginOn = await initAuth();
+    document.documentElement.classList.toggle("invite-only", isInviteOnly());
     // Opened from a password-reset email: choose a new password before going in.
     if (isRecovering()) return showGate("reset");
     if ((!loginOn || hasSession()) && (await signedIn())) return enter();

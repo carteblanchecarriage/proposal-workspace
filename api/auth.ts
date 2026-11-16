@@ -1,11 +1,11 @@
-import { forgetOrgs, publicAuthConfig, route, whoAmI } from "../lib/auth.js";
+import { forgetOrgs, inviteOnly, publicAuthConfig, route, whoAmI } from "../lib/auth.js";
 import { errorResponse, UserFacingError } from "../lib/claude.js";
 import { requestContext } from "../lib/context.js";
 import { deleteOrg, exportOrg, orgInfo, renameOrg } from "../lib/org.js";
 
 // GET: what the browser needs to sign in ({ auth: null } when login is off, e.g. local dev without Supabase Auth).
 export async function GET(): Promise<Response> {
-  return Response.json({ auth: publicAuthConfig() }, { headers: { "cache-control": "no-store" } });
+  return Response.json({ auth: publicAuthConfig(), inviteOnly: inviteOnly() }, { headers: { "cache-control": "no-store" } });
 }
 
 // The organization page (x-action: org-info | org-rename | org-export | org-delete). Kept in this function because

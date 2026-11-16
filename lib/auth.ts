@@ -22,6 +22,13 @@ export function authConfigured(): boolean {
 }
 
 /** What the browser needs to sign in. Both values are public by design (the publishable key only reaches Auth). */
+/**
+ * Invite-only (the default): a new person gets in only if they were invited (Supabase → Authentication → Invite
+ * user) or their confirmed email is at an organization's join domain. People already in an organization always can.
+ * OPEN_SIGNUPS=1 lets anyone who signs up in (each gets a new organization).
+ */
+export const inviteOnly = () => process.env.OPEN_SIGNUPS !== "1";
+
 export function publicAuthConfig(): { url: string; publishableKey: string } | null {
   return authConfigured() ? { url: base(), publishableKey: process.env.SUPABASE_PUBLISHABLE_KEY! } : null;
 }
@@ -34,7 +41,7 @@ function allowed(email: string | undefined): boolean {
 }
 
 /** emailConfirmed: Supabase has verified the address (only then can it match an organization's join domain). */
-type AuthUser = { id: string; email: string | null; emailConfirmed: boolean };
+type AuthUser = { id: string; email: string | null; emailConfirmed: boolean; invited: boolean };
 
 // Verified tokens, kept briefly so a burst of requests doesn't ask Supabase each time.
 const TOKEN_MS = 60_000;
@@ -49,9 +56,9 @@ async function verify(token: string): Promise<AuthUser | null> {
   });
   if (res.status === 401 || res.status === 403) return null;
   if (!res.ok) throw new UserFacingError("Couldn't check your sign-in. Try again.", 502);
-  const body = (await res.json()) as { id?: string; email?: string; email_confirmed_at?: string | null };
+  const body = (await res.json()) as { id?: string; email?: string; email_confirmed_at?: string | null; invited_at?: string | null };
   if (!body.id) return null;
-  const user = { id: body.id, email: body.email ?? null, emailConfirmed: !!body.email_confirmed_at };
+  const user = { id: body.id, email: body.email ?? null, emailConfirmed: !!body.email_confirmed_at, invited: !!body.invited_at };
   if (tokens.size > 1000) tokens.clear();
   tokens.set(token, { user, until: now + TOKEN_MS });
   return user;
@@ -63,10 +70,25 @@ export type Org = { id: string; name: string; role: string; limitUsd: number | n
 const ORG_MS = 30_000;
 const orgs = new Map<string, { org: Org; until: number }>();
 
+/** While sign-ups are invite-only: may this person, who isn't in an organization yet, come in? */
+async function mayJoin(user: AuthUser): Promise<boolean> {
+  if (user.invited) return true;
+  const domain = user.emailConfirmed ? user.email?.split("@")[1]?.toLowerCase() : undefined;
+  if (!domain) return false;
+  const match = await query<unknown[]>(`organizations?select=id&join_domain=ilike.${encodeURIComponent(domain)}&limit=1`);
+  return match.length > 0;
+}
+
 async function orgFor(user: AuthUser, fresh: boolean): Promise<Org> {
   const now = Date.now();
   const hit = orgs.get(user.id);
   if (!fresh && hit && hit.until > now) return hit.org;
+  if (inviteOnly()) {
+    const member = await query<unknown[]>(`org_members?select=org_id&user_id=eq.${encodeURIComponent(user.id)}&limit=1`);
+    if (!member.length && !(await mayJoin(user))) {
+      throw new UserFacingError("Accounts are invite only for now.", 403);
+    }
+  }
   const limit = Number(process.env.DEFAULT_ORG_AI_LIMIT_USD ?? 0);
   // A new person joins the organization whose join_domain matches their confirmed email (e.g. @yourfirm.com), or gets
   // a new organization of their own.

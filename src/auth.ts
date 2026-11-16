@@ -12,12 +12,25 @@ let recovering = false;
 
 export const authEnabled = () => !!client;
 
+let inviteOnlyFlag = false;
+/** Sign-ups are invite-only (the server's setting): the page offers no "Create an account". */
+export const isInviteOnly = () => inviteOnlyFlag;
+
 /** Fetches the login settings and restores any saved session. Returns false when login is off. */
 export async function initAuth(): Promise<boolean> {
   const res = await fetch("/api/auth");
   if (!res.ok) throw new Error(`Server returned ${res.status}`);
-  const { auth } = (await res.json()) as { auth: { url: string; publishableKey: string } | null };
+  const { auth, inviteOnly } = (await res.json()) as { auth: { url: string; publishableKey: string } | null; inviteOnly?: boolean };
+  inviteOnlyFlag = !!inviteOnly && !!auth;
   if (!auth) return false;
+  // Invite emails sent from the Supabase dashboard come back with the session in the #fragment
+  // (#access_token=…&refresh_token=…&type=invite), not the ?code=… this app's own links use. Taken out of the address
+  // before anything reads it as a page name.
+  const fragment = new URLSearchParams(location.hash.slice(1));
+  const linked = fragment.get("access_token") && fragment.get("refresh_token")
+    ? { access_token: fragment.get("access_token")!, refresh_token: fragment.get("refresh_token")!, type: fragment.get("type") }
+    : null;
+  if (linked || fragment.get("error_description")) history.replaceState(null, "", location.pathname + location.search);
   client = createClient(auth.url, auth.publishableKey, {
     // PKCE: sign-in links come back as ?code=… (not a #fragment), so they don't collide with the app's #tab routes.
     auth: { flowType: "pkce", persistSession: true, autoRefreshToken: true, detectSessionInUrl: true },
@@ -26,6 +39,11 @@ export async function initAuth(): Promise<boolean> {
     token = session?.access_token ?? "";
     if (event === "PASSWORD_RECOVERY") recovering = true;
   });
+  if (linked) {
+    const { data: set } = await client.auth.setSession({ access_token: linked.access_token, refresh_token: linked.refresh_token });
+    // An invited person (or a password reset) chooses their password first.
+    if (set.session && (linked.type === "invite" || linked.type === "recovery")) recovering = true;
+  }
   const { data } = await client.auth.getSession();
   token = data.session?.access_token ?? "";
   // A sign-in link leaves ?code=… in the address; tidy it once the session is in.
