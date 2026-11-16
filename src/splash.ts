@@ -2,12 +2,13 @@
 // (just invisible), so nothing on the page moves while it types. Reduced motion shows it all at once, and screen
 // readers always get the whole phrase.
 
-let typed = false;
+const typed = new Set<string>();
 
-export function typeSplash() {
-  const h = document.getElementById("splash-line");
-  if (!h || typed) return;
-  typed = true;
+/** Types out a big splash line (the home page's, or the landing page's), once per page load. */
+export function typeSplash(id = "splash-line") {
+  const h = document.getElementById(id);
+  if (!h || typed.has(id)) return;
+  typed.add(id);
   if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
   const lines = h.innerHTML.split(/<br\s*\/?>/i).map((l) => l.trim());
   h.setAttribute("aria-label", lines.join(" "));

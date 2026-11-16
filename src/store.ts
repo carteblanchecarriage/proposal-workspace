@@ -149,8 +149,21 @@ let local = false;
 /** False once the app has fallen back to this browser's storage (Supabase not configured). */
 export const savesShared = () => !local;
 
+// ---------- Demo ----------
+// The demo keeps everything in memory, seeded with sample data: visitors can change things, nothing is saved anywhere,
+// and a reload starts fresh. Nothing reaches the server while it's on.
+type Row = Record<string, unknown>;
+let demo: Map<Kind, Map<string, Row>> | null = null;
+const keyOf = (kind: Kind, r: Row) => String(kind === "readings" ? r.hash : r.id);
+const copy = <T>(v: T): T => structuredClone(v);
+
+export function startDemo(seed: Record<Kind, object[]>): void {
+  demo = new Map((Object.keys(LOCAL) as Kind[]).map((k) => [k, new Map((seed[k] ?? []).map((r) => [keyOf(k, r as Row), copy(r as Row)]))]));
+}
+export const isDemo = () => demo !== null;
+
 async function remote<T>(method: string, kind: Kind, opts: { key?: string; body?: unknown; keepalive?: boolean } = {}): Promise<T | undefined> {
-  if (local) return undefined;
+  if (local || demo) return undefined;
   const q = new URLSearchParams({ table: kind, ...(opts.key ? { key: opts.key } : {}) });
   const send = async () => fetch(`/api/db?${q}`, {
     method,
@@ -172,6 +185,7 @@ async function remote<T>(method: string, kind: Kind, opts: { key?: string; body?
 }
 
 async function saveRecord(kind: Kind, record: object, keepalive = false): Promise<void> {
+  if (demo) return void demo.get(kind)!.set(keyOf(kind, record as Row), copy(record as Row));
   if (!local) {
     await remote("POST", kind, { body: record, keepalive });
     if (!local) return;
@@ -182,6 +196,7 @@ async function saveRecord(kind: Kind, record: object, keepalive = false): Promis
 }
 
 async function listRecords<T extends { savedAt: number }>(kind: Kind): Promise<T[]> {
+  if (demo) return ([...demo.get(kind)!.values()].map(copy) as T[]).sort((a, b) => b.savedAt - a.savedAt);
   try {
     const rows = (await remote<T[]>("GET", kind)) ?? (await run<T[]>("readonly", (s) => s.getAll(), LOCAL[kind]));
     return rows.sort((a, b) => b.savedAt - a.savedAt);
@@ -192,6 +207,7 @@ async function listRecords<T extends { savedAt: number }>(kind: Kind): Promise<T
 }
 
 async function deleteRecord(kind: Kind, key: string): Promise<void> {
+  if (demo) return void demo.get(kind)!.delete(key);
   if (!local) {
     await remote("DELETE", kind, { key });
     if (!local) return;
@@ -282,6 +298,7 @@ export const deleteFee = (id: string) => deleteRecord("fees", id);
 export const saveReading = (r: SavedReading) => saveRecord("readings", r).catch(console.error);
 
 export async function getReading(hash: string): Promise<SavedReading | undefined> {
+  if (demo) return copy(demo.get("readings")!.get(hash)) as SavedReading | undefined;
   try {
     const row = await remote<SavedReading | null>("GET", "readings", { key: hash });
     if (!local) return row ?? undefined;

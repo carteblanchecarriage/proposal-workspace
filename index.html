@@ -28,6 +28,7 @@
         </label>
         <button class="btn primary" type="submit" id="gate-submit">Sign in</button>
         <div class="gate-links">
+          <button class="link" type="button" data-show="signin signup forgot" data-go="landing">← Back</button>
           <button class="link" type="button" data-show="signin" data-go="forgot">Forgot password?</button>
           <button class="link" type="button" data-show="signin" id="gate-link">Email me a sign-in link</button>
           <button class="link" type="button" data-show="signin" data-go="signup">New here? Create an account</button>
@@ -36,6 +37,127 @@
         <span id="gate-error" class="status error"></span>
       </form>
     </div>
+
+    <!-- What signed-out visitors see: the pitch, and a way into the demo. -->
+    <div id="landing" class="landing" hidden>
+      <div class="landing-bar">
+        <span class="mark">Proposal Workspace</span>
+        <span class="landing-bar-actions">
+          <button class="link" type="button" data-landing="signin">Sign in</button>
+          <button class="btn" type="button" data-landing="demo">Try the demo</button>
+        </span>
+      </div>
+
+      <section class="landing-hero">
+        <h1 class="splash-line" id="landing-line">Really<br />Fast<br />Proposals.</h1>
+        <p class="landing-lede">
+          Read an RFP in minutes, line up consultant proposals side by side, and build the fee and schedule from them, all in one project your whole team shares.
+        </p>
+        <div class="splash-actions">
+          <button class="btn primary" type="button" data-landing="demo">Try the demo</button>
+          <button class="btn" type="button" data-landing="signup">Create an account</button>
+        </div>
+        <p class="landing-note">The demo uses sample data. No sign-up, nothing to upload.</p>
+      </section>
+
+      <section class="landing-feature">
+        <div class="landing-copy">
+          <span class="landing-step">01</span>
+          <h2>Read the RFP</h2>
+          <p>Drop in the RFP and any addenda. Get the key facts, every date that matters, the watch-outs, the questions to ask, and whether it's worth pursuing for your firm.</p>
+        </div>
+        <div class="landing-shot" aria-hidden="true">
+          <div class="shot-head"><b>Library Renovation + Addition</b><span class="shot-chip">Pursue</span></div>
+          <div class="shot-row"><span>Walkthrough</span><span>Mandatory</span></div>
+          <div class="shot-row"><span>Questions due</span><span>4:00 PM</span></div>
+          <div class="shot-row"><span>Proposals due</span><span>2:00 PM</span></div>
+          <div class="shot-flag">Fee goes in a separate sealed envelope, or the proposal is disqualified.</div>
+        </div>
+      </section>
+
+      <section class="landing-feature">
+        <div class="landing-copy">
+          <span class="landing-step">02</span>
+          <h2>Compare proposals</h2>
+          <p>Upload your consultants' proposals. Fees line up phase by phase, scope becomes one checklist, and gaps get flagged, with the questions to send back to each firm.</p>
+        </div>
+        <div class="landing-shot" aria-hidden="true">
+          <table class="shot-table">
+            <thead><tr><th></th><th>Firm A</th><th>Firm B</th><th>Firm C</th></tr></thead>
+            <tbody>
+              <tr><td>Total fee</td><td>$225k</td><td>$198k</td><td><b>$175k</b></td></tr>
+              <tr><td>Fire protection</td><td>✓</td><td>✓</td><td class="shot-bad">✕</td></tr>
+              <tr><td>Geothermal study</td><td>Option</td><td>Option</td><td class="shot-bad">✕</td></tr>
+              <tr><td>CA site visits</td><td>12</td><td>14</td><td>6</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="landing-feature landing-fee">
+        <div class="landing-copy">
+          <span class="landing-step">03</span>
+          <h2>Build the fee, not another spreadsheet</h2>
+          <p>Most fees live in a spreadsheet that's been copied, tweaked and emailed around for years. One wrong cell and the total is off. Here the worksheet does the math for you:</p>
+          <ul class="landing-points">
+            <li><b>No broken formulas.</b> Hours × rates by phase and role, consultants with your markup, and every total worked out the same way, every time.</li>
+            <li><b>One fee per project, shared.</b> No "Fee_v7_FINAL.xlsx": the whole team opens the same, current fee.</li>
+            <li><b>A built-in sanity check.</b> Your bottom-up fee is compared with the percent you'd expect for a project this size, from your own fee curve.</li>
+            <li><b>Ready for the proposal.</b> A clean fee table by phase and consultant, to copy straight in. Or let AI draft the hours from the RFP.</li>
+          </ul>
+        </div>
+        <div class="landing-shot" aria-hidden="true">
+          <table class="shot-table shot-num">
+            <thead><tr><th>Phase</th><th>Hours</th><th>Fee</th></tr></thead>
+            <tbody>
+              <tr><td>Schematic Design</td><td>420</td><td>$63,000</td></tr>
+              <tr><td>Design Development</td><td>560</td><td>$84,000</td></tr>
+              <tr><td>Construction Docs</td><td>980</td><td>$147,000</td></tr>
+              <tr><td>Bidding</td><td>90</td><td>$13,500</td></tr>
+              <tr><td>Construction Admin</td><td>640</td><td>$96,000</td></tr>
+              <tr><td>Consultants + 10%</td><td></td><td>$214,500</td></tr>
+              <tr class="shot-sum"><td>Total fee</td><td>2,690</td><td>$618,000</td></tr>
+            </tbody>
+          </table>
+          <div class="shot-check">7.9% of a $7.8M budget · your fee curve expects 8.0% ✓</div>
+        </div>
+      </section>
+
+      <section class="landing-feature">
+        <div class="landing-copy">
+          <span class="landing-step">04</span>
+          <h2>Plan the schedule</h2>
+          <p>Draft the schedule from the RFP's dates: phases, reviews, permits and milestones, ready to adjust and print at a proper paper size.</p>
+        </div>
+        <div class="landing-shot" aria-hidden="true">
+          <div class="shot-gantt">
+            <span style="--s: 0; --w: 14">Programming</span>
+            <span style="--s: 14; --w: 22">Schematic Design</span>
+            <span style="--s: 36; --w: 22">Design Development</span>
+            <span style="--s: 58; --w: 26">Construction Docs</span>
+            <span style="--s: 84; --w: 16">Bidding</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="landing-private">
+        <h2>Your fees stay private.</h2>
+        <ul class="landing-points landing-points-row">
+          <li><b>Encrypted before it's stored.</b> Your RFP reviews, comparisons, fees and schedules are encrypted with a key unique to your organization, so the database holds only scrambled data.</li>
+          <li><b>Only your team.</b> Each organization's work is kept separate, and only people signed in to it can open it.</li>
+          <li><b>Never used for training.</b> Your documents go to the AI only when you run a feature, and aren't used to train AI models.</li>
+        </ul>
+      </section>
+
+      <section class="landing-end">
+        <h2>See it with real-looking work.</h2>
+        <div class="splash-actions">
+          <button class="btn primary" type="button" data-landing="demo">Try the demo</button>
+          <button class="btn" type="button" data-landing="signup">Create an account</button>
+        </div>
+      </section>
+    </div>
+
     <header class="site">
       <a class="mark" href="/">Proposal Workspace</a>
       <nav class="tabs">
@@ -48,9 +170,14 @@
         <a href="#fee" data-tab="fee">Fee</a>
       </nav>
       <a class="worldview-link" href="#worldview" data-tab="worldview">World view</a>
-      <span class="org-name" id="org-name" hidden></span>
+      <a class="org-name" id="org-name" href="#org" data-tab="org" title="Organization" hidden></a>
       <button class="link signout" id="signout" type="button" hidden>Sign out</button>
     </header>
+    <div id="demo-banner" class="demo-banner" hidden>
+      <span>You're exploring a demo with sample data. Changes reset when you leave.</span>
+      <button class="btn primary" type="button" data-landing="signup">Create an account</button>
+      <button class="link" type="button" id="demo-exit">Exit demo</button>
+    </div>
 
     <main>
       <div id="tab-rfp" class="tab" hidden>
@@ -89,6 +216,10 @@
           <h1 class="splash-line" id="splash-line">Really<br />Fast<br />Proposals.</h1>
           <div class="splash-actions"><a class="btn primary" href="#rfp">Start with an RFP</a><a class="btn" href="#project">Projects</a></div>
         </section>
+      </div>
+
+      <div id="tab-org" class="tab" hidden>
+        <section id="org-page"></section>
       </div>
 
       <div id="tab-worldview" class="tab" hidden>

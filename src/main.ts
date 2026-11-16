@@ -7,22 +7,25 @@ import {
   projectLabel,
   getReading,
   hashFile,
+  isDemo,
   listComparisons,
+  startDemo,
   saveComparison,
   saveReading,
   type ChatMessage,
   type SavedComparison,
 } from "./store";
-import { post, setUnauthorizedHandler } from "./api";
+import { post, setDemoBlockedHandler, setUnauthorizedHandler } from "./api";
 import { setOrgName } from "./org";
 import { authEnabled, currentEmail, hasSession, initAuth, isRecovering, sendPasswordReset, sendSignInLink, setNewPassword, signInWithPassword, signOut, signUp } from "./auth";
-import { confirmDelete, noticeModal } from "./modal";
+import { confirmDelete, confirmModal, noticeModal } from "./modal";
 import { getCurrentRfp, initRfp, openRfp, showRfpStart } from "./rfp";
 import { showCalls } from "./calls";
 import { showConsultants } from "./consultants";
 import { flushFee, showFee } from "./fee";
 import { closeFeeChat } from "./fee-chat";
 import { showWorldView } from "./worldview";
+import { showOrg } from "./org-page";
 import { typeSplash } from "./splash";
 import { clearPendingProject, initProject, openProject, pendingProject, showProjectList } from "./project";
 import { setPrintName } from "./print";
@@ -681,11 +684,81 @@ function showGate(mode: GateMode = gateMode) {
   document.documentElement.classList.remove("gate-checking");
   signoutBtn.hidden = true;
   orgName.hidden = true;
+  landing.hidden = true;
   gate.hidden = false;
   setGateMode(mode);
   (mode === "reset" || gateEmail.value ? gatePassword : gateEmail).focus();
 }
 setUnauthorizedHandler(() => showGate("signin"));
+
+// ---------- Landing page and demo (signed-out visitors) ----------
+// Signed-out visitors see the landing page. "Try the demo" opens the real app on sample data kept in memory (see
+// startDemo in store.ts): they can click around and change things, nothing is saved, and anything that would reach the
+// server (AI, uploads, PDFs) offers an account instead. The demo lasts for the browser tab; a reload starts it fresh.
+
+const landing = $<HTMLDivElement>("landing");
+const demoBanner = $<HTMLDivElement>("demo-banner");
+const DEMO_FLAG = "demo";
+/** Set when someone leaves the demo to make an account, so the reload opens the sign-up form. */
+const AFTER_DEMO = "after-demo";
+const session = {
+  get: (k: string) => { try { return sessionStorage.getItem(k); } catch { return null; } },
+  set: (k: string, v: string) => { try { sessionStorage.setItem(k, v); } catch {} },
+  del: (k: string) => { try { sessionStorage.removeItem(k); } catch {} },
+};
+
+function showLanding() {
+  document.documentElement.classList.remove("gate-checking");
+  gate.hidden = true;
+  landing.hidden = false;
+  landing.scrollTop = 0;
+  typeSplash("landing-line");
+}
+
+async function enterDemo() {
+  const { demoSeed } = await import("./demo/data");
+  // The firm's name first: the sample schedule's notes name it.
+  setOrgName("Demo Architects");
+  startDemo(demoSeed());
+  session.set(DEMO_FLAG, "1");
+  gate.hidden = true;
+  landing.hidden = true;
+  document.documentElement.classList.remove("gate-checking");
+  demoBanner.hidden = false;
+  orgName.textContent = "Demo Architects";
+  orgName.hidden = false;
+  // Open on the sample project: everything else is linked from it.
+  if (!started && !parseHash().tab) history.replaceState(null, "", "#project/demo-project-library");
+  start();
+}
+
+/** Leaves the demo (its data goes with it), optionally straight to the sign-up or sign-in form. */
+function leaveDemo(then?: "signup" | "signin") {
+  session.del(DEMO_FLAG);
+  if (then) session.set(AFTER_DEMO, then);
+  // Drop the #page and reload (changing only the # wouldn't reload, and the demo's data would stay).
+  history.replaceState(null, "", location.pathname);
+  location.reload();
+}
+
+document.addEventListener("click", (e) => {
+  const action = (e.target as HTMLElement).closest<HTMLElement>("[data-landing]")?.dataset.landing;
+  if (!action) return;
+  if (action === "demo") return void enterDemo();
+  const mode = action === "signup" ? "signup" : "signin";
+  if (isDemo()) leaveDemo(mode);
+  else showGate(mode);
+});
+$("demo-exit").addEventListener("click", () => leaveDemo());
+
+setDemoBlockedHandler(async () => {
+  const ok = await confirmModal({
+    title: "Create an account to use this",
+    body: "The demo runs on sample data, so it can't read files or use AI. With an account you can run this on your own RFPs and proposals.",
+    confirm: "Create an account",
+  });
+  if (ok) leaveDemo("signup");
+});
 
 function setGateMessage(text: string, isError = true) {
   gateError.textContent = text;
@@ -701,11 +774,14 @@ async function signedIn(): Promise<boolean> {
 
 async function enter() {
   gate.hidden = true;
+  landing.hidden = true;
+  session.del(DEMO_FLAG);
   document.documentElement.classList.remove("gate-checking");
   if (authEnabled()) {
     signoutBtn.hidden = false;
     signoutBtn.title = me?.email ?? (await currentEmail()) ?? "";
     orgName.textContent = me?.org?.name ?? "";
+    orgName.title = `${me?.org?.name ?? ""}: organization settings`;
     orgName.hidden = !me?.org;
   }
   start();
@@ -772,8 +848,9 @@ async function sendLink() {
 }
 gateLink.addEventListener("click", sendLink);
 gateForm.addEventListener("click", (e) => {
-  const go = (e.target as HTMLElement).closest<HTMLElement>("[data-go]")?.dataset.go as GateMode | undefined;
-  if (go) showGate(go);
+  const go = (e.target as HTMLElement).closest<HTMLElement>("[data-go]")?.dataset.go as GateMode | "landing" | undefined;
+  if (go === "landing") showLanding();
+  else if (go) showGate(go);
 });
 
 signoutBtn.addEventListener("click", async () => {
@@ -793,7 +870,12 @@ signoutBtn.addEventListener("click", async () => {
     // Opened from a password-reset email: choose a new password before going in.
     if (isRecovering()) return showGate("reset");
     if ((!loginOn || hasSession()) && (await signedIn())) return enter();
-    showGate("signin");
+    // Signed out: back into the demo if this tab was in it, to the form they left the demo for, or the landing page.
+    if (session.get(DEMO_FLAG)) return enterDemo();
+    const after = session.get(AFTER_DEMO);
+    session.del(AFTER_DEMO);
+    if (after === "signup" || after === "signin") return showGate(after);
+    showLanding();
   } catch {
     showGate("signin");
     setGateMessage("Can't reach the server. Refresh to try again.");
@@ -824,7 +906,7 @@ function start() {
 
 // ---------- Tabs ----------
 
-const TABS = ["home", "rfp", "proposals", "fee", "project", "consultants", "calls", "worldview"];
+const TABS = ["home", "rfp", "proposals", "fee", "project", "consultants", "calls", "worldview", "org"];
 // The schedule screens (#schedule, #schedule/<id>, …) are loaded only when first opened.
 type ScheduleModule = typeof import("./schedule/mount");
 let schedule: ScheduleModule | null = null;
@@ -839,7 +921,7 @@ function showTab() {
   if (onSchedule()) {
     if (!started) return; // waits for sign-in; start() calls showTab again
     for (const t of TABS) $(`tab-${t}`).hidden = true;
-    document.querySelectorAll("nav.tabs a, a.worldview-link").forEach((a) => a.classList.toggle("on", a.getAttribute("data-tab") === "schedule"));
+    document.querySelectorAll("nav.tabs a, a.worldview-link, a.org-name").forEach((a) => a.classList.toggle("on", a.getAttribute("data-tab") === "schedule"));
     setChatOpen(false);
     flushFee();
     closeFeeChat();
@@ -854,7 +936,7 @@ function showTab() {
   // Opening the site (no page in the address, or the name in the header) shows the splash page.
   const tab = TABS.includes(t) ? t : "home";
   for (const t of TABS) $(`tab-${t}`).hidden = t !== tab;
-  document.querySelectorAll("nav.tabs a, a.worldview-link").forEach((a) => a.classList.toggle("on", a.getAttribute("data-tab") === tab));
+  document.querySelectorAll("nav.tabs a, a.worldview-link, a.org-name").forEach((a) => a.classList.toggle("on", a.getAttribute("data-tab") === tab));
   if (reset && started) {
     if (tab === "rfp") showRfpStart();
     if (tab === "proposals") resetProposals();
@@ -867,6 +949,7 @@ function showTab() {
   if (tab === "consultants" && started) showConsultants();
   if (tab === "calls" && started) showCalls();
   if (tab === "worldview" && started) showWorldView();
+  if (tab === "org" && started) showOrg();
   if (tab === "home") typeSplash();
   if (tab === "fee" && started) showFee(id);
   else {

@@ -9,6 +9,7 @@
   import { goto } from '../lib/nav.js';
   import { confirmDelete } from '../../modal';
   import { authHeaders } from '../../auth';
+  import { blockedInDemo } from '../../api';
   import { orgName } from '../../org';
   import { pointerDrag } from '../lib/utils/pointer.js';
 
@@ -450,7 +451,7 @@
 
   /** The schedule as a PDF made on the server: exact paper size, landscape, the same for everyone. */
   async function downloadPdf({ showToday = true, showLegend = true, paper = 'tabloid' } = {}) {
-    if (!project) return;
+    if (!project || blockedInDemo()) return;
     const today    = new Date();
     const yyyymmdd = `${today.getFullYear()}${String(today.getMonth()+1).padStart(2,'0')}${String(today.getDate()).padStart(2,'0')}`;
     const filename = [project.number?.trim(), yyyymmdd, 'Project Schedule'].filter(Boolean).join('_');

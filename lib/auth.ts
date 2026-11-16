@@ -84,6 +84,9 @@ async function orgFor(user: AuthUser, fresh: boolean): Promise<Org> {
   return org;
 }
 
+/** After renaming or deleting an organization: forget the cached copies on this server, so the change shows at once. */
+export const forgetOrgs = () => orgs.clear();
+
 setUsageSink((ctx, u) =>
   insertRow("usage_events", {
     org_id: ctx.orgId,

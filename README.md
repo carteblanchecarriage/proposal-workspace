@@ -54,6 +54,15 @@ Optional: `AUTH_ALLOWED_EMAILS` (e.g. `@yourfirm.com,someone@gmail.com`) limits 
 
 On a production deploy, if login isn't configured the API refuses every request instead of staying open. Locally without the publishable key, no login is asked for and records are saved in the browser.
 
+### Encryption
+
+Saved records are encrypted on the server before they reach Supabase (AES-256-GCM, a key per organization derived from `DATA_ENCRYPTION_KEY`, see `lib/crypt.ts`). The database, its dashboard and its backups hold only an organization id, a record key, a timestamp and scrambled data. Records are decrypted only inside the app, for people signed in to that organization.
+
+- Set `DATA_ENCRYPTION_KEY` to the **same** value in `.env.local` and Vercel. Keep a copy in a password manager: if it's lost, the data can't be recovered. Without it, the server refuses to save.
+- Records saved before encryption are still read. `node --env-file=.env.local scripts/encrypt-data.mjs` encrypts them (add `--dry-run` to count first); run it once, after the site with the key is deployed.
+- Still readable in Supabase: organization names and join domains, people's emails (Supabase Auth), Feedback messages, AI usage numbers, and RFP PDFs kept in Storage for 30 days. When an AI feature runs, the server decrypts what it needs and sends it to Anthropic (not stored by this app, not used for training under Anthropic's commercial terms).
+- Encrypted with a key the server holds: someone with access to both Vercel's settings and the database could decrypt. It protects against database leaks and casual access, not against the app's operator.
+
 ### Moving to a new Supabase project
 
 Run `supabase/schema.sql` in the new project (and `supabase/orgs.sql` only after copying), fill in `.env.migrate` (old and new URL and secret key), then run `node --env-file=.env.migrate scripts/migrate-supabase.mjs`. It copies every table and the stored RFP PDFs, and is safe to re-run. User accounts aren't copied; add people again in the new project.

@@ -1,0 +1,97 @@
+import { getClient, UserFacingError } from "./claude.js";
+import { listAll, query, TABLES, type Table } from "./db.js";
+import { remove as removeStored, RFP_PATH } from "./storage.js";
+
+// The organization page: its name, who's in it, this month's AI use, export, and delete. Deliberately simple: no
+// roles to manage or invites (a firm may well share one login). Owners can rename and delete; everyone can view and
+// export.
+
+const q = encodeURIComponent;
+const authBase = () => `${process.env.SUPABASE_URL!.replace(/\/rest\/v1\/?$/, "").replace(/\/$/, "")}/auth/v1`;
+const adminHeaders = () => ({ apikey: process.env.SUPABASE_SECRET_KEY!, Authorization: `Bearer ${process.env.SUPABASE_SECRET_KEY!}` });
+
+type OrgRow = { id: string; name: string; join_domain: string | null; ai_monthly_limit_usd: number | null; plan: string; created_at: string };
+
+export async function roleOf(org: string, user: string | null): Promise<string | null> {
+  if (!user) return null;
+  const rows = await query<{ role: string }[]>(`org_members?select=role&org_id=eq.${q(org)}&user_id=eq.${q(user)}`);
+  return rows[0]?.role ?? null;
+}
+
+async function requireOwner(org: string, user: string | null) {
+  if ((await roleOf(org, user)) !== "owner") throw new UserFacingError("Only the organization's owner can do that.", 403);
+}
+
+async function emailOf(user: string): Promise<string | null> {
+  const res = await fetch(`${authBase()}/admin/users/${q(user)}`, { headers: adminHeaders() });
+  if (!res.ok) return null;
+  return ((await res.json()) as { email?: string }).email ?? null;
+}
+
+export async function orgInfo(org: string, user: string | null) {
+  const [o] = await query<OrgRow[]>(`organizations?select=id,name,join_domain,ai_monthly_limit_usd,plan,created_at&id=eq.${q(org)}`);
+  if (!o) throw new UserFacingError("Organization not found.", 404);
+  const members = await query<{ user_id: string; role: string; created_at: string }[]>(
+    `org_members?select=user_id,role,created_at&org_id=eq.${q(org)}&order=created_at.asc&limit=200`,
+  );
+  const monthStart = new Date();
+  monthStart.setUTCDate(1);
+  monthStart.setUTCHours(0, 0, 0, 0);
+  const usage = await query<{ cost_usd: number | null }[]>(
+    `usage_events?select=cost_usd&org_id=eq.${q(org)}&created_at=gte.${q(monthStart.toISOString())}&limit=100000`,
+  );
+  const spent = usage.reduce((s, u) => s + Number(u.cost_usd ?? 0), 0);
+  return {
+    name: o.name,
+    joinDomain: o.join_domain,
+    plan: o.plan,
+    createdAt: o.created_at,
+    aiLimitUsd: o.ai_monthly_limit_usd == null ? null : Number(o.ai_monthly_limit_usd),
+    aiSpentUsd: Math.round(spent * 100) / 100,
+    you: members.find((m) => m.user_id === user)?.role ?? null,
+    people: await Promise.all(members.map(async (m) => ({ email: await emailOf(m.user_id), role: m.role, you: m.user_id === user }))),
+  };
+}
+
+export async function renameOrg(org: string, user: string | null, name: string): Promise<void> {
+  await requireOwner(org, user);
+  const clean = name.trim().replace(/\s+/g, " ").slice(0, 120);
+  if (!clean) throw new UserFacingError("Give the organization a name.");
+  await query(`organizations?id=eq.${q(org)}`, { method: "PATCH", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ name: clean }) });
+}
+
+/** Everything the organization has saved, as one JSON document. */
+export async function exportOrg(org: string, user: string | null) {
+  const info = await orgInfo(org, user);
+  const tables = Object.fromEntries(
+    await Promise.all((Object.keys(TABLES) as Table[]).map(async (t) => [t, await listAll(org, t)] as const)),
+  );
+  return { exportedAt: new Date().toISOString(), organization: { name: info.name, createdAt: info.createdAt }, ...tables };
+}
+
+/**
+ * Deletes the organization and everything in it: every record (the database cascades from organizations), the RFP
+ * PDFs kept in storage, and its PDFs held at Anthropic. People keep their accounts; next time they sign in they get a
+ * new, empty organization. Owner only, and the exact name must be typed to confirm.
+ */
+export async function deleteOrg(org: string, user: string | null, typedName: string): Promise<void> {
+  await requireOwner(org, user);
+  const [o] = await query<{ name: string }[]>(`organizations?select=name&id=eq.${q(org)}`);
+  if (!o) throw new UserFacingError("Organization not found.", 404);
+  if (typedName.trim() !== o.name.trim()) throw new UserFacingError("The name you typed doesn't match.");
+
+  // Files outside the database first, while their records still say where they are. Best effort: anything missed
+  // is removed by the usual clean-ups (kept RFP PDFs after 30 days, Anthropic copies after a day).
+  const [rfps, cmps, readings] = await Promise.all([listAll(org, "rfps"), listAll(org, "comparisons"), listAll(org, "readings")]);
+  const paths = (rfps as { stored?: { path?: string }[] }[]).flatMap((r) => (r.stored ?? []).map((s) => s.path ?? "")).filter((p) => RFP_PATH.test(p));
+  for (let i = 0; i < paths.length; i += 100) await removeStored(paths.slice(i, i + 100));
+  const fileIds = new Set<string>();
+  for (const c of cmps as { proposals?: { file_id?: string }[] }[]) for (const p of c.proposals ?? []) if (p.file_id) fileIds.add(p.file_id);
+  for (const r of readings as { file_id?: string }[]) if (r.file_id) fileIds.add(r.file_id);
+  if (fileIds.size && process.env.ANTHROPIC_API_KEY) {
+    await Promise.allSettled([...fileIds].map((id) => getClient().files.delete(id)));
+  }
+
+  await query(`organizations?id=eq.${q(org)}`, { method: "DELETE", headers: { Prefer: "return=minimal" } });
+  console.log(`[org] deleted an organization: ${paths.length} stored PDF(s), ${fileIds.size} Anthropic file(s)`);
+}

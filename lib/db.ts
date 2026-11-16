@@ -1,4 +1,5 @@
 import { UserFacingError } from "./claude.js";
+import { rowAad, seal, unseal } from "./crypt.js";
 
 // Talks to Supabase's REST API with the secret key. Server-side only; the browser never sees the key.
 
@@ -30,32 +31,28 @@ const keyCol = (t: Table) => (t === "readings" ? "hash" : "id");
 const q = encodeURIComponent;
 
 // Every record belongs to one organization (supabase/orgs.sql); each call below is limited to the one it's given.
+// Records are encrypted before they're saved and decrypted as they're read (lib/crypt.ts): the database only ever
+// holds an organization id, a record key, a timestamp and scrambled data.
+
+type StoredRow = Record<string, unknown> & { data: unknown };
+const opened = (org: string, t: Table, r: StoredRow) => unseal(org, rowAad(TABLES[t], String(r[keyCol(t)])), r.data);
 
 export async function list(org: string, t: Table): Promise<unknown[]> {
-  const rows: { data: unknown }[] = await (await sb(`${TABLES[t]}?select=data&org_id=eq.${q(org)}&order=saved_at.desc&limit=500`)).json();
-  return rows.map((r) => r.data);
+  const rows: StoredRow[] = await (await sb(`${TABLES[t]}?select=${keyCol(t)},data&org_id=eq.${q(org)}&order=saved_at.desc&limit=500`)).json();
+  return rows.map((r) => opened(org, t, r));
 }
 
 export async function get(org: string, t: Table, key: string): Promise<unknown | null> {
-  const rows: { data: unknown }[] = await (await sb(`${TABLES[t]}?select=data&org_id=eq.${q(org)}&${keyCol(t)}=eq.${q(key)}`)).json();
-  return rows[0]?.data ?? null;
+  const rows: StoredRow[] = await (await sb(`${TABLES[t]}?select=${keyCol(t)},data&org_id=eq.${q(org)}&${keyCol(t)}=eq.${q(key)}`)).json();
+  return rows[0] ? opened(org, t, rows[0]) : null;
 }
 
 export async function put(org: string, t: Table, record: Record<string, unknown>): Promise<void> {
   const key = record[keyCol(t)];
   if (typeof key !== "string" || !key) throw new UserFacingError("Missing record key.");
-  const row: Record<string, unknown> = { org_id: org, [keyCol(t)]: key, data: record, saved_at: new Date().toISOString() };
-  if (t === "rfps") row.project = record.project ?? null;
-  if (t === "comparisons") row.project = record.projectName ?? null;
-  if (t === "projects" || t === "consultants") row.name = record.name ?? null;
-  if (t === "pursuits") {
-    row.rfp_id = record.rfpId ?? null;
-    row.outcome = record.outcome ?? null;
-  }
-  if (t === "schedules" || t === "fees") {
-    row.title = record.title ?? null;
-    row.project_id = record.workspaceProjectId ?? null;
-  }
+  // Only the encrypted record is stored. (The tables' older side columns, such as name, title and project, stay
+  // empty: they'd be readable.)
+  const row: Record<string, unknown> = { org_id: org, [keyCol(t)]: key, data: seal(org, rowAad(TABLES[t], key), record), saved_at: new Date().toISOString() };
   // The key is (org_id, id), so a save can only ever replace this organization's own record.
   await sb(`${TABLES[t]}?on_conflict=org_id,${keyCol(t)}`, { method: "POST", headers: { Prefer: "resolution=merge-duplicates" }, body: JSON.stringify(row) });
 }
@@ -76,6 +73,23 @@ export async function addFeedback(message: string, tab: string | null, org: stri
 
 export async function insertRow(table: string, row: Record<string, unknown>): Promise<void> {
   await sb(table, { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify(row) });
+}
+
+/** A raw REST query (path after /rest/v1/), for the organization page (lib/org.ts). Callers filter by org_id themselves. */
+export async function query<T = unknown>(path: string, init: RequestInit = {}): Promise<T> {
+  const res = await sb(path, init);
+  const text = await res.text();
+  return (text ? JSON.parse(text) : null) as T;
+}
+
+/** Every record of a table for one organization (no 500-row cap, unlike list), for exports. */
+export async function listAll(org: string, t: Table): Promise<unknown[]> {
+  const out: unknown[] = [];
+  for (let offset = 0; ; offset += 1000) {
+    const rows = await query<StoredRow[]>(`${TABLES[t]}?select=${keyCol(t)},data&org_id=eq.${q(org)}&order=saved_at.asc&limit=1000&offset=${offset}`);
+    out.push(...rows.map((r) => opened(org, t, r)));
+    if (rows.length < 1000) return out;
+  }
 }
 
 /** Calls a database function (supabase/orgs.sql) with the secret key. */
