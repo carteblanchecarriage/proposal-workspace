@@ -870,8 +870,21 @@ signoutBtn.addEventListener("click", async () => {
     // Opened from a password-reset email: choose a new password before going in.
     if (isRecovering()) return showGate("reset");
     if ((!loginOn || hasSession()) && (await signedIn())) return enter();
-    // Signed out: back into the demo if this tab was in it, to the form they left the demo for, or the landing page.
-    if (session.get(DEMO_FLAG)) return enterDemo();
+    // Signed out. A link to a page in the app (a teammate sharing #rfp/<id>, #project/<id>, …) or the team's sign-in
+    // link (#signin) goes straight to the sign-in form, and the page opens once they're in. Otherwise: back into the
+    // demo if this tab was in it, to the form they left the demo for, or the landing page.
+    const { tab, id } = parseHash();
+    if (tab === "signin" || tab === "login") {
+      history.replaceState(null, "", location.pathname);
+      return showGate("signin");
+    }
+    // A reload inside the demo stays in it (its pages and sample records); a link to a real record means sign in.
+    const realRecord = !!id && !id.startsWith("demo-");
+    if (session.get(DEMO_FLAG) && !realRecord) return enterDemo();
+    if (tab && tab !== "home") {
+      session.del(DEMO_FLAG);
+      return showGate("signin");
+    }
     const after = session.get(AFTER_DEMO);
     session.del(AFTER_DEMO);
     if (after === "signup" || after === "signin") return showGate(after);
