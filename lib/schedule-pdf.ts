@@ -54,7 +54,7 @@ export async function schedulePdf(opts: {
     });
     // The print page reads the schedule from session storage; it needs no sign-in (it shows only what it's handed).
     await page.evaluateOnNewDocument((schedule: string) => {
-      sessionStorage.setItem("YourFirm_preview", schedule);
+      sessionStorage.setItem("schedule_preview", schedule);
     }, JSON.stringify(opts.schedule));
     const params = new URLSearchParams({ paper: opts.paper, today: opts.showToday ? "1" : "0", legend: opts.showLegend ? "1" : "0", pdf: "1" });
     await page.goto(`${opts.origin}/#schedule-print?${params}`, { waitUntil: "networkidle0", timeout: 30_000 });

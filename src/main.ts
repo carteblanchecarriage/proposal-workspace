@@ -14,6 +14,7 @@ import {
   type SavedComparison,
 } from "./store";
 import { post, setUnauthorizedHandler } from "./api";
+import { setOrgName } from "./org";
 import { authEnabled, currentEmail, hasSession, initAuth, isRecovering, sendPasswordReset, sendSignInLink, setNewPassword, signInWithPassword, signOut, signUp } from "./auth";
 import { confirmDelete, noticeModal } from "./modal";
 import { getCurrentRfp, initRfp, openRfp, showRfpStart } from "./rfp";
@@ -694,6 +695,7 @@ function setGateMessage(text: string, isError = true) {
 /** Asks the server whether this browser's sign-in is good (or that none is needed); it also makes a new account's organization. */
 async function signedIn(): Promise<boolean> {
   me = await post<Me>("/api/auth", "", {}).catch(() => null);
+  setOrgName(me?.org?.name);
   return me?.ok === true;
 }
 

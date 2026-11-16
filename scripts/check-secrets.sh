@@ -46,6 +46,23 @@ while IFS= read -r f; do
   done
 done <<<"$files"
 
+# Words that must never be committed (names, clients, …), one per line, in .git/info/blocked-terms. That file lives
+# inside .git, so it's never committed itself. Matched case-insensitively as a whole word (letters/digits around it
+# don't count, so random hashes don't trip it).
+terms_file=$(git rev-parse --git-path info/blocked-terms)
+if [[ -f $terms_file ]]; then
+  while IFS= read -r term; do
+    term=${term%%#*}; term=${term//[[:space:]]/}
+    [[ -z $term ]] && continue
+    while IFS= read -r f; do
+      [[ -z $f ]] && continue
+      if added "$f" | grep -qiE -- "(^|[^[:alnum:]])${term}([^[:alnum:]]|$)"; then echo "✗ Blocked term in $f (see .git/info/blocked-terms)"; fail=1; fi
+    done <<<"$files"
+    # File names too.
+    if grep -qiE -- "(^|[^[:alnum:]])${term}([^[:alnum:]]|$)" <<<"$files"; then echo "✗ Blocked term in a file name"; fail=1; fi
+  done <"$terms_file"
+fi
+
 if (( fail )); then
   echo "Blocked by scripts/check-secrets.sh. Remove the secret (keep keys in .env.local / Vercel env vars) and try again."
   exit 1

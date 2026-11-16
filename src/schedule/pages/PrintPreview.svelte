@@ -77,7 +77,7 @@
   });
 
   onMount(async () => {
-    const raw = sessionStorage.getItem('YourFirm_preview');
+    const raw = sessionStorage.getItem('schedule_preview');
     if (raw) {
       try { project = JSON.parse(raw); } catch {}
     }

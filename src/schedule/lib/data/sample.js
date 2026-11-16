@@ -1,10 +1,7 @@
 import { generateId, toISO, toWeekday } from '../utils/dates.js';
+// Default notes shown in the legend footer for new projects (they name the signed-in organization).
+import { defaultScheduleNotes } from '../../../org';
 
-// Default notes shown in the legend footer for new projects
-const DEFAULT_NOTES = [
-  'Project schedules are reliant on timely Owner input and approvals.',
-  'YourFirm does not provide accurate projections for construction duration or timelines beyond the Construction Documentation phase.',
-].join('\n');
 
 // Add N weeks to a Date, returning a new Date
 function w(date, n) {
@@ -55,7 +52,7 @@ export function createSampleProject() {
   return {
     id: generateId(),
     title:    'Sample Project',
-    notes:    DEFAULT_NOTES,
+    notes:    defaultScheduleNotes(),
     date:     'June 1, 2026',
     number:   'Project No. 00001',
     client:   'Sample Client',
@@ -109,7 +106,7 @@ export function createBlankProject() {
   return {
     id: generateId(),
     title: '',
-    notes:    DEFAULT_NOTES,
+    notes:    defaultScheduleNotes(),
     date: '', number: '', client: '',
     viewStart:  ys,
     viewEnd:    ye,
@@ -147,7 +144,7 @@ export function createSmallTemplate() {
   return {
     id: generateId(),
     title: '',
-    notes:    DEFAULT_NOTES,
+    notes:    defaultScheduleNotes(),
     date: '', number: '', client: '',
     viewStart:  toISO(new Date(base.getFullYear(), base.getMonth() - 1, 1)),
     viewEnd:    toISO(mEnd(occ, 1)),
@@ -217,7 +214,7 @@ export function createMediumTemplate() {
   return {
     id: generateId(),
     title: '',
-    notes:    DEFAULT_NOTES,
+    notes:    defaultScheduleNotes(),
     date: '', number: '', client: '',
     viewStart:  toISO(new Date(base.getFullYear(), base.getMonth() - 1, 1)),
     viewEnd:    toISO(mEnd(occ, 1)),
@@ -292,7 +289,7 @@ export function createLargeTemplate() {
   return {
     id: generateId(),
     title: '',
-    notes:    DEFAULT_NOTES,
+    notes:    defaultScheduleNotes(),
     date: '', number: '', client: '',
     viewStart:  toISO(new Date(base.getFullYear(), base.getMonth() - 1, 1)),
     viewEnd:    toISO(mEnd(occ, 1)),

@@ -9,6 +9,7 @@
   import { goto } from '../lib/nav.js';
   import { confirmDelete } from '../../modal';
   import { authHeaders } from '../../auth';
+  import { orgName } from '../../org';
   import { pointerDrag } from '../lib/utils/pointer.js';
 
   let { data } = $props();
@@ -443,7 +444,7 @@
   }
 
   function openPrintPanel() {
-    if (project) sessionStorage.setItem('YourFirm_preview', JSON.stringify(project));
+    if (project) sessionStorage.setItem('schedule_preview', JSON.stringify(project));
     printPanelOpen = true;
   }
 
@@ -470,7 +471,7 @@
 
   function printSchedule({ showToday = true, showLegend = true, paper = 'tabloid' } = {}) {
     printPanelOpen = false;
-    if (project) sessionStorage.setItem('YourFirm_preview', JSON.stringify(project));
+    if (project) sessionStorage.setItem('schedule_preview', JSON.stringify(project));
 
     const today    = new Date();
     const yyyymmdd = `${today.getFullYear()}${String(today.getMonth()+1).padStart(2,'0')}${String(today.getDate()).padStart(2,'0')}`;
@@ -668,7 +669,7 @@
             onNotesUpdate={(val) => projectStore.updateProject(data.id, { notes: val })}
           />
         </div>
-        <div class="YourFirm-mark no-screen">YourFirm</div>
+        {#if orgName()}<div class="org-mark no-screen">{orgName()}</div>{/if}
       </div>
     </div>
 
@@ -1000,8 +1001,8 @@
     .legend-auto { max-height: 34dvh; overflow-y: auto; }
   }
 
-  /* YourFirm print mark */
-  .YourFirm-mark {
+  /* The organization's name, printed at the foot of the schedule */
+  .org-mark {
     display: none;
     font-family: 'Barlow Condensed', sans-serif;
     font-weight: 800;
@@ -1064,7 +1065,7 @@
       break-inside: avoid;
     }
 
-    .YourFirm-mark {
+    .org-mark {
       display: block !important;
       position: static !important;
       text-align: right;

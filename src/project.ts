@@ -1,4 +1,5 @@
 import { DISCIPLINES, firmDisciplines, toDisciplines } from "../lib/disciplines";
+import { defaultScheduleNotes } from "./org";
 import { askProjectName, confirmModal, confirmTyped, formModal, noticeModal } from "./modal";
 import { makeFee, proposalHtml, withWaiting } from "./fee";
 import { scheduleSnapshotHtml } from "./schedule-snapshot";
@@ -186,10 +187,6 @@ const iso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart
  */
 /** Makes the project's schedule; a project has at most one, so if it already has one, opens that instead. */
 const AI_SCHEDULE = "Draft from the RFP review (AI)";
-const DEFAULT_SCHEDULE_NOTES = [
-  "Project schedules are reliant on timely Owner input and approvals.",
-  "YourFirm does not provide accurate projections for construction duration or timelines beyond the Construction Documentation phase.",
-].join("\n");
 // The colours the schedule templates use, by kind of task, so drafted schedules look like the rest.
 const KIND_COLOR: Record<string, string> = {
   design: "#00914D",
@@ -296,7 +293,7 @@ function scheduleFromDraft(d: ScheduleDraft): SavedSchedule {
   return {
     id: Date.now().toString(36) + Math.random().toString(36).slice(2, 7),
     savedAt: Date.now(),
-    notes: [...d.notes, DEFAULT_SCHEDULE_NOTES].join("\n"),
+    notes: [...d.notes, defaultScheduleNotes()].join("\n"),
     date: "",
     viewStart: iso(start),
     viewEnd: iso(end),
