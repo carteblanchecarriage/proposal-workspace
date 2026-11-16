@@ -738,8 +738,9 @@ table.outline { table-layout: auto; }
 .landing-bar .link { font-size: 15px; }
 .landing > section, .landing-bar { max-width: 1120px; margin: 0 auto; }
 .landing-hero { min-height: calc(100vh - 140px); display: flex; flex-direction: column; justify-content: center; padding: 48px 0; }
-.landing-hero .splash-line { margin-bottom: 28px; }
+.landing-hero .splash-line { margin-bottom: 24px; }
 .landing-eyebrow { font-size: 13px; font-weight: 700; color: var(--site-blue); letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 16px; }
+.landing-tagline { font-size: clamp(22px, 2.8vw, 32px); font-weight: 700; letter-spacing: -0.01em; line-height: 1.25; max-width: 760px; margin: 0 0 16px; }
 .landing-lede { font-size: clamp(18px, 2.2vw, 24px); line-height: 1.35; max-width: 680px; margin: 0 0 32px; }
 .landing-note { font-size: 13px; margin: 16px 0 0; }
 .landing-feature { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); gap: 48px; align-items: center; padding: 64px 0; border-top: 1px solid var(--rule); }
