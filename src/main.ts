@@ -14,7 +14,7 @@ import {
   type SavedComparison,
 } from "./store";
 import { post, setUnauthorizedHandler } from "./api";
-import { authEnabled, currentEmail, hasSession, initAuth, sendSignInLink, signInWithPassword, signOut } from "./auth";
+import { authEnabled, currentEmail, hasSession, initAuth, isRecovering, sendPasswordReset, sendSignInLink, setNewPassword, signInWithPassword, signOut, signUp } from "./auth";
 import { confirmDelete, noticeModal } from "./modal";
 import { getCurrentRfp, initRfp, openRfp, showRfpStart } from "./rfp";
 import { showCalls } from "./calls";
@@ -631,37 +631,70 @@ let started = false;
 
 // ---------- Sign-in (Supabase Auth; the server decides whether login is on) ----------
 // A sign-in is remembered in this browser: the session is saved and refreshes itself, so people sign in once and
-// stay signed in until they choose Sign out.
+// stay signed in until they choose Sign out. Anyone can create an account; it comes with its own organization.
 
 const gate = $<HTMLDivElement>("gate");
 const gateForm = $<HTMLFormElement>("gate-form");
+const gateTitle = $<HTMLHeadingElement>("gate-title");
 const gateEmail = $<HTMLInputElement>("gate-email");
 const gatePassword = $<HTMLInputElement>("gate-password");
+const gatePasswordLabel = $<HTMLSpanElement>("gate-password-label");
+const gateSubmit = $<HTMLButtonElement>("gate-submit");
 const gateLink = $<HTMLButtonElement>("gate-link");
 const gateError = $<HTMLSpanElement>("gate-error");
 const signoutBtn = $<HTMLButtonElement>("signout");
+const orgName = $<HTMLSpanElement>("org-name");
+type Me = { ok: boolean; email: string | null; org: { name: string; role: string } | null };
+let me: Me | null = null;
 
 // The schedule print page only shows the schedule handed to it in this browser (it's what the server opens to make a
 // PDF), so it needs no sign-in; every API call still checks one.
 const onPrintPage = () => location.hash.startsWith("#schedule-print");
 
-function showGate() {
+type GateMode = "signin" | "signup" | "forgot" | "reset";
+const GATE: Record<GateMode, { title: string; submit: string; password: string | null }> = {
+  signin: { title: "Sign in", submit: "Sign in", password: "Password" },
+  signup: { title: "Create an account", submit: "Create account", password: "Password (8+ characters)" },
+  forgot: { title: "Reset your password", submit: "Email me a reset link", password: null },
+  reset: { title: "Choose a new password", submit: "Save password", password: "New password (8+ characters)" },
+};
+let gateMode: GateMode = "signin";
+
+function setGateMode(mode: GateMode) {
+  gateMode = mode;
+  const m = GATE[mode];
+  gateTitle.textContent = m.title;
+  gateSubmit.textContent = m.submit;
+  gatePasswordLabel.textContent = m.password ?? "";
+  gatePassword.autocomplete = mode === "signin" ? "current-password" : "new-password";
+  gateForm.querySelectorAll<HTMLElement>("[data-show]").forEach((el) => {
+    const modes = el.dataset.show!.split(" ");
+    // "forgot" shows the email field only.
+    el.hidden = !(modes.includes(mode) || (mode === "forgot" && el.contains(gateEmail)));
+  });
+  setGateMessage("");
+}
+
+function showGate(mode: GateMode = gateMode) {
   if (onPrintPage()) return;
   document.documentElement.classList.remove("gate-checking");
   signoutBtn.hidden = true;
+  orgName.hidden = true;
   gate.hidden = false;
-  (gateEmail.value ? gatePassword : gateEmail).focus();
+  setGateMode(mode);
+  (mode === "reset" || gateEmail.value ? gatePassword : gateEmail).focus();
 }
-setUnauthorizedHandler(showGate);
+setUnauthorizedHandler(() => showGate("signin"));
 
 function setGateMessage(text: string, isError = true) {
   gateError.textContent = text;
   gateError.classList.toggle("error", isError);
 }
 
-/** Asks the server whether this browser's sign-in is good (or that none is needed). */
+/** Asks the server whether this browser's sign-in is good (or that none is needed); it also makes a new account's organization. */
 async function signedIn(): Promise<boolean> {
-  return (await post<{ ok: boolean }>("/api/auth", "", {}).catch(() => null))?.ok === true;
+  me = await post<Me>("/api/auth", "", {}).catch(() => null);
+  return me?.ok === true;
 }
 
 async function enter() {
@@ -669,37 +702,77 @@ async function enter() {
   document.documentElement.classList.remove("gate-checking");
   if (authEnabled()) {
     signoutBtn.hidden = false;
-    signoutBtn.title = (await currentEmail()) ?? "";
+    signoutBtn.title = me?.email ?? (await currentEmail()) ?? "";
+    orgName.textContent = me?.org?.name ?? "";
+    orgName.hidden = !me?.org;
   }
   start();
+}
+
+/** Supabase's messages, in plain words where they're unclear. */
+function friendly(err: string): string {
+  if (/invalid login/i.test(err)) return "That email and password don't match.";
+  if (/email not confirmed/i.test(err)) return "Confirm your email first: open the link we sent you.";
+  if (/already registered/i.test(err)) return "There's already an account for that email. Sign in instead.";
+  if (/signups not allowed/i.test(err)) return "New accounts aren't open right now.";
+  if (/rate limit/i.test(err)) return "Too many emails just now. Wait a minute and try again.";
+  return err;
 }
 
 gateForm.addEventListener("submit", async (e) => {
   e.preventDefault();
   const email = gateEmail.value.trim();
+  const password = gatePassword.value;
   setGateMessage("");
-  if (!gatePassword.value) return sendLink();
-  const err = await signInWithPassword(email, gatePassword.value);
-  if (err) {
-    setGateMessage(/invalid/i.test(err) ? "That email and password don't match." : err);
-    gatePassword.select();
-    return;
+  if (gateMode !== "reset" && !gateEmail.reportValidity()) return;
+  if (!email && gateMode !== "reset") return setGateMessage("Enter your email.");
+  if (gateMode !== "forgot" && gateMode !== "signin" && password.length < 8) return setGateMessage("Use at least 8 characters.");
+  gateSubmit.disabled = true;
+  try {
+    if (gateMode === "forgot") {
+      const err = await sendPasswordReset(email);
+      return err ? setGateMessage(friendly(err)) : setGateMessage(`Check ${email} for a link to choose a new password.`, false);
+    }
+    if (gateMode === "signup") {
+      const { error, confirm } = await signUp(email, password);
+      if (error) return setGateMessage(friendly(error));
+      gatePassword.value = "";
+      if (confirm) return setGateMessage(`Almost done: open the link we sent to ${email} (in this browser) to finish.`, false);
+    } else if (gateMode === "reset") {
+      const err = await setNewPassword(password);
+      if (err) return setGateMessage(friendly(err));
+      gatePassword.value = "";
+    } else {
+      if (!password) return sendLink();
+      const err = await signInWithPassword(email, password);
+      if (err) {
+        setGateMessage(friendly(err));
+        gatePassword.select();
+        return;
+      }
+      gatePassword.value = "";
+    }
+    if (await signedIn()) enter();
+    else setGateMessage("This account doesn't have access.");
+  } finally {
+    gateSubmit.disabled = false;
   }
-  gatePassword.value = "";
-  if (await signedIn()) enter();
-  else setGateMessage("This account doesn't have access.");
 });
 
 async function sendLink() {
   const email = gateEmail.value.trim();
-  if (!gateEmail.reportValidity()) return;
+  if (!email || !gateEmail.reportValidity()) return setGateMessage("Enter your email.");
   gateLink.disabled = true;
   const err = await sendSignInLink(email);
   gateLink.disabled = false;
-  if (err) setGateMessage(/signups not allowed|not found/i.test(err) ? "There's no account for that email." : err);
+  if (err) setGateMessage(/signups not allowed|not found/i.test(err) ? "There's no account for that email." : friendly(err));
   else setGateMessage(`Check ${email} for a sign-in link. Open it in this browser.`, false);
 }
 gateLink.addEventListener("click", sendLink);
+gateForm.addEventListener("click", (e) => {
+  const go = (e.target as HTMLElement).closest<HTMLElement>("[data-go]")?.dataset.go as GateMode | undefined;
+  if (go) showGate(go);
+});
 
 signoutBtn.addEventListener("click", async () => {
   await signOut();
@@ -715,10 +788,12 @@ signoutBtn.addEventListener("click", async () => {
   }
   try {
     const loginOn = await initAuth();
+    // Opened from a password-reset email: choose a new password before going in.
+    if (isRecovering()) return showGate("reset");
     if ((!loginOn || hasSession()) && (await signedIn())) return enter();
-    showGate();
+    showGate("signin");
   } catch {
-    showGate();
+    showGate("signin");
     setGateMessage("Can't reach the server. Refresh to try again.");
   }
 })();

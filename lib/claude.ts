@@ -2,6 +2,7 @@ import Anthropic, { toFile } from "@anthropic-ai/sdk";
 import { betaZodOutputFormat } from "@anthropic-ai/sdk/helpers/beta/zod";
 import { z } from "zod";
 import { costOf, type Usage } from "./cost.js";
+import { recordUsage } from "./usage-hook.js";
 import { DISCIPLINES, toDisciplines } from "./disciplines.js";
 import { ADDENDUM_SYSTEM, CHAT_SYSTEM, CHECK_SYSTEM, COMPARE_SYSTEM, EXTRACT_SYSTEM, FEE_CHAT_SYSTEM, FEE_DRAFT_SYSTEM, FIT_CHECK_SYSTEM, OWN_PROPOSAL_SYSTEM, RFP_SYSTEM, SCHEDULE_DRAFT_SYSTEM, SUGGEST_SYSTEM } from "./prompts.js";
 
@@ -314,7 +315,10 @@ export function usageOf(msg: {
     cache_read_tokens: msg.usage.cache_read_input_tokens ?? 0,
   };
   console.log(`[usage] ${u.model} in=${u.input_tokens} out=${u.output_tokens} cache_w=${u.cache_write_tokens} cache_r=${u.cache_read_tokens}`);
-  return { ...u, cost_usd: costOf(u) };
+  const usage = { ...u, cost_usd: costOf(u) };
+  // Charged to the signed-in person's organization (for its monthly limit, and billing).
+  recordUsage(usage);
+  return usage;
 }
 
 /** Exact input-token count for reading a PDF (free endpoint; nothing is generated or stored). */

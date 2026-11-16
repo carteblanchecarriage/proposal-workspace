@@ -1,4 +1,4 @@
-import { checkAccess } from "../lib/auth.js";
+import { route } from "../lib/auth.js";
 import { errorResponse, UserFacingError } from "../lib/claude.js";
 import { appOrigin, schedulePdf, type Paper } from "../lib/schedule-pdf.js";
 import { z } from "zod";
@@ -14,9 +14,8 @@ const Body = z.object({
   filename: z.string().max(200).default("Schedule"),
 });
 
-export async function POST(request: Request): Promise<Response> {
+async function handle(request: Request): Promise<Response> {
   try {
-    await checkAccess(request);
     if (Number(request.headers.get("content-length") ?? 0) > MAX_BODY) throw new UserFacingError("That schedule is too large to print.", 413);
     const parsed = Body.safeParse(await request.json().catch(() => null));
     if (!parsed.success) throw new UserFacingError("Invalid PDF request.");
@@ -41,3 +40,5 @@ export async function POST(request: Request): Promise<Response> {
     return errorResponse(err);
   }
 }
+
+export const POST = route(handle);

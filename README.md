@@ -38,20 +38,25 @@ Run `bash scripts/install-hooks.sh` once per clone: it adds git hooks that block
 
 Only the server reads and writes the tables; the secret key never reaches the browser. Without these, saving falls back to the browser and there's no login.
 
-### Login (Supabase Auth)
+### Login and organizations (Supabase Auth)
 
-With `SUPABASE_PUBLISHABLE_KEY` set, the site asks people to sign in (email and password, or an emailed sign-in link), and every API endpoint rejects requests without a valid session. A sign-in is remembered in that browser and renews itself, so people stay signed in until they click **Sign out**.
+With `SUPABASE_PUBLISHABLE_KEY` set, the site asks people to sign in (email and password, or an emailed sign-in link). Anyone can create an account, and each new account gets its own empty **organization**. Every record belongs to one organization, and the server only reads and writes the signed-in person's. A sign-in is remembered in that browser and renews itself, so people stay signed in until they click **Sign out**.
 
-1. **Turn off public sign-ups:** Authentication → Sign In / Providers → turn off **Allow new users to sign up**. Otherwise anyone could make an account and use your API key.
-2. **Add people:** Authentication → Users → **Add user** → *Create new user* (set a password, tick *Auto Confirm User*), or **Send invitation**.
-3. **Set the site address:** Authentication → URL Configuration → set **Site URL** to the live address and add `http://localhost:5173` under **Redirect URLs**, so sign-in links come back to the app.
-4. Optional: `AUTH_ALLOWED_EMAILS` (e.g. `@yourfirm.com,someone@gmail.com`) limits access to those people even if an account exists.
+1. Run `supabase/orgs.sql` in the SQL Editor (after `schema.sql`). It adds organizations, puts all existing records into one called "My organization", and adds usage tracking. **Run it before deploying this code**: the server expects the `org_id` columns.
+2. Create your own account (sign up on the site), then put it in "My organization" with the snippet at the end of `orgs.sql`.
+   Then run `supabase/domain-join.sql`: after you fill in the firm's name and email domain at its marked line, it names the firm's organization and sets its **join domain**. Anyone who signs up with a confirmed email at that domain joins the firm's organization as a member, with no invite needed; everyone else gets an organization of their own. Public email providers (gmail.com, outlook.com, …) can't be a join domain. To change it: `update organizations set join_domain = 'yourfirm.com' where name = '…';`
+3. **Authentication → URL Configuration:** set **Site URL** to the live address and add `http://localhost:5173` under **Redirect URLs**, so confirmation, sign-in and password-reset links come back to the app.
+4. **Authentication → Emails → SMTP:** Supabase's built-in email sender is limited to a few emails an hour; set up your own SMTP (Resend, Postmark, SES, …) before opening sign-up to the public.
 
-On a production deploy, if login isn't configured the API refuses every request instead of staying open. Locally without the publishable key, no login is asked for.
+**AI spending.** Every Claude call records its tokens and cost against the organization (`usage_events`). Each organization has a monthly limit (`organizations.ai_monthly_limit_usd`, null = no limit); AI features answer "limit reached" once it's spent. New organizations get `DEFAULT_ORG_AI_LIMIT_USD` (default 0, so strangers can't spend your Anthropic credit until you raise their limit or billing is added). "My organization" has no limit. This is what a subscription (Stripe) will set later.
+
+Optional: `AUTH_ALLOWED_EMAILS` (e.g. `@yourfirm.com,someone@gmail.com`) limits sign-in to those people.
+
+On a production deploy, if login isn't configured the API refuses every request instead of staying open. Locally without the publishable key, no login is asked for and records are saved in the browser.
 
 ### Moving to a new Supabase project
 
-Run `supabase/schema.sql` in the new project, fill in `.env.migrate` (old and new URL and secret key), then run `node --env-file=.env.migrate scripts/migrate-supabase.mjs`. It copies every table and the stored RFP PDFs, and is safe to re-run. User accounts aren't copied; add people again in the new project.
+Run `supabase/schema.sql` in the new project (and `supabase/orgs.sql` only after copying), fill in `.env.migrate` (old and new URL and secret key), then run `node --env-file=.env.migrate scripts/migrate-supabase.mjs`. It copies every table and the stored RFP PDFs, and is safe to re-run. User accounts aren't copied; add people again in the new project.
 
 ## Deploy (Vercel)
 

@@ -7,6 +7,8 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 let client: SupabaseClient | null = null;
 /** The current access token, kept in step with the session (read synchronously for saves sent as the page closes). */
 let token = "";
+/** Set when the page was opened from a password-reset email: the person should choose a new password. */
+let recovering = false;
 
 export const authEnabled = () => !!client;
 
@@ -20,8 +22,9 @@ export async function initAuth(): Promise<boolean> {
     // PKCE: sign-in links come back as ?code=… (not a #fragment), so they don't collide with the app's #tab routes.
     auth: { flowType: "pkce", persistSession: true, autoRefreshToken: true, detectSessionInUrl: true },
   });
-  client.auth.onAuthStateChange((_event, session) => {
+  client.auth.onAuthStateChange((event, session) => {
     token = session?.access_token ?? "";
+    if (event === "PASSWORD_RECOVERY") recovering = true;
   });
   const { data } = await client.auth.getSession();
   token = data.session?.access_token ?? "";
@@ -69,8 +72,31 @@ export async function signInWithPassword(email: string, password: string): Promi
 export async function sendSignInLink(email: string): Promise<string | null> {
   const { error } = await client!.auth.signInWithOtp({
     email,
-    options: { shouldCreateUser: false, emailRedirectTo: location.origin + location.pathname },
+    options: { shouldCreateUser: false, emailRedirectTo: returnTo() },
   });
+  return error ? error.message : null;
+}
+
+export const isRecovering = () => recovering;
+
+/** Back to this page after an emailed link (sign-up confirmation, sign-in, password reset). */
+const returnTo = () => location.origin + location.pathname;
+
+/** Creates an account. Returns an error, or whether the person must confirm their email before signing in. */
+export async function signUp(email: string, password: string): Promise<{ error: string | null; confirm: boolean }> {
+  const { data, error } = await client!.auth.signUp({ email, password, options: { emailRedirectTo: returnTo() } });
+  if (error) return { error: error.message, confirm: false };
+  return { error: null, confirm: !data.session };
+}
+
+export async function sendPasswordReset(email: string): Promise<string | null> {
+  const { error } = await client!.auth.resetPasswordForEmail(email, { redirectTo: returnTo() });
+  return error ? error.message : null;
+}
+
+export async function setNewPassword(password: string): Promise<string | null> {
+  const { error } = await client!.auth.updateUser({ password });
+  if (!error) recovering = false;
   return error ? error.message : null;
 }
 

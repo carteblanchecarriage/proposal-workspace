@@ -96,7 +96,9 @@ body > main section { padding-top: 40px; }
 .gate-checking .gate form { visibility: hidden; }
 .gate form { width: 100%; max-width: 320px; display: flex; flex-direction: column; gap: 20px; }
 .gate .field { margin: 0; }
-.gate .link { align-self: flex-start; }
+.gate .gate-title { margin: 0; font-size: 18px; font-weight: 600; }
+.gate .gate-links { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
+.gate [data-show][hidden] { display: none; }
 .gate .status:not(.error) { color: var(--muted); }
 
 /* Saved comparisons */
@@ -522,7 +524,8 @@ a.worldview-link:hover, a.worldview-link.on { background: var(--ink); color: var
 @media (max-width: 640px) { a.worldview-link { margin-left: 0; } }
 /* Sits just right of World view; gap shrinks so the pair reads as one group. */
 header.site .signout { align-self: center; margin-left: -24px; white-space: nowrap; }
-@media (max-width: 640px) { header.site .signout { margin-left: 0; } }
+header.site .org-name { align-self: center; margin-left: -24px; font-size: 13px; color: var(--muted); white-space: nowrap; }
+@media (max-width: 640px) { header.site .signout, header.site .org-name { margin-left: 0; } }
 
 .wv-intro { font-size: 14px; margin: -4px 0 16px; max-width: 640px; }
 #wv-status { display: block; min-height: 18px; font-size: 13px; margin-bottom: 24px; }

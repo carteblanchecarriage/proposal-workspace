@@ -1,4 +1,5 @@
-import { checkAccess } from "../lib/auth.js";
+import { currentOrgId, route } from "../lib/auth.js";
+import { ownedElsewhere } from "../lib/db.js";
 import { countPdfTokens, errorResponse, uploadPdf, UserFacingError } from "../lib/claude.js";
 import { cleanupStored, download, remove, RFP_PATH, rfpPath, signDownload, signUpload, storageConfigured, STORED_PATH } from "../lib/storage.js";
 
@@ -12,9 +13,15 @@ import { cleanupStored, download, remove, RFP_PATH, rfpPath, signDownload, signU
 //    JSON naming a PDF already put in storage through "sign"; that copy is deleted once Anthropic has it.
 const isPdf = (pdf: Buffer) => pdf.subarray(0, 5).toString() === "%PDF-";
 
-export async function POST(request: Request): Promise<Response> {
+/** A kept RFP PDF (rfp/<review id>-<n>.pdf) is off limits if its review belongs to another organization. */
+async function assertOwnRfpPath(path: string): Promise<void> {
+  const org = currentOrgId();
+  const reviewId = path.match(/^rfp\/(.{36})-\d+\.pdf$/)?.[1];
+  if (org && reviewId && (await ownedElsewhere(org, "rfps", reviewId))) throw new UserFacingError("The original PDF is no longer stored.", 404);
+}
+
+async function handle(request: Request): Promise<Response> {
   try {
-    await checkAccess(request);
     const action = request.headers.get("x-action");
 
     if (action === "estimate") {
@@ -32,6 +39,7 @@ export async function POST(request: Request): Promise<Response> {
       const index = Number(keep?.index);
       const path = reviewId && Number.isInteger(index) && index >= 0 && index < 100 ? rfpPath(reviewId, index) : `${crypto.randomUUID()}.pdf`;
       if (reviewId && !RFP_PATH.test(path)) throw new UserFacingError("Invalid upload.");
+      if (reviewId) await assertOwnRfpPath(path);
       const [url] = await Promise.all([signUpload(path), cleanupStored()]);
       return Response.json({ url, path });
     }
@@ -41,6 +49,7 @@ export async function POST(request: Request): Promise<Response> {
       const body = (await request.json().catch(() => null)) as { path?: unknown } | null;
       const path = typeof body?.path === "string" ? body.path : "";
       if (!RFP_PATH.test(path)) throw new UserFacingError("Invalid file.");
+      await assertOwnRfpPath(path);
       const url = await signDownload(path);
       if (!url) throw new UserFacingError("The original PDF is no longer stored (they're kept for 30 days).", 404);
       return Response.json({ url });
@@ -50,6 +59,7 @@ export async function POST(request: Request): Promise<Response> {
       // A review's kept PDFs, deleted with the review.
       const body = (await request.json().catch(() => null)) as { paths?: unknown } | null;
       const paths = Array.isArray(body?.paths) ? body.paths.filter((p): p is string => typeof p === "string" && RFP_PATH.test(p)).slice(0, 20) : [];
+      for (const p of paths) await assertOwnRfpPath(p);
       await remove(paths);
       return Response.json({ ok: true });
     }
@@ -59,6 +69,7 @@ export async function POST(request: Request): Promise<Response> {
       const path = typeof body?.path === "string" ? body.path : "";
       const kept = RFP_PATH.test(path);
       if (!STORED_PATH.test(path) && !kept) throw new UserFacingError("Invalid upload.");
+      if (kept) await assertOwnRfpPath(path);
       const filename = typeof body?.filename === "string" && body.filename ? body.filename.slice(0, 200) : "document.pdf";
       const pdf = await download(path);
       try {
@@ -78,3 +89,5 @@ export async function POST(request: Request): Promise<Response> {
     return errorResponse(err);
   }
 }
+
+export const POST = route(handle);

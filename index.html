@@ -15,18 +15,24 @@
   </head>
   <body>
     <div id="gate" class="gate">
-      <form id="gate-form">
+      <form id="gate-form" data-mode="signin">
         <span class="mark">Proposal Workspace</span>
-        <label class="field">
+        <h2 class="gate-title" id="gate-title">Sign in</h2>
+        <label class="field" data-show="signin signup">
           <span class="label">Email</span>
-          <input id="gate-email" type="email" autocomplete="username" required autofocus />
+          <input id="gate-email" type="email" autocomplete="username" autofocus />
         </label>
-        <label class="field">
-          <span class="label">Password</span>
-          <input id="gate-password" type="password" autocomplete="current-password" />
+        <label class="field" data-show="signin signup reset">
+          <span class="label" id="gate-password-label">Password</span>
+          <input id="gate-password" type="password" autocomplete="current-password" minlength="8" />
         </label>
-        <button class="btn primary" type="submit">Sign in</button>
-        <button class="link" type="button" id="gate-link">Email me a sign-in link instead</button>
+        <button class="btn primary" type="submit" id="gate-submit">Sign in</button>
+        <div class="gate-links">
+          <button class="link" type="button" data-show="signin" data-go="forgot">Forgot password?</button>
+          <button class="link" type="button" data-show="signin" id="gate-link">Email me a sign-in link</button>
+          <button class="link" type="button" data-show="signin" data-go="signup">New here? Create an account</button>
+          <button class="link" type="button" data-show="signup" data-go="signin">Have an account? Sign in</button>
+        </div>
         <span id="gate-error" class="status error"></span>
       </form>
     </div>
@@ -42,6 +48,7 @@
         <a href="#fee" data-tab="fee">Fee</a>
       </nav>
       <a class="worldview-link" href="#worldview" data-tab="worldview">World view</a>
+      <span class="org-name" id="org-name" hidden></span>
       <button class="link signout" id="signout" type="button" hidden>Sign out</button>
     </header>
 

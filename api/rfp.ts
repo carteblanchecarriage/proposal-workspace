@@ -1,4 +1,4 @@
-import { checkAccess } from "../lib/auth.js";
+import { route } from "../lib/auth.js";
 import { applyAddendum, cleanupOldFiles, errorResponse, fitCheck, reviewRfp, suggestWorldView, UserFacingError } from "../lib/claude.js";
 import { firmContext, sectionsText } from "../lib/worldview.js";
 import { z } from "zod";
@@ -31,9 +31,8 @@ const Addendum = z.object({
 const FitCheck = z.object({ rfp: z.object({}).passthrough(), ...Context });
 const Suggest = z.object({ worldView: z.string().max(20_000), results: z.array(z.object({}).passthrough()).min(1).max(60) });
 
-export async function POST(request: Request): Promise<Response> {
+async function handle(request: Request): Promise<Response> {
   try {
-    await checkAccess(request);
     const action = request.headers.get("x-action");
     const body = await request.json().catch(() => null);
 
@@ -62,3 +61,5 @@ export async function POST(request: Request): Promise<Response> {
     return errorResponse(err);
   }
 }
+
+export const POST = route(handle, { ai: true });

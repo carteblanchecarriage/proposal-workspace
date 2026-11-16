@@ -1,4 +1,4 @@
-import { checkAccess } from "../lib/auth.js";
+import { route } from "../lib/auth.js";
 import { chat, ComparisonSchema, errorResponse, ProposalSchema, UserFacingError } from "../lib/claude.js";
 import { worldViewContext } from "../lib/worldview-server.js";
 import { z } from "zod";
@@ -15,9 +15,8 @@ const Body = z.object({
     .refine((t) => t.length > 0 && t[0].role === "user" && t[t.length - 1].role === "user", "Conversation must start and end with a user turn."),
 });
 
-export async function POST(request: Request): Promise<Response> {
+async function handle(request: Request): Promise<Response> {
   try {
-    await checkAccess(request);
     const parsed = Body.safeParse(await request.json().catch(() => null));
     if (!parsed.success) throw new UserFacingError("Invalid chat request.");
     const { proposals, comparison, projectName, turns } = parsed.data;
@@ -26,3 +25,5 @@ export async function POST(request: Request): Promise<Response> {
     return errorResponse(err);
   }
 }
+
+export const POST = route(handle, { ai: true });

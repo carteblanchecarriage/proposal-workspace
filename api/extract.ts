@@ -1,12 +1,11 @@
-import { checkAccess } from "../lib/auth.js";
+import { route } from "../lib/auth.js";
 import { extractProposal, errorResponse, summarizeOwnProposal, UserFacingError } from "../lib/claude.js";
 
 // Reads a proposal PDF. Body is the raw PDF bytes; filename comes in a header.
 // With x-action "summarize-own", it summarises a proposal the firm itself submitted instead (for the World view's
 // past pursuits); the body is then JSON naming a PDF already passed to Anthropic through /api/upload.
-export async function POST(request: Request): Promise<Response> {
+async function handle(request: Request): Promise<Response> {
   try {
-    await checkAccess(request);
     if (request.headers.get("x-action") === "summarize-own") {
       const body = (await request.json().catch(() => null)) as { file_id?: unknown; filename?: unknown } | null;
       if (typeof body?.file_id !== "string" || !/^[\w-]{1,200}$/.test(body.file_id)) throw new UserFacingError("Invalid request.");
@@ -22,3 +21,5 @@ export async function POST(request: Request): Promise<Response> {
     return errorResponse(err);
   }
 }
+
+export const POST = route(handle, { ai: true });

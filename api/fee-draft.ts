@@ -1,4 +1,4 @@
-import { checkAccess } from "../lib/auth.js";
+import { route } from "../lib/auth.js";
 import { askFeeAssistant, draftFee, errorResponse, UserFacingError, type Rfp } from "../lib/claude.js";
 import { firmContext } from "../lib/worldview.js";
 import { worldViewContext } from "../lib/worldview-server.js";
@@ -26,9 +26,8 @@ const ChatBody = z.object({
 });
 const MAX_CHAT_BYTES = 1_000_000;
 
-export async function POST(request: Request): Promise<Response> {
+async function handle(request: Request): Promise<Response> {
   try {
-    await checkAccess(request);
     if (request.headers.get("x-action") === "chat") {
       if (Number(request.headers.get("content-length") ?? 0) > MAX_CHAT_BYTES) throw new UserFacingError("This fee is too large to send.", 413);
       const chat = ChatBody.safeParse(await request.json().catch(() => null));
@@ -42,3 +41,5 @@ export async function POST(request: Request): Promise<Response> {
     return errorResponse(err);
   }
 }
+
+export const POST = route(handle, { ai: true });
