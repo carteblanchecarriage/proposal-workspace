@@ -44,7 +44,7 @@
 
   $effect(() => {
     if (open) {
-      showToday  = false;
+      showToday  = showTodayDefault;
       showLegend = true;
       paper      = 'tabloid';
     }

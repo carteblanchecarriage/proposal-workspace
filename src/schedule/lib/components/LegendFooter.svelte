@@ -1,4 +1,5 @@
 <script>
+  import { palette, colorMap, badge } from '../palette.js';
   import { tick } from 'svelte';
   import { toWeekday } from '../utils/dates.js';
 
@@ -80,7 +81,7 @@
       {#each legend.deliverables as d, i}
         {@const num = i + 1}
         <div class="leg-row">
-          <div class="leg-bdg" style:background="#D4804A">{num}</div>
+          <div class="leg-bdg" style:background="var(--sched-deliverable, #D4804A)">{num}</div>
           <div class="leg-body">
             <div class="leg-line">
               <span
@@ -104,7 +105,7 @@
           <button class="leg-del" onclick={() => removeItem('deliverables', i)}>✕</button>
         </div>
       {/each}
-      <button type="button" class="leg-add"
+      <button type="button" class="leg-add site-ui"
         onclick={(e) => onAddDeliverable?.(e)}
         title="Click to add, then click on schedule to place">+ Add</button>
     </div>
@@ -119,6 +120,7 @@
           <!-- svelte-ignore a11y_no_static_element_interactions -->
           <div
             class="ms-pill"
+            style:background={$palette.milestone}
             title="Drag to schedule"
             onpointerdown={(e) => onMilestoneDrag?.(m, e)}
           >
@@ -153,7 +155,7 @@
           <button class="leg-del" onclick={() => removeItem('milestones', i)}>✕</button>
         </div>
       {/each}
-      <button type="button" class="leg-add"
+      <button type="button" class="leg-add site-ui"
         onclick={(e) => onAddMilestone?.(e)}
         title="Click to add, then click on schedule to place">+ Add</button>
     </div>
@@ -168,7 +170,7 @@
           <!-- svelte-ignore a11y_no_static_element_interactions -->
           <div
             class="leg-code"
-            style:background={e.color}
+            style:background={badge('estimate', e.color, $palette, $colorMap)}
             title="Drag to schedule"
             onpointerdown={(ev) => onEstimateDrag?.(e, ev)}
           >
@@ -203,7 +205,7 @@
           <button class="leg-del" onclick={() => removeItem('estimates', i)}>✕</button>
         </div>
       {/each}
-      <button type="button" class="leg-add"
+      <button type="button" class="leg-add site-ui"
         onclick={(e) => onAddEstimate?.(e)}
         title="Click to add, then click on schedule to place">+ Add</button>
     </div>
@@ -244,7 +246,7 @@
           <button class="leg-del" onclick={() => removeItem('approvals', i)}>✕</button>
         </div>
       {/each}
-      <button type="button" class="leg-add"
+      <button type="button" class="leg-add site-ui"
         onclick={(e) => onAddApproval?.(e)}
         title="Click to add, then click on schedule to place">+ Add</button>
     </div>
@@ -286,7 +288,7 @@
         </div>
       {/if}
       {#if onNotesUpdate}
-        <button type="button" class="leg-add" onclick={addNote}>+ Add</button>
+        <button type="button" class="leg-add site-ui" onclick={addNote}>+ Add</button>
       {/if}
     </div>
   </div>
@@ -361,7 +363,7 @@
   }
   .leg-diamond {
     width: 10px; height: 10px;
-    background: var(--blue);
+    background: var(--sched-approval, var(--blue));
     transform: rotate(45deg);
     flex-shrink: 0;
     margin: 4px 4px 0;
@@ -516,21 +518,17 @@
   .leg-add {
     background: none;
     border: none;
-    color: var(--blue);
-    font-family: 'Barlow', sans-serif;
-    font-weight: 600;
-    font-size: 11px;
-    text-transform: uppercase;
-    letter-spacing: .07em;
+    color: var(--ink);
+    font: 13px/1.2 var(--sans);
+    text-decoration: underline;
+    text-underline-offset: 2px;
     cursor: grab;
-    padding: 4px 0 0;
-    opacity: 0.25;
-    transition: opacity .15s;
+    padding: 6px 0 0;
     display: block;
     user-select: none;
   }
+  .leg-add:hover { text-decoration-thickness: 2px; }
   .leg-add:active { cursor: grabbing; }
-  .leg-col:hover .leg-add { opacity: 1; }
 
   .print-only { display: none; }
 

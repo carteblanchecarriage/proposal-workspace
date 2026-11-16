@@ -47,7 +47,7 @@
         {@html renderMarkdown(data.markdown)}
       </div>
       <div class="sp-foot">
-        <p>To customise: edit <code>lib/schedule-prompt.ts</code> in the project repository.</p>
+        <p>To customize: edit <code>lib/schedule-prompt.ts</code> in the project repository.</p>
       </div>
     </div>
   </main>

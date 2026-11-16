@@ -327,6 +327,34 @@ export async function getWorldView(): Promise<WorldView> {
 }
 export const saveWorldView = (w: WorldView, keepalive = false) => saveRecord("settings", w, keepalive);
 
+// ---------- Schedule colors ----------
+
+/**
+ * The organization's schedule style (src/schedule/lib/palette.js): colors by category and badge, the font, and whether
+ * the Today line shows by default. Missing pieces mean the standard look.
+ */
+export type ScheduleStyle = { colors: Record<string, string>; font?: string; showToday?: boolean };
+type ScheduleStyleRecord = ScheduleStyle & { id: "schedule-style"; savedAt: number };
+export async function getScheduleStyle(): Promise<ScheduleStyle> {
+  const saved = (await listRecords<ScheduleStyleRecord>("settings")).find((r) => r.id === "schedule-style");
+  return { colors: saved?.colors ?? {}, font: saved?.font, showToday: saved?.showToday };
+}
+export const saveScheduleStyle = (style: ScheduleStyle) =>
+  saveRecord("settings", { id: "schedule-style", savedAt: Date.now(), ...style } satisfies ScheduleStyleRecord);
+
+// ---------- Open Calls sources ----------
+
+/** A website where the organization watches for RFPs (an agency's bids page, a procurement portal). */
+export type CallSource = { id: string; code: string; name: string; scope: string; url: string };
+type CallSources = { id: "open-calls"; savedAt: number; sources: CallSource[] };
+
+/** The organization's own list of RFP sources (one settings record per organization); [] until it adds one. */
+export async function getCallSources(): Promise<CallSource[]> {
+  const saved = (await listRecords<CallSources>("settings")).find((r) => r.id === "open-calls");
+  return saved?.sources ?? [];
+}
+export const saveCallSources = (sources: CallSource[]) => saveRecord("settings", { id: "open-calls", savedAt: Date.now(), sources } satisfies CallSources);
+
 export const listPursuits = () => listRecords<Pursuit>("pursuits");
 export const savePursuit = (p: Pursuit) => saveRecord("pursuits", p);
 export const deletePursuit = (id: string) => deleteRecord("pursuits", id);

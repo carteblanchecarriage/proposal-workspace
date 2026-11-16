@@ -8,7 +8,7 @@ import { post } from "./api";
 import { estimateScheduleDraft, usdRange, type Usage } from "../lib/cost";
 import type { ScheduleDraft } from "../lib/claude";
 import { proposalTable } from "./fee-calc";
-import { CONSULTANT_STATUS, type ConsultantStatus, deleteProject, listFees, saveFee, type SavedFee, projectLabel, listComparisons, listProjects, listSchedules, savesShared, listRfps, saveComparison, saveProject, saveRfp, saveSchedule, listConsultants, type SavedConsultant, type SavedComparison, type SavedProject, type SavedRfp, type SavedSchedule } from "./store";
+import { CONSULTANT_STATUS, type ConsultantStatus, deleteProject, listFees, saveFee, type SavedFee, projectLabel, listComparisons, listProjects, listSchedules, getScheduleStyle, type ScheduleStyle, savesShared, listRfps, saveComparison, saveProject, saveRfp, saveSchedule, listConsultants, type SavedConsultant, type SavedComparison, type SavedProject, type SavedRfp, type SavedSchedule } from "./store";
 import { addAddendum, formatWhen, parseDay, projectDisciplines, proposalDue } from "./rfp";
 import { copyShareLink } from "./share";
 import { esc, firmName } from "./table";
@@ -45,11 +45,23 @@ export async function openProject(id: string) {
   scrollTo(0, 0);
 }
 
+/** The organization's schedule style (colors, font, Today line), for the schedule snapshot. */
+let scheduleStyle: ScheduleStyle = { colors: {} };
+
 async function load() {
   if (!project) return;
   const id = project.id;
-  const [rfps, cmps, scheds, fs, dir] = await Promise.all([listRfps(), listComparisons(), listSchedules(), listFees(), listConsultants().catch(() => [] as SavedConsultant[])]);
+  const [rfps, cmps, scheds, fs, dir, style] = await Promise.all([
+    listRfps(),
+    listComparisons(),
+    listSchedules(),
+    listFees(),
+    listConsultants().catch(() => [] as SavedConsultant[]),
+    // The organization's schedule colors and font, so the snapshot matches the schedule maker.
+    getScheduleStyle().catch(() => ({ colors: {} }) as ScheduleStyle),
+  ]);
   directory = dir;
+  scheduleStyle = style;
   rfp = rfps.find((r) => r.id === project!.rfpId) ?? rfps.find((r) => r.projectId === id);
   comparisons = cmps.filter((c) => c.projectId === id);
   schedules = scheds.filter((s) => s.workspaceProjectId === id);
@@ -143,7 +155,7 @@ function render() {
               .join("")}</ol>`
           : `<p class="none">None yet.</p>`
       }
-      ${schedules[0] ? scheduleSnapshotHtml(schedules[0]) : ""}
+      ${schedules[0] ? scheduleSnapshotHtml(schedules[0], scheduleStyle) : ""}
       ${schedules.length ? "" : `<div class="actions"><button class="btn" data-make-schedule>Make schedule</button></div>`}
     </div>
 

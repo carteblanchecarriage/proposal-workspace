@@ -939,6 +939,8 @@ signoutBtn.addEventListener("click", async () => {
 // The gate is shown from the first paint; nothing loads until the sign-in checks out (or none is required).
 (async () => {
   if (onPrintPage()) {
+    // Wait for the rest of this file to finish loading first: showTab uses things defined further down.
+    await Promise.resolve();
     gate.hidden = true;
     started = true;
     return showTab();

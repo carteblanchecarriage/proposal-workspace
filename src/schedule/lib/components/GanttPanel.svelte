@@ -1,4 +1,5 @@
 <script>
+  import { palette, colorMap, paint, badge } from '../palette.js';
   import { parseDate, toISO, timeColumns, ZOOM_COL_W, totalDays, dateToPx, dateToPxMonth, pxToDateMonth, dateToPxPeriod, pxToDatePeriod, dateToPxQuarter, pxToDateQuarter, isLightColor, MONTHS_SHORT, toWeekday } from '../utils/dates.js';
   import { pointerDrag } from '../utils/pointer.js';
 
@@ -320,6 +321,7 @@
               <!-- svelte-ignore a11y_no_static_element_interactions -->
               <div
                 class="ov-pill"
+                style:background={$palette.milestone}
                 style:left="{mpx}px"
                 style:top={laneTop('milestones', i)}
                 onpointerdown={(e) => startOverlayDrag(e, 'milestones', i, m.date)}
@@ -369,8 +371,8 @@
                 class="ov-pill"
                 style:left="{epx}px"
                 style:top={laneTop('estimates', i)}
-                style:background={e.color}
-                style:color={isLightColor(e.color) ? 'rgba(0,0,0,.65)' : '#fff'}
+                style:background={badge('estimate', e.color, $palette, $colorMap)}
+                style:color={isLightColor(badge('estimate', e.color, $palette, $colorMap)) ? 'rgba(0,0,0,.65)' : '#fff'}
                 onpointerdown={(ev) => startOverlayDrag(ev, 'estimates', i, e.date)}
                 title="{e.text} — drag to reposition"
               >{e.code}</div>
@@ -424,7 +426,7 @@
           {#if date}
             {@const mpx = px(date)}
             {#if mpx >= 0 && mpx <= ganttWidth}
-              <div class="ov-line" style:left="{mpx}px" style:height="{totalH}px" style:border-color={m.color}></div>
+              <div class="ov-line" style:left="{mpx}px" style:height="{totalH}px" style:border-color={badge('milestone', m.color, $palette, $colorMap)}></div>
             {/if}
           {/if}
         {/each}
@@ -451,7 +453,7 @@
           {#if date}
             {@const epx = px(date)}
             {#if epx >= 0 && epx <= ganttWidth}
-              <div class="ov-line" style:left="{epx}px" style:height="{totalH}px" style:border-color={e.color}></div>
+              <div class="ov-line" style:left="{epx}px" style:height="{totalH}px" style:border-color={badge('estimate', e.color, $palette, $colorMap)}></div>
             {/if}
           {/if}
         {/each}
@@ -506,7 +508,7 @@
                   class:bar-clipped={rawLeft < 0}
                   style:left="{left}px"
                   style:width="{width}px"
-                  style:background={task.color}
+                  style:background={paint(task.color, $colorMap)}
                   ondblclick={(e) => openPopup(task, e.clientX, e.clientY)}
                   onpointerdown={(e) => startDrag(e, task, 'move')}
                 >
@@ -536,7 +538,7 @@
               style:top="{ghostY + 2}px"
               style:left="{left}px"
               style:width="{width}px"
-              style:background={ghostTask.color}
+              style:background={paint(ghostTask.color, $colorMap)}
             ></div>
           {/if}
         {/if}
@@ -587,7 +589,7 @@
             <div
               class="dp-swatch"
               class:dp-swatch-active={popupTask.color === c.hex}
-              style:background={c.hex}
+              style:background={paint(c.hex, $colorMap)}
               title={c.label}
               onclick={() => { onColorChange?.(popupTask.id, c.hex); popupTask = { ...popupTask, color: c.hex }; }}
             ></div>
@@ -619,7 +621,7 @@
     flex-shrink: 0; display: flex; align-items: center; justify-content: center;
     font-family: 'Barlow Condensed', sans-serif; font-weight: 500; font-size: 11px;
     text-transform: uppercase; letter-spacing: .07em; color: var(--black);
-    border-right: 1px dashed var(--black);
+    border-right: 1px solid var(--black);
   }
   .col-row { display: flex; height: 22px; border-bottom: 1px solid var(--black); }
   .col-cell {
@@ -660,13 +662,13 @@
   }
   .ov-pill:hover { filter: brightness(1.15); }
   .ov-pill:active { cursor: grabbing; }
-  .ov-del { background: #D4804A; color: #fff; }
+  .ov-del { background: var(--sched-deliverable, #D4804A); color: #fff; }
   .ov-approval {
     position: absolute;
     top: 50%;
     transform: translate(-50%, -50%) rotate(45deg);
     width: 10px; height: 10px;
-    background: var(--blue);
+    background: var(--sched-approval, var(--blue));
     cursor: grab;
     user-select: none;
     z-index: 20;
@@ -674,7 +676,7 @@
   }
   .ov-approval:hover { filter: brightness(1.15); }
   .ov-approval:active { cursor: grabbing; }
-  .ov-appr-line { border-color: var(--blue); }
+  .ov-appr-line { border-color: var(--sched-approval, var(--blue)); }
 
   /* Gantt body */
   .gantt-body { position: relative; }
@@ -712,7 +714,7 @@
     border-left: 1.5px dashed;
     opacity: .3;
   }
-  .ov-del-line { border-color: #D4804A; }
+  .ov-del-line { border-color: var(--sched-deliverable, #D4804A); }
 
   /* Rows */
   .bar-rows { position: relative; z-index: 4; }
@@ -780,7 +782,7 @@
     font-family: 'Barlow Condensed', sans-serif; font-weight: 700; font-size: 10px;
     color: #fff; z-index: 7; pointer-events: none;
   }
-  .bdg-del { background: #D4804A; }
+  .bdg-del { background: var(--sched-deliverable, #D4804A); }
 
   /* Date popup */
   .dp-backdrop {

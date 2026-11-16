@@ -22,6 +22,9 @@ export async function schedulePdf(opts: {
   paper: Paper;
   showToday: boolean;
   showLegend: boolean;
+  /** the organization's schedule colors, by category */
+  palette: Record<string, string>;
+  font: string;
 }): Promise<Uint8Array> {
   const sheet = SHEET[opts.paper];
   const browser = await puppeteer.launch({
@@ -41,9 +44,16 @@ export async function schedulePdf(opts: {
       else req.abort();
     });
     // The print page reads the schedule from session storage; it needs no sign-in (it shows only what it's handed).
-    await page.evaluateOnNewDocument((schedule: string) => {
-      sessionStorage.setItem("schedule_preview", schedule);
-    }, JSON.stringify(opts.schedule));
+    await page.evaluateOnNewDocument(
+      (schedule: string, palette: string, options: string) => {
+        sessionStorage.setItem("schedule_preview", schedule);
+        sessionStorage.setItem("schedule_palette", palette);
+        sessionStorage.setItem("schedule_options", options);
+      },
+      JSON.stringify(opts.schedule),
+      JSON.stringify(opts.palette),
+      JSON.stringify({ font: opts.font, showToday: opts.showToday }),
+    );
     const params = new URLSearchParams({ paper: opts.paper, today: opts.showToday ? "1" : "0", legend: opts.showLegend ? "1" : "0", pdf: "1" });
     await page.goto(`${opts.origin}/#schedule-print?${params}`, { waitUntil: "networkidle0", timeout: 30_000 });
     await page.waitForSelector(".preview-pg", { timeout: 15_000 });

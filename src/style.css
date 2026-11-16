@@ -528,6 +528,13 @@ header.site .org-name { align-self: center; margin-left: -24px; font-size: 13px;
 header.site .org-name:hover, header.site .org-name.on { border-bottom-color: var(--ink); }
 @media (max-width: 640px) { header.site .signout, header.site .org-name { margin-left: 0; } }
 
+.wv-site { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px 12px; }
+.wv-site .wv-field { flex: 1 1 280px; margin: 0; }
+.wv-site-status { font-size: 14px; margin: 0 0 12px; }
+.wv-site-status:empty { display: none; }
+.wv-site-status.error { color: var(--bad); }
+.wv-site-suggest { margin: -4px 0 16px; padding: 10px 12px; border-left: 3px solid var(--site-blue); background: var(--soft); font-size: 14px; }
+.wv-site-suggest p { margin: 4px 0 6px; }
 .wv-intro { font-size: 14px; margin: -4px 0 16px; max-width: 640px; }
 #wv-status { display: block; min-height: 18px; font-size: 13px; margin-bottom: 24px; }
 .wv-field textarea { min-height: 84px; }

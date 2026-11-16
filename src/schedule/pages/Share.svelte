@@ -1,4 +1,5 @@
 <script>
+  import { options } from '../lib/palette.js';
   import { onMount } from 'svelte';
   import TaskPanel    from '../lib/components/TaskPanel.svelte';
   import GanttPanel   from '../lib/components/GanttPanel.svelte';
@@ -109,7 +110,7 @@
           onDraggingChange={noop}
           zoom="month"
           colWOverride={colW}
-          showTodayLine={true}
+          showTodayLine={$options.showToday}
         />
       </div>
     </div>

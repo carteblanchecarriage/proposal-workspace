@@ -1,5 +1,5 @@
 import { estimateFitCheck, estimateRfp, estimateSuggest, usd, usdRange, type Usage } from "../lib/cost";
-import type { Fit, Rfp } from "../lib/claude";
+import type { Fit, Rfp, SiteDraft } from "../lib/claude";
 import { FEATURES } from "../lib/prompts";
 import {
   feeCurveAt,
@@ -151,6 +151,18 @@ const VIEW_PARTS: [ViewKey, string, string][] = [
   ["marketConditions", "Market conditions", "Where the market is, with the date and source (e.g. AIA Architecture Billings Index)"],
 ];
 let editingView = false;
+/** The latest draft from the firm's website, while the world view is being edited (for its "Use this" buttons). */
+let siteDraft: SiteDraft | null = null;
+/** The world view sections a website draft can fill. */
+const SITE_PARTS: ViewKey[] = ["whoWeAre", "goodPursuit"];
+const webLink = (url: string) => {
+  try {
+    const u = new URL(/^https?:\/\//i.test(url) ? url : `https://${url}`);
+    return u.protocol === "https:" || u.protocol === "http:" ? u.href : "";
+  } catch {
+    return "";
+  }
+};
 // The fee curve and the phase split are edited as drafts: nothing changes until Save is confirmed.
 let curveDraft: FeePoint[] | null = null;
 let phasesDraft: PhaseShare[] | null = null;
@@ -282,13 +294,21 @@ async function saveDraft(kind: "curve" | "phases") {
 function viewHtml(): string {
   if (editingView)
     return `<form class="block rfp-edit" data-view-form>
+      <div class="wv-site">
+        <label class="edit-field wv-field"><span>Firm website</span><input name="website" type="text" inputmode="url" autocomplete="url" placeholder="yourfirm.com" value="${esc(wv!.website ?? "")}" /></label>
+        <button class="btn" type="button" data-draft-site ${busy ? "disabled" : ""}>${busy ? "Reading the website…" : "Draft from website"}</button>
+      </div>
+      <p class="wv-intro">Claude reads your website and drafts “Who we are” and “What makes a good pursuit” for you to check. Red flags, how to weigh things and market conditions are yours to write.</p>
+      <p class="wv-site-status" id="wv-site-status"></p>
       ${VIEW_PARTS.map(
         ([key, label, placeholder]) =>
           `<label class="edit-field wv-field"><span>${esc(label)}</span><textarea name="${key}" rows="${Math.max(4, wv![key].split("\n").length + 1)}" placeholder="${esc(placeholder)}">${esc(wv![key])}</textarea></label>`,
       ).join("")}
       <div class="actions"><button class="btn primary" type="submit">Save</button><button class="btn" type="button" data-cancel-view>Cancel</button></div>
     </form>`;
+  const site = (wv!.website ?? "").trim();
   return `<div class="block wv-view">
+    <div class="wv-part"><h3>Firm website</h3>${site && webLink(site) ? `<p><a class="link" href="${esc(webLink(site))}" target="_blank" rel="noopener noreferrer">${esc(site)}</a></p>` : `<p class="none">Not added yet. Add it under Edit, and Claude can draft the world view from it.</p>`}</div>
     ${VIEW_PARTS.map(
       ([key, label]) =>
         `<div class="wv-part"><h3>${esc(label)}</h3>${wv![key].trim() ? `<p>${esc(wv![key].trim()).replace(/\n/g, "<br />")}</p>` : `<p class="none">Not written yet.</p>`}</div>`,
@@ -301,8 +321,10 @@ function viewHtml(): string {
 async function saveView(form: HTMLFormElement) {
   if (!wv) return;
   const next = Object.fromEntries(VIEW_PARTS.map(([key]) => [key, (form.querySelector<HTMLTextAreaElement>(`[name="${key}"]`)?.value ?? "").trim()])) as Record<ViewKey, string>;
-  if (VIEW_PARTS.every(([key]) => next[key] === wv![key].trim())) {
+  const website = (form.querySelector<HTMLInputElement>('[name="website"]')?.value ?? "").trim().slice(0, 300);
+  if (VIEW_PARTS.every(([key]) => next[key] === wv![key].trim()) && website === (wv.website ?? "").trim()) {
     editingView = false;
+    siteDraft = null;
     return rerender();
   }
   const ok = await confirmModal({
@@ -311,8 +333,9 @@ async function saveView(form: HTMLFormElement) {
     confirm: "Save",
   });
   if (!ok || !wv) return;
-  Object.assign(wv, next);
+  Object.assign(wv, next, { website });
   editingView = false;
+  siteDraft = null;
   changed();
   await save();
   rerender();
@@ -575,7 +598,7 @@ function pursuitForm(): string {
       <label class="edit-field"><span>Construction budget</span><input type="text" inputmode="decimal" name="budget" value="${p?.budget ? p.budget.toLocaleString("en-US") : ""}" placeholder="From the RFP if left blank" /></label>
       <label class="edit-field"><span>Our fee</span><input type="text" inputmode="decimal" name="ourFee" value="${p?.ourFee ? p.ourFee.toLocaleString("en-US") : ""}" placeholder="$" /></label>
     </div>
-    <label class="edit-field"><span>Our proposal</span><textarea name="ourProposal" rows="4" placeholder="What we emphasised: team, approach, fee basis">${esc(p?.ourProposal ?? "")}</textarea></label>
+    <label class="edit-field"><span>Our proposal</span><textarea name="ourProposal" rows="4" placeholder="What we emphasized: team, approach, fee basis">${esc(p?.ourProposal ?? "")}</textarea></label>
     <div><label class="link wv-upload">Summarize our proposal PDF<input type="file" accept="application/pdf" data-own-pdf hidden /></label> <span class="status" id="wv-pdf-status"></span></div>
     <label class="edit-field"><span>Debrief</span><textarea name="debrief" rows="3" placeholder="What the client said, who won and why">${esc(p?.debrief ?? "")}</textarea></label>
     <div class="actions"><button class="btn primary" type="submit" ${busy ? "disabled" : ""}>Save</button><button class="btn" type="button" data-cancel-pursuit>Cancel</button><span class="status" id="wv-read-status"></span></div>
@@ -712,7 +735,7 @@ async function summarizeOwnPdf(input: HTMLInputElement) {
   if (!file) return;
   const ok = await confirmModal({
     title: "Summarize this proposal?",
-    body: `Claude reads ${file.name} once and writes about 150 words on what it emphasised. Reading PDFs costs roughly 1–2 cents a page.`,
+    body: `Claude reads ${file.name} once and writes about 150 words on what it emphasized. Reading PDFs costs roughly 1–2 cents a page.`,
     confirm: "Summarize",
   });
   if (!ok) return;
@@ -815,6 +838,81 @@ async function runCheck() {
   }
 }
 
+/**
+ * Drafts "Who we are" and "What makes a good pursuit" from the website in the edit form. Fills sections that are
+ * empty; under sections the team has written, the draft is offered with "Use this". Nothing is saved until Save.
+ */
+async function draftFromSite() {
+  const form = document.querySelector<HTMLFormElement>("[data-view-form]");
+  const input = form?.querySelector<HTMLInputElement>('[name="website"]');
+  const status = document.getElementById("wv-site-status");
+  if (!form || !input || !status || busy) return;
+  const url = input.value.trim();
+  if (!url || !webLink(url)) {
+    status.textContent = "Enter your firm's website first, e.g. yourfirm.com.";
+    status.classList.add("error");
+    return input.focus();
+  }
+  const ok = await confirmModal({
+    title: "Draft from your website?",
+    body: "Claude reads up to 6 pages of your website and drafts two sections for you to check. Estimated cost about $0.10–$0.60.",
+    confirm: "Draft",
+  });
+  if (!ok) return;
+  const button = form.querySelector<HTMLButtonElement>("[data-draft-site]")!;
+  busy = true;
+  button.disabled = true;
+  button.textContent = "Reading the website…";
+  status.classList.remove("error");
+  status.textContent = "Reading the website. This takes up to a minute.";
+  try {
+    const res = await post<{ draft: SiteDraft; usage: Usage }>("/api/rfp", JSON.stringify({ url }), {
+      "content-type": "application/json",
+      "x-action": "from-site",
+    });
+    siteDraft = res.draft;
+    const filled: string[] = [];
+    const offered: string[] = [];
+    for (const key of SITE_PARTS) {
+      const text = res.draft[key as "whoWeAre" | "goodPursuit"].trim();
+      const box = form.querySelector<HTMLTextAreaElement>(`[name="${key}"]`);
+      const label = VIEW_PARTS.find(([k]) => k === key)![1];
+      if (!text || !box) continue;
+      // A suggestion from an earlier draft is replaced by this one.
+      const earlier = box.closest("label")?.nextElementSibling;
+      if (earlier?.classList.contains("wv-site-suggest")) earlier.remove();
+      if (!box.value.trim()) {
+        box.value = text;
+        filled.push(label);
+      } else {
+        box.closest("label")!.insertAdjacentHTML(
+          "afterend",
+          `<div class="wv-site-suggest"><span class="label">From your website</span><p>${esc(text)}</p><button class="link" type="button" data-use-site="${key}">Use this</button></div>`,
+        );
+        offered.push(label);
+      }
+    }
+    const pages = res.draft.pagesRead.length;
+    status.textContent = [
+      filled.length || offered.length ? `Read ${pages} page${pages === 1 ? "" : "s"}.` : "The website didn't say enough to draft from.",
+      filled.length ? `Filled in: ${filled.join(", ")}.` : "",
+      offered.length ? `Suggested below what you've written: ${offered.join(", ")}.` : "",
+      res.draft.notes,
+      filled.length || offered.length ? "Check it, then Save." : "",
+      res.usage.cost_usd != null ? `Cost ${usd(res.usage.cost_usd)}.` : "",
+    ]
+      .filter(Boolean)
+      .join(" ");
+  } catch (err) {
+    status.textContent = (err as Error).message;
+    status.classList.add("error");
+  } finally {
+    busy = false;
+    button.disabled = false;
+    button.textContent = "Draft from website";
+  }
+}
+
 async function runSuggest() {
   if (!wv || !check || busy) return;
   const ok = await confirmModal({
@@ -868,7 +966,16 @@ async function onClick(e: Event) {
     document.querySelector<HTMLTextAreaElement>("[data-view-form] textarea")?.focus();
   } else if (t.closest("[data-cancel-view]")) {
     editingView = false;
+    siteDraft = null;
     rerender();
+  } else if (t.closest("[data-draft-site]")) {
+    await draftFromSite();
+  } else if ((id = attr("data-use-site"))) {
+    // Puts the website's draft into that section's box (still only saved with Save).
+    const box = document.querySelector<HTMLTextAreaElement>(`[data-view-form] [name="${id}"]`);
+    const text = siteDraft?.[id as "whoWeAre" | "goodPursuit"];
+    if (box && text) box.value = text;
+    t.closest(".wv-site-suggest")?.remove();
   } else if (t.closest("[data-edit-sections]")) {
     if (!(await confirmEdit("the proposal sections")) || !wv) return;
     sectionsDraft = (wv.proposalSections ?? []).join("\n");

@@ -38,3 +38,13 @@ button { font-family: inherit; cursor: pointer; }
 
   .no-print { display: none !important; }
 }
+
+/* The organization's schedule font (Colors and style, on the Schedule page; src/schedule/lib/palette.js). Barlow is
+   the standard and needs no rule. */
+html[data-schedule-font="inter"] #schedule-root, html[data-schedule-font="inter"] #schedule-root * { font-family: 'Inter Variable', Arial, sans-serif !important; }
+html[data-schedule-font="roboto"] #schedule-root, html[data-schedule-font="roboto"] #schedule-root * { font-family: 'Roboto', Arial, sans-serif !important; }
+html[data-schedule-font="lora"] #schedule-root, html[data-schedule-font="lora"] #schedule-root * { font-family: 'Lora', Georgia, serif !important; }
+/* The editor's own controls (toolbar, timeline strip, legend "+ Add") use the site's font whatever the schedule's is:
+   they're part of the app, not the printed schedule. */
+html #schedule-root .site-ui, html #schedule-root .site-ui * { font-family: var(--sans) !important; }
+html[data-schedule-font] #schedule-root .site-ui, html[data-schedule-font] #schedule-root .site-ui * { font-family: var(--sans) !important; }

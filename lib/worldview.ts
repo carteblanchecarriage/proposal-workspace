@@ -11,6 +11,8 @@ export type PhaseShare = { name: string; percent: number };
 export type WorldView = {
   id: "worldview";
   savedAt: number;
+  /** the firm's website, which "Draft from website" reads to suggest who we are and what we pursue */
+  website?: string;
   whoWeAre: string;
   goodPursuit: string;
   redFlags: string;
@@ -97,6 +99,7 @@ export const MARKET_JULY_2026 = `As of July 2026 (AIA Architecture Billings Inde
 export const emptyWorldView = (): WorldView => ({
   id: "worldview",
   savedAt: 0,
+  website: "",
   whoWeAre: "",
   goodPursuit: "",
   redFlags: "",

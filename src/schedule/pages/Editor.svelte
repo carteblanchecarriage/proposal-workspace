@@ -10,6 +10,7 @@
   import { confirmDelete } from '../../modal';
   import { authHeaders } from '../../auth';
   import { blockedInDemo } from '../../api';
+  import { palette, options, colorMap, badge, handOver } from '../lib/palette.js';
   import { orgName } from '../../org';
   import { pointerDrag } from '../lib/utils/pointer.js';
 
@@ -194,7 +195,7 @@
     const g = document.createElement('div');
     g.style.cssText = GHOST_CSS;
     const dot = document.createElement('div');
-    dot.style.cssText = `width:12px;height:12px;border-radius:50%;background:${ms.color};flex-shrink:0;`;
+    dot.style.cssText = `width:12px;height:12px;border-radius:50%;background:${badge('milestone', ms.color, $palette, $colorMap)};flex-shrink:0;`;
     g.appendChild(dot);
     g.appendChild(document.createTextNode(ms.text || ms.code));
     return g;
@@ -204,7 +205,7 @@
     const g = document.createElement('div');
     g.style.cssText = GHOST_CSS;
     const badge = document.createElement('div');
-    badge.style.cssText = `width:18px;height:18px;border-radius:50%;background:#D4804A;color:#fff;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;flex-shrink:0;`;
+    badge.style.cssText = `width:18px;height:18px;border-radius:50%;background:var(--sched-deliverable, #D4804A);color:#fff;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;flex-shrink:0;`;
     badge.textContent = String(n);
     g.appendChild(badge);
     g.appendChild(document.createTextNode('New Deliverable'));
@@ -375,7 +376,8 @@
 
   // Phones get readable month columns (scroll sideways) instead of squeezing everything to fit
   let zoom            = $state(window.innerWidth < MOBILE_W ? 'month' : 'fit');
-  let showTodayLine   = $state(true);
+  // Starts as the organization's default (Colors and style, on the Schedule page).
+  let showTodayLine   = $state($options.showToday);
   let printPanelOpen  = $state(false);
   let hideLegendPrint = $state(false);
   let printMultiPage  = $state(false);
@@ -445,7 +447,7 @@
   }
 
   function openPrintPanel() {
-    if (project) sessionStorage.setItem('schedule_preview', JSON.stringify(project));
+    if (project) { sessionStorage.setItem('schedule_preview', JSON.stringify(project)); handOver($palette, $options); }
     printPanelOpen = true;
   }
 
@@ -458,7 +460,7 @@
     const res = await fetch('/api/schedule-pdf', {
       method: 'POST',
       headers: { 'content-type': 'application/json', ...(await authHeaders()) },
-      body: JSON.stringify({ schedule: project, paper, showToday, showLegend, filename }),
+      body: JSON.stringify({ schedule: project, paper, showToday, showLegend, filename, palette: $palette, font: $options.font }),
     });
     if (!res.ok) throw new Error((await res.json().catch(() => null))?.error ?? `Couldn't make the PDF (${res.status}).`);
     const url = URL.createObjectURL(await res.blob());
@@ -472,7 +474,7 @@
 
   function printSchedule({ showToday = true, showLegend = true, paper = 'tabloid' } = {}) {
     printPanelOpen = false;
-    if (project) sessionStorage.setItem('schedule_preview', JSON.stringify(project));
+    if (project) { sessionStorage.setItem('schedule_preview', JSON.stringify(project)); handOver($palette, $options); }
 
     const today    = new Date();
     const yyyymmdd = `${today.getFullYear()}${String(today.getMonth()+1).padStart(2,'0')}${String(today.getDate()).padStart(2,'0')}`;
@@ -542,7 +544,7 @@
         <!-- A failed save stays on screen until the next save works, so edits are never lost silently. -->
         <p class="save-error no-print" role="alert">{$saveError}</p>
       {/if}
-      <div class="hdr-actions no-print">
+      <div class="hdr-actions no-print site-ui">
         <button class="action-btn action-btn-undo" onclick={handleUndo} disabled={!canUndo} title="Undo (Ctrl+Z)">
           Undo
         </button>
@@ -562,7 +564,7 @@
     </header>
 
     <!-- Timeline range control strip -->
-    <div class="timeline-bar no-print">
+    <div class="timeline-bar no-print site-ui">
       <div class="tl-end">
         <span class="tl-lbl">Show from</span>
         <div class="tl-ctrl">
@@ -766,6 +768,8 @@
     cursor: text;
   }
   .meta-field:focus { background: rgba(32,171,226,.06); border-radius: 2px; padding: 0 4px; }
+  /* The editor's controls (not printed) look like the rest of the site: its font, sentence case, square buttons with a
+     black rule, a light gray hover, black for the main action. */
   .hdr-actions {
     display: flex;
     gap: 8px;
@@ -774,28 +778,20 @@
     padding-top: 2px;
   }
   .action-btn {
-    font-family: 'Barlow', sans-serif;
-    font-weight: 700;
-    font-size: 11px;
-    text-transform: uppercase;
-    letter-spacing: .1em;
-    border: 1px solid var(--lgray);
-    background: #fff;
-    color: var(--black);
-    border-radius: 3px;
-    padding: 6px 13px;
+    font: 14px/1.2 var(--sans);
+    border: 1px solid var(--ink);
+    background: var(--bg);
+    color: var(--ink);
+    border-radius: 0;
+    padding: 7px 14px;
     cursor: pointer;
-    transition: border-color .12s, background .12s;
   }
-  .action-btn:hover { border-color: var(--blue); background: rgba(32,171,226,.05); }
-  .action-btn-undo:disabled { opacity: 0.35; cursor: default; }
-  .action-btn-undo:disabled:hover { border-color: var(--lgray); background: #fff; }
-  .action-btn-ai { border-color: var(--blue); color: var(--blue); }
-  .action-btn-ai:hover { background: var(--blue); color: #fff; }
-  .action-btn-share { transition: border-color .12s, background .12s, color .12s; }
-  .action-btn-share:hover { border-color: var(--black); background: var(--black); color: #fff; }
+  .action-btn:hover:not(:disabled) { background: var(--soft); }
+  .action-btn:disabled { opacity: 0.35; cursor: default; }
+  .action-btn-ai { background: var(--ink); color: var(--bg); }
+  .action-btn-ai:hover:not(:disabled) { background: #333; }
+  .action-btn-delete:hover:not(:disabled) { color: var(--bad); border-color: var(--bad); background: var(--bg); }
   .save-error { margin: 0 12px 0 auto; align-self: center; color: #b3261e; font-size: 12px; font-weight: 600; }
-  .action-btn-delete:hover { border-color: #b3261e; background: #b3261e; color: #fff; }
 
   /* Timeline control strip */
   .timeline-bar {
@@ -803,11 +799,12 @@
     align-items: center;
     justify-content: space-between;
     padding: 0 14px;
-    height: 32px;
-    background: var(--off);
-    border-bottom: 1px solid var(--lgray);
+    height: 42px;
+    background: var(--bg);
+    border-bottom: 1px solid var(--rule);
     flex-shrink: 0;
     gap: 12px;
+    font: 13px/1.2 var(--sans);
   }
   .tl-end {
     display: flex;
@@ -815,121 +812,91 @@
     gap: 8px;
   }
   .tl-end-right { flex-direction: row-reverse; }
-  .tl-lbl {
-    font-family: 'Barlow', sans-serif;
-    font-size: 11px;
-    text-transform: uppercase;
-    letter-spacing: .06em;
-    white-space: nowrap;
-    color: var(--black);
-  }
+  .tl-lbl { font-size: 13px; white-space: nowrap; color: var(--ink); }
   .tl-ctrl {
     display: flex;
     align-items: center;
-    background: #fff;
-    border: 1px solid var(--lgray);
-    border-radius: 3px;
+    background: var(--bg);
+    border: 1px solid var(--ink);
     overflow: hidden;
   }
   .tl-btn {
     background: none;
     border: none;
-    padding: 0 8px;
-    height: 22px;
+    padding: 0 9px;
+    height: 26px;
     cursor: pointer;
-    font-size: 14px;
-    color: var(--black);
-    transition: background .1s, color .1s;
-    line-height: 1;
+    font: 15px/1 var(--sans);
+    color: var(--ink);
   }
-  .tl-btn:hover { background: var(--blue); color: #fff; }
+  .tl-btn:hover { background: var(--soft); }
   .tl-date {
-    font-family: 'Barlow', sans-serif;
-    font-weight: 600;
-    font-size: 11px;
-    color: var(--black);
-    padding: 0 6px;
-    border-left: 1px solid var(--lgray);
-    border-right: 1px solid var(--lgray);
+    font-size: 13px;
+    color: var(--ink);
+    padding: 0 8px;
+    border-left: 1px solid var(--rule);
+    border-right: 1px solid var(--rule);
     white-space: nowrap;
-    line-height: 22px;
+    line-height: 26px;
   }
   .tl-center {
     display: flex;
     align-items: center;
     gap: 8px;
   }
-  .tl-dur {
-    font-family: 'Barlow', sans-serif;
-    font-size: 11px;
-    text-transform: uppercase;
-    letter-spacing: .1em;
-    color: var(--black);
-    white-space: nowrap;
-  }
+  .tl-dur { font-size: 13px; color: var(--ink); white-space: nowrap; }
   .tl-shift {
     background: none;
     border: none;
-    font-size: 11px;
-    color: var(--black);
+    font: 11px/1 var(--sans);
+    color: var(--ink);
     cursor: pointer;
-    padding: 2px 4px;
-    transition: color .1s;
-    line-height: 1;
+    padding: 4px 4px;
   }
-  .tl-shift:hover { color: var(--blue); }
+  .tl-shift:hover { background: var(--soft); }
   .tl-fit {
-    background: #fff; border: 1px solid var(--lgray); border-radius: 3px; padding: 0 8px; height: 22px;
-    font-family: 'Barlow', sans-serif; font-weight: 600; font-size: 11px;
-    text-transform: uppercase; letter-spacing: .08em;
-    color: var(--black); cursor: pointer;
-    transition: color .1s; line-height: 1;
+    background: var(--bg); border: 1px solid var(--ink); border-radius: 0; padding: 0 10px; height: 28px;
+    font: 13px/1 var(--sans); color: var(--ink); cursor: pointer;
   }
-  .tl-fit:hover { color: var(--blue); border-color: var(--blue); }
-  .tl-fit-warn { color: var(--mag); border-color: var(--mag); }
+  .tl-fit:hover { background: var(--soft); }
+  .tl-fit-warn { color: var(--bad); border-color: var(--bad); }
 
   /* View options group (zoom + today toggle) */
   .view-opts {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 10px;
     margin-right: 10px;
   }
   .zoom-ctrl {
     display: flex;
-    background: #fff;
-    border: 1px solid var(--lgray);
-    border-radius: 3px;
+    background: var(--bg);
+    border: 1px solid var(--ink);
     overflow: hidden;
   }
   .zoom-btn {
-    background: none; border: none; border-right: 1px solid var(--lgray);
-    padding: 0 8px; height: 22px;
-    font-family: 'Barlow', sans-serif; font-weight: 600; font-size: 11px;
-    text-transform: uppercase; letter-spacing: .06em;
-    color: var(--black); cursor: pointer; transition: background .1s, color .1s;
-    line-height: 1;
+    background: none; border: none; border-right: 1px solid var(--rule);
+    padding: 0 10px; height: 26px;
+    font: 13px/1 var(--sans);
+    color: var(--ink); cursor: pointer;
   }
   .zoom-btn:last-child { border-right: none; }
-  .zoom-btn:hover:not(.zoom-active) { background: rgba(32,171,226,.08); color: var(--blue); }
-  .zoom-active { background: var(--blue); color: #fff; }
+  .zoom-btn:hover:not(.zoom-active) { background: var(--soft); }
+  .zoom-active { background: var(--ink); color: var(--bg); }
 
-  /* Today toggle — no button chrome, just a pip + label */
+  /* Today toggle — a dot and a label: filled when the line shows, hollow when it's hidden */
   .today-toggle {
     background: none; border: none; padding: 0;
-    display: flex; align-items: center; gap: 4px;
-    font-family: 'Barlow', sans-serif; font-weight: 600; font-size: 11px;
-    text-transform: uppercase; letter-spacing: .08em;
-    color: var(--black); cursor: pointer;
-    transition: color .15s;
+    display: flex; align-items: center; gap: 6px;
+    font: 13px/1 var(--sans);
+    color: var(--ink); cursor: pointer;
   }
-  .today-toggle:hover { color: var(--black); }
-  .today-toggle-on { color: var(--black); }
+  .today-toggle:hover { text-decoration: underline; text-underline-offset: 2px; }
   .today-pip {
-    width: 7px; height: 7px; border-radius: 50%;
-    background: currentColor; flex-shrink: 0;
-    transition: background .15s;
+    width: 8px; height: 8px; border-radius: 50%;
+    border: 1.5px solid currentColor; background: transparent; flex-shrink: 0;
   }
+  .today-toggle-on .today-pip { background: currentColor; }
 
   /* Body */
   .sch-body {

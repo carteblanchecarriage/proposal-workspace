@@ -8,11 +8,26 @@
   import Share from './pages/Share.svelte';
   import PrintPreview from './pages/PrintPreview.svelte';
   import SystemPrompt from './pages/SystemPrompt.svelte';
+  import { palette, options, cleanPalette, cleanOptions } from './lib/palette.js';
+  import { getScheduleStyle } from '../store';
 
   // The list and editor need every schedule loaded first (as the old app's layout did on start).
   let ready = $state(false);
   // Reloaded on each visit, so a schedule just made from a project page is there.
-  onMount(() => { projectStore.init(true).then(() => { ready = true; }); });
+  onMount(() => {
+    // The organization's schedule style, loaded before a schedule opens (the editor starts with its Today default).
+    // The print page instead uses the style handed over with the schedule (it may be the server's PDF browser, which
+    // isn't signed in).
+    const style = location.hash.startsWith('#schedule-print')
+      ? Promise.resolve()
+      : getScheduleStyle()
+          .then((s) => {
+            palette.set(cleanPalette(s.colors));
+            options.set(cleanOptions(s));
+          })
+          .catch(() => {});
+    Promise.all([projectStore.init(true), style]).then(() => { ready = true; });
+  });
 </script>
 
 {#if $route.view === 'print'}

@@ -1,5 +1,6 @@
 import { getClient, usageOf } from "./claude.js";
 import { SCHEDULE_PROMPT } from "./schedule-prompt.js";
+import { US_ENGLISH } from "./prompts.js";
 import type { Usage } from "./cost.js";
 
 // The Schedule Assistant, moved from the schedule maker. Same model and limits as before so its answers don't change.
@@ -12,7 +13,7 @@ export async function askScheduleAssistant(
   messages: { role: "user" | "assistant"; content: unknown }[],
   firm = "",
 ): Promise<{ text: string; usage: Usage }> {
-  const system = `${SCHEDULE_PROMPT}${firm ? `\n\n${firm}` : ""}
+  const system = `${SCHEDULE_PROMPT}\n\n${US_ENGLISH}${firm ? `\n\n${firm}` : ""}
 
 ## Current Project
 ${JSON.stringify(project ?? null, null, 2)}`;

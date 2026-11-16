@@ -41,7 +41,7 @@ export function confirmDelete(what: string): Promise<boolean> {
   return confirmModal({
     title: `Delete this ${what}?`,
     body: savesShared()
-      ? `It will be permanently removed from the database for everyone who uses this app. This can't be undone.`
+      ? `It will be permanently removed for everyone in your organization. This can't be undone.`
       : `It will be permanently removed from this browser. This can't be undone.`,
     confirm: "Delete",
     danger: true,

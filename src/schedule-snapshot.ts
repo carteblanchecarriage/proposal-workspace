@@ -1,7 +1,8 @@
 // A read-only snapshot of a schedule for the project page: task names, bars in the schedule's own colours, milestones
 // as diamonds, month marks and today. Drawn from the saved schedule, so it matches the schedule maker without loading it.
-import type { SavedSchedule } from "./store";
+import type { SavedSchedule, ScheduleStyle } from "./store";
 import { esc } from "./table";
+import { buildColorMap, fontStack, loadFont, paint } from "./schedule/lib/palette.js";
 
 type Task = { id?: number; name?: string; type?: string; start?: string; end?: string; date?: string; extraDates?: unknown; color?: string };
 /** A milestone row's marks: its date, then any more on the same line. */
@@ -22,8 +23,15 @@ const HEAD = 22;
 /** About how many characters of a task name fit the name column at the snapshot's type size. */
 const NAME_CHARS = 32;
 
-/** The snapshot, linked to the schedule; "" when the schedule has no dated tasks yet. */
-export function scheduleSnapshotHtml(s: SavedSchedule): string {
+/**
+ * The snapshot, linked to the schedule; "" when the schedule has no dated tasks yet. Drawn in the organization's
+ * schedule style (Colors and style, on the Schedule page): its colors, font and Today-line default.
+ */
+export function scheduleSnapshotHtml(s: SavedSchedule, style: ScheduleStyle = { colors: {} }): string {
+  const map = buildColorMap(style.colors);
+  const fill = (c: unknown) => paint(colour(c), map) as string;
+  loadFont(style.font);
+  const showToday = style.showToday !== false;
   const all = ((s.tasks as Task[] | undefined) ?? []).filter((t) => (t.type === "milestone" ? day(t.date) != null : day(t.start) != null && day(t.end) != null));
   if (!all.length) return "";
   const tasks = all.slice(0, MAX_ROWS);
@@ -68,12 +76,12 @@ export function scheduleSnapshotHtml(s: SavedSchedule): string {
       }
       const x0 = x(day(t.start)!);
       const x1 = Math.max(x(day(t.end)!), x0 + 3);
-      return `${name}<rect x="${x0}" y="${y + 4}" width="${x1 - x0}" height="${ROW - 8}" fill="${colour(t.color)}"><title>${esc(String(t.name ?? ""))}: ${esc(String(t.start))} to ${esc(String(t.end))}</title></rect>`;
+      return `${name}<rect x="${x0}" y="${y + 4}" width="${x1 - x0}" height="${ROW - 8}" fill="${esc(fill(t.color))}"><title>${esc(String(t.name ?? ""))}: ${esc(String(t.start))} to ${esc(String(t.end))}</title></rect>`;
     })
     .join("");
 
   return `<a class="schedule-snap" href="#schedule/${encodeURIComponent(s.id)}" aria-label="Open the schedule">
-    <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Schedule snapshot">
+    <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Schedule snapshot" style="font-family: ${esc(fontStack(style.font))}">
       <defs><clipPath id="${clipId}"><rect x="0" y="0" width="${NAME_W - 8}" height="${H}"/></clipPath></defs>
       ${months
         .map((m, i) => {
@@ -88,7 +96,7 @@ export function scheduleSnapshotHtml(s: SavedSchedule): string {
         })
         .join("")}
       ${rows}
-      ${today >= from && today <= to ? `<line class="snap-today" x1="${x(today)}" x2="${x(today)}" y1="${HEAD - 6}" y2="${H}"><title>Today</title></line>` : ""}
+      ${showToday && today >= from && today <= to ? `<line class="snap-today" x1="${x(today)}" x2="${x(today)}" y1="${HEAD - 6}" y2="${H}"><title>Today</title></line>` : ""}
     </svg>
     ${all.length > MAX_ROWS ? `<span class="note">and ${all.length - MAX_ROWS} more</span>` : ""}
   </a>`;

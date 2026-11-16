@@ -4,7 +4,7 @@ import { z } from "zod";
 import { costOf, type Usage } from "./cost.js";
 import { recordFile, recordUsage } from "./usage-hook.js";
 import { DISCIPLINES, toDisciplines } from "./disciplines.js";
-import { ADDENDUM_SYSTEM, CHAT_SYSTEM, CHECK_SYSTEM, COMPARE_SYSTEM, EXTRACT_SYSTEM, FEE_CHAT_SYSTEM, FEE_DRAFT_SYSTEM, FIT_CHECK_SYSTEM, OWN_PROPOSAL_SYSTEM, RFP_SYSTEM, SCHEDULE_DRAFT_SYSTEM, SUGGEST_SYSTEM } from "./prompts.js";
+import { ADDENDUM_SYSTEM, CHAT_SYSTEM, CHECK_SYSTEM, COMPARE_SYSTEM, EXTRACT_SYSTEM, FEE_CHAT_SYSTEM, FEE_DRAFT_SYSTEM, FIT_CHECK_SYSTEM, OWN_PROPOSAL_SYSTEM, RFP_SYSTEM, SCHEDULE_DRAFT_SYSTEM, SUGGEST_SYSTEM, US_ENGLISH, WEBSITE_SYSTEM } from "./prompts.js";
 
 export const MODEL = "claude-opus-5-5";
 
@@ -325,7 +325,7 @@ export function usageOf(msg: {
 export async function countPdfTokens(pdf: Buffer): Promise<number> {
   const res = await getClient().messages.countTokens({
     model: MODEL,
-    system: EXTRACT_SYSTEM,
+    system: withContext(EXTRACT_SYSTEM),
     messages: [
       {
         role: "user",
@@ -367,7 +367,7 @@ export async function extractProposal(pdf: Buffer, filename: string): Promise<{ 
   const file = { id: await uploadPdf(pdf, filename) };
   const stream = getClient().beta.messages.stream({
     ...BASE,
-    system: EXTRACT_SYSTEM,
+    system: withContext(EXTRACT_SYSTEM),
     output_config: { effort: "high", format: betaZodOutputFormat(ProposalSchema) },
     messages: [
       {
@@ -417,7 +417,8 @@ export async function compareProposals(
 
 /** Reads an RFP and its addenda (already uploaded via /api/upload) in one call. */
 /** The built-in instructions, then the firm's world view and past pursuits (see lib/worldview.ts) when there are any. */
-const withContext = (system: string, context: string) => (context.trim() ? `${system}\n\n${context.trim()}` : system);
+/** A feature's instructions, the shared spelling rule, then the firm's context (world view etc.) when there is any. */
+const withContext = (system: string, context = "") => [system, US_ENGLISH, context.trim()].filter(Boolean).join("\n\n");
 
 export async function reviewRfp(files: { file_id: string; filename: string }[], context = ""): Promise<{ rfp: Rfp; usage: Usage }> {
   const stream = getClient().beta.messages.stream({
@@ -525,7 +526,7 @@ export async function suggestWorldView(worldView: string, results: unknown[]): P
     .stream({
       ...BASE,
       max_tokens: 4000,
-      system: SUGGEST_SYSTEM,
+      system: withContext(SUGGEST_SYSTEM),
       output_config: { effort: "high" },
       messages: [
         {
@@ -539,13 +540,90 @@ export async function suggestWorldView(worldView: string, results: unknown[]): P
   return { text: textOf(msg), usage: usageOf(msg) };
 }
 
-/** About 150 words on what a proposal the firm submitted emphasised. */
+// ---------- World view from the firm's website ----------
+
+export const SiteDraftSchema = z.object({
+  whoWeAre: z.string().max(2000),
+  goodPursuit: z.string().max(2000),
+  pagesRead: z.array(z.string().max(500)).max(20),
+  notes: z.string().max(1000),
+});
+export type SiteDraft = z.infer<typeof SiteDraftSchema>;
+
+/** A web address someone typed, as an https URL of a public website; throws a readable error otherwise. */
+export function firmSiteUrl(typed: string): URL {
+  let u: URL;
+  try {
+    u = new URL(/^https?:\/\//i.test(typed.trim()) ? typed.trim() : `https://${typed.trim()}`);
+  } catch {
+    throw new UserFacingError("That doesn't look like a web address.");
+  }
+  const host = u.hostname.toLowerCase();
+  // A public site only: a named host with a real top-level domain, never an IP address or an internal name.
+  if (!["https:", "http:"].includes(u.protocol) || !/^[a-z0-9-]+(\.[a-z0-9-]+)*\.[a-z]{2,}$/.test(host) || /^(localhost|.*\.local|.*\.internal)$/.test(host)) {
+    throw new UserFacingError("Enter your firm's public website, e.g. yourfirm.com.");
+  }
+  return u;
+}
+
+/**
+ * Reads the firm's website and drafts "Who we are" and "What makes a good pursuit". Claude fetches the pages itself
+ * (Anthropic's web fetch tool, limited to the firm's own domain), so this server never requests the address.
+ */
+export async function draftWorldViewFromSite(site: URL): Promise<{ draft: SiteDraft; usage: Usage }> {
+  const domain = site.hostname.replace(/^www\./, "");
+  const tools: Anthropic.Beta.BetaToolUnion[] = [
+    { type: "web_fetch_20260209", name: "web_fetch", allowed_domains: [domain], max_uses: 6, max_content_tokens: 30_000 },
+  ];
+  const messages: Anthropic.Beta.BetaMessageParam[] = [{ role: "user", content: `Our firm's website: ${site.href}` }];
+  const usages: Usage[] = [];
+  let msg: Anthropic.Beta.BetaMessage | undefined;
+  // Fetching runs in a server-side loop that can pause (stop_reason "pause_turn"); sending the turn back resumes it.
+  for (let round = 0; round < 4; round++) {
+    msg = await getClient()
+      .beta.messages.stream({ ...BASE, max_tokens: 16000, system: withContext(WEBSITE_SYSTEM), output_config: { effort: "medium" }, tools, messages })
+      .finalMessage();
+    usages.push(usageOf(msg));
+    if (msg.stop_reason !== "pause_turn") break;
+    messages.push({ role: "assistant", content: msg.content });
+  }
+  checkStop(msg!);
+  if (msg!.stop_reason === "pause_turn") throw new UserFacingError("Reading the website took too long. Try again, or enter a more specific page.", 504);
+  // The answer ends with a JSON object; take the last one that starts with "whoWeAre" (any text before it may contain
+  // braces of its own), and check its shape.
+  const text = textOf(msg!);
+  const start = [...text.matchAll(/\{\s*"whoWeAre"/g)].at(-1)?.index ?? -1;
+  const json = start >= 0 ? text.slice(start, text.lastIndexOf("}") + 1) : "";
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(json);
+  } catch {
+    throw new UserFacingError("Couldn't read a draft from the website. Try again.", 502);
+  }
+  const draft = SiteDraftSchema.safeParse(parsed);
+  if (!draft.success) throw new UserFacingError("Couldn't read a draft from the website. Try again.", 502);
+  // One cost for the whole draft (each round was also recorded against the organization as it ran).
+  const total = usages.reduce(
+    (a, u) => ({
+      model: u.model,
+      input_tokens: a.input_tokens + u.input_tokens,
+      output_tokens: a.output_tokens + u.output_tokens,
+      cache_write_tokens: a.cache_write_tokens + u.cache_write_tokens,
+      cache_read_tokens: a.cache_read_tokens + u.cache_read_tokens,
+      cost_usd: a.cost_usd == null || u.cost_usd == null ? null : a.cost_usd + u.cost_usd,
+    }),
+    { model: MODEL, input_tokens: 0, output_tokens: 0, cache_write_tokens: 0, cache_read_tokens: 0, cost_usd: 0 } as Usage,
+  );
+  return { draft: draft.data, usage: total };
+}
+
+/** About 150 words on what a proposal the firm submitted emphasized. */
 export async function summarizeOwnProposal(fileId: string, filename: string): Promise<{ summary: string; usage: Usage }> {
   const msg = await getClient().beta.messages
     .stream({
       ...BASE,
       max_tokens: 2000,
-      system: OWN_PROPOSAL_SYSTEM,
+      system: withContext(OWN_PROPOSAL_SYSTEM),
       output_config: { effort: "medium" },
       messages: [
         {

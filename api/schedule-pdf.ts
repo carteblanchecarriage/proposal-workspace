@@ -12,6 +12,10 @@ const Body = z.object({
   showToday: z.boolean(),
   showLegend: z.boolean(),
   filename: z.string().max(200).default("Schedule"),
+  /** the organization's schedule colors, by category (src/schedule/lib/palette.js) */
+  palette: z.record(z.enum(["design", "review", "hold", "construction", "permit", "other", "deliverable", "milestone", "estimate", "approval"]), z.string().regex(/^#[0-9a-fA-F]{6}$/)).optional(),
+  /** the organization's schedule font */
+  font: z.enum(["barlow", "inter", "roboto", "lora"]).optional(),
 });
 
 async function handle(request: Request): Promise<Response> {
@@ -19,13 +23,15 @@ async function handle(request: Request): Promise<Response> {
     if (Number(request.headers.get("content-length") ?? 0) > MAX_BODY) throw new UserFacingError("That schedule is too large to print.", 413);
     const parsed = Body.safeParse(await request.json().catch(() => null));
     if (!parsed.success) throw new UserFacingError("Invalid PDF request.");
-    const { schedule, paper, showToday, showLegend, filename } = parsed.data;
+    const { schedule, paper, showToday, showLegend, filename, palette, font } = parsed.data;
     const pdf = await schedulePdf({
       origin: appOrigin(request),
       schedule,
       paper: paper as Paper,
       showToday,
       showLegend,
+      palette: palette ?? {},
+      font: font ?? "barlow",
     });
     const safeName = filename.replace(/[^\w .()-]+/g, "_").slice(0, 120) || "Schedule";
     return new Response(Buffer.from(pdf), {

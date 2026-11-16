@@ -7,7 +7,7 @@ import { DISCIPLINES } from "../../lib/disciplines";
 import { DEFAULT_PHASES, DEFAULT_SECTIONS, type Pursuit, type WorldView } from "../../lib/worldview";
 import { DEFAULT_ROLES, TEMPLATES, templatePhases } from "../fee-templates";
 import { createMediumTemplate } from "../schedule/lib/data/sample.js";
-import type { SavedComparison, SavedConsultant, SavedFee, SavedProject, SavedRfp, SavedSchedule } from "../store";
+import type { CallSource, SavedComparison, SavedConsultant, SavedFee, SavedProject, SavedRfp, SavedSchedule } from "../store";
 import type { Sourced } from "../table";
 
 const DAY = 24 * 60 * 60 * 1000;
@@ -463,6 +463,40 @@ function fee(): SavedFee {
   };
 }
 
+// ---------- Open Calls sources: public agencies around Cleveland, OH (real sites, for the demo) ----------
+
+const callSources: CallSource[] = [
+  { id: "demo-src-1", code: "CLE", name: "City of Cleveland", scope: "City departments' RFPs and RFQs for professional services, posted on the city's procurement portal.", url: "https://procurement.opengov.com/portal/clevelandoh" },
+  { id: "demo-src-2", code: "CCPW", name: "Cuyahoga County Public Works", scope: "County buildings, roads and bridges. Open and upcoming bids, including design-build.", url: "https://www.cuyahogacounty.gov/publicworks/work-with-us/open-and-upcoming-bids" },
+  { id: "demo-src-3", code: "CMSD", name: "Cleveland Metropolitan School District", scope: "School renovations, new construction and architect/engineer qualifications.", url: "https://www.clevelandmetroschools.org" },
+  { id: "demo-src-4", code: "CSU", name: "Cleveland State University", scope: "Campus bids and proposals from the university's purchasing office.", url: "https://csuohio.edu/purchasing/bids-proposals" },
+  { id: "demo-src-5", code: "TRI-C", name: "Cuyahoga Community College", scope: "Tri-C procurement: how the college buys, and its open solicitations.", url: "https://www.tri-c.edu/administrative-departments/procurement/how-we-buy.html" },
+  { id: "demo-src-6", code: "METROPARKS", name: "Cleveland Metroparks", scope: "Park district bids and proposals: facilities, trails, the zoo and the lakefront.", url: "https://www.clevelandmetroparks.com/about/cleveland-metroparks-organization/finance-reports/purchasing-bid-information/bidding-procedures" },
+  { id: "demo-src-7", code: "OFCC", name: "Ohio Facilities Construction Commission", scope: "State of Ohio. Architect/engineer and construction manager RFQs for state and university projects.", url: "https://ofcc.ohio.gov" },
+];
+
+// ---------- Schedule colors and font: the demo firm's own look (not any real firm's) ----------
+
+const scheduleStyle = {
+  id: "schedule-style",
+  savedAt: now - 30 * DAY,
+  colors: {
+    // Every color different, so each kind of task and badge reads on its own.
+    design: "#E26D5C", // Vibrant Coral
+    review: "#C9CBA3", // Dry Sage
+    hold: "#7A9E9F", // Muted Teal
+    construction: "#723D46", // Wine Plum
+    permit: "#FFE1A8", // Soft Peach
+    other: "#472D30", // Mauve Shadow
+    deliverable: "#C8963E", // Ochre
+    milestone: "#5C5F38", // Deep Olive
+    estimate: "#5E6B8A", // Slate Blue
+    approval: "#B5838D", // Dusty Rose
+  },
+  font: "inter",
+  showToday: true,
+};
+
 // ---------- Everything, by table ----------
 
 export function demoSeed() {
@@ -490,7 +524,7 @@ export function demoSeed() {
     consultants,
     schedules: [schedule()],
     fees: [fee()],
-    settings: [worldView],
+    settings: [worldView, { id: "open-calls", savedAt: now - 10 * DAY, sources: callSources }, scheduleStyle],
     pursuits,
   };
 }

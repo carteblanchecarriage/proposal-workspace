@@ -1,5 +1,5 @@
 import { assertOwnFiles, route } from "../lib/auth.js";
-import { applyAddendum, cleanupOldFiles, errorResponse, fitCheck, reviewRfp, suggestWorldView, UserFacingError } from "../lib/claude.js";
+import { applyAddendum, cleanupOldFiles, draftWorldViewFromSite, errorResponse, firmSiteUrl, fitCheck, reviewRfp, suggestWorldView, UserFacingError } from "../lib/claude.js";
 import { firmContext, sectionsText } from "../lib/worldview.js";
 import { z } from "zod";
 
@@ -47,6 +47,12 @@ async function handle(request: Request): Promise<Response> {
       const p = FitCheck.safeParse(body);
       if (!p.success) throw new UserFacingError("Invalid check request.");
       return Response.json(await fitCheck(p.data.rfp, firmContext(p.data.worldView, p.data.pursuits)));
+    }
+    if (action === "from-site") {
+      // Drafts "Who we are" and "What makes a good pursuit" from the firm's website (World view page).
+      const site = typeof (body as { url?: unknown })?.url === "string" ? (body as { url: string }).url : "";
+      if (!site || site.length > 300) throw new UserFacingError("Enter your firm's website.");
+      return Response.json(await draftWorldViewFromSite(firmSiteUrl(site)));
     }
     if (action === "suggest") {
       const p = Suggest.safeParse(body);
