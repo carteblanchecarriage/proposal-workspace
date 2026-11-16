@@ -1,6 +1,6 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import type { Usage } from "./cost.js";
-import { setUsageHook } from "./usage-hook.js";
+import { setFileHook, setUsageHook } from "./usage-hook.js";
 
 /**
  * Who a request is for, available anywhere while it's handled (set by route() in lib/auth.ts). Lets deep code (the
@@ -25,6 +25,17 @@ type UsageSink = (ctx: RequestContext, usage: Usage) => Promise<unknown>;
 let sink: UsageSink | null = null;
 /** Set by lib/auth.ts, which knows where usage is stored (kept separate so lib/claude.ts needn't import the db). */
 export const setUsageSink = (fn: UsageSink) => (sink = fn);
+
+type FileSink = (ctx: RequestContext, fileId: string) => Promise<unknown>;
+let fileSink: FileSink | null = null;
+/** Set by lib/auth.ts: where an uploaded PDF's owner is recorded. */
+export const setFileSink = (fn: FileSink) => (fileSink = fn);
+
+// Every PDF uploaded to Anthropic (lib/claude.ts → uploadPdf) is recorded as the request's organization's.
+setFileHook(async (fileId) => {
+  const ctx = store.getStore();
+  if (ctx?.orgId && fileSink) await fileSink(ctx, fileId);
+});
 
 // Every Claude response (lib/claude.ts → usageOf) charges its tokens to the request's organization.
 setUsageHook((usage: Usage) => {

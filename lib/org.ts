@@ -88,6 +88,9 @@ export async function deleteOrg(org: string, user: string | null, typedName: str
   const fileIds = new Set<string>();
   for (const c of cmps as { proposals?: { file_id?: string }[] }[]) for (const p of c.proposals ?? []) if (p.file_id) fileIds.add(p.file_id);
   for (const r of readings as { file_id?: string }[]) if (r.file_id) fileIds.add(r.file_id);
+  // Every PDF the organization uploaded, including any no saved record points to.
+  const uploaded = await query<{ file_id: string }[]>(`org_files?select=file_id&org_id=eq.${q(org)}&limit=10000`).catch(() => []);
+  for (const f of uploaded) fileIds.add(f.file_id);
   if (fileIds.size && process.env.ANTHROPIC_API_KEY) {
     await Promise.allSettled([...fileIds].map((id) => getClient().files.delete(id)));
   }

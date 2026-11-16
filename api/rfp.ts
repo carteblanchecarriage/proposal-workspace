@@ -1,4 +1,4 @@
-import { route } from "../lib/auth.js";
+import { assertOwnFiles, route } from "../lib/auth.js";
 import { applyAddendum, cleanupOldFiles, errorResponse, fitCheck, reviewRfp, suggestWorldView, UserFacingError } from "../lib/claude.js";
 import { firmContext, sectionsText } from "../lib/worldview.js";
 import { z } from "zod";
@@ -40,6 +40,7 @@ async function handle(request: Request): Promise<Response> {
       const p = Addendum.safeParse(body);
       if (!p.success) throw new UserFacingError("Invalid addendum request.");
       const context = [firmContext(p.data.worldView, p.data.pursuits), sectionsText(p.data.sections)].filter(Boolean).join("\n\n");
+      await assertOwnFiles(p.data.files.map((f) => f.file_id));
       return Response.json(await applyAddendum(p.data.files, p.data.rfp, p.data.number, context));
     }
     if (action === "fit-check") {
@@ -55,6 +56,7 @@ async function handle(request: Request): Promise<Response> {
 
     const p = Review.safeParse(body);
     if (!p.success) throw new UserFacingError("Invalid RFP request.");
+    await assertOwnFiles(p.data.files.map((f) => f.file_id));
     const [result] = await Promise.all([reviewRfp(p.data.files, [firmContext(p.data.worldView, p.data.pursuits), sectionsText(p.data.sections)].filter(Boolean).join("\n\n")), cleanupOldFiles()]);
     return Response.json(result);
   } catch (err) {

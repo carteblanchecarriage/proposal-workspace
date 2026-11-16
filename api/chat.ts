@@ -1,4 +1,4 @@
-import { route } from "../lib/auth.js";
+import { assertOwnFiles, route } from "../lib/auth.js";
 import { chat, ComparisonSchema, errorResponse, ProposalSchema, UserFacingError } from "../lib/claude.js";
 import { worldViewContext } from "../lib/worldview-server.js";
 import { z } from "zod";
@@ -20,6 +20,8 @@ async function handle(request: Request): Promise<Response> {
     const parsed = Body.safeParse(await request.json().catch(() => null));
     if (!parsed.success) throw new UserFacingError("Invalid chat request.");
     const { proposals, comparison, projectName, turns } = parsed.data;
+    // Only PDFs this organization uploaded (410, like an expired file, offers "Re-attach PDFs").
+    await assertOwnFiles(proposals.map((p) => p.file_id));
     return Response.json(await chat(proposals, comparison, projectName, turns, await worldViewContext()));
   } catch (err) {
     return errorResponse(err);

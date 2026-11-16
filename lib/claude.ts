@@ -2,7 +2,7 @@ import Anthropic, { toFile } from "@anthropic-ai/sdk";
 import { betaZodOutputFormat } from "@anthropic-ai/sdk/helpers/beta/zod";
 import { z } from "zod";
 import { costOf, type Usage } from "./cost.js";
-import { recordUsage } from "./usage-hook.js";
+import { recordFile, recordUsage } from "./usage-hook.js";
 import { DISCIPLINES, toDisciplines } from "./disciplines.js";
 import { ADDENDUM_SYSTEM, CHAT_SYSTEM, CHECK_SYSTEM, COMPARE_SYSTEM, EXTRACT_SYSTEM, FEE_CHAT_SYSTEM, FEE_DRAFT_SYSTEM, FIT_CHECK_SYSTEM, OWN_PROPOSAL_SYSTEM, RFP_SYSTEM, SCHEDULE_DRAFT_SYSTEM, SUGGEST_SYSTEM } from "./prompts.js";
 
@@ -358,6 +358,8 @@ export async function uploadPdf(pdf: Buffer, filename: string): Promise<string> 
   const file = await getClient().files.upload({
     file: await toFile(pdf, FILE_PREFIX + filename, { type: "application/pdf" }),
   });
+  // Recorded as the uploading organization's, so only it can use this file id later.
+  await recordFile(file.id);
   return file.id;
 }
 

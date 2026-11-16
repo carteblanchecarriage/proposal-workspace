@@ -1,4 +1,4 @@
-import { route } from "../lib/auth.js";
+import { assertOwnFiles, route } from "../lib/auth.js";
 import { extractProposal, errorResponse, summarizeOwnProposal, UserFacingError } from "../lib/claude.js";
 
 // Reads a proposal PDF. Body is the raw PDF bytes; filename comes in a header.
@@ -10,6 +10,7 @@ async function handle(request: Request): Promise<Response> {
       const body = (await request.json().catch(() => null)) as { file_id?: unknown; filename?: unknown } | null;
       if (typeof body?.file_id !== "string" || !/^[\w-]{1,200}$/.test(body.file_id)) throw new UserFacingError("Invalid request.");
       const filename = typeof body.filename === "string" ? body.filename.slice(0, 200) : "proposal.pdf";
+      await assertOwnFiles([body.file_id]);
       return Response.json(await summarizeOwnProposal(body.file_id, filename));
     }
     const filename = decodeURIComponent(request.headers.get("x-filename") ?? "proposal.pdf");

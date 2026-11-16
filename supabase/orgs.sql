@@ -1,4 +1,5 @@
--- Organizations: run once in Supabase → SQL Editor, AFTER schema.sql. Safe to re-run.
+-- Organizations: run once in Supabase → SQL Editor, AFTER schema.sql. Safe to re-run, but once domain-join.sql has
+-- run there's no need: a re-run only adds back an older, unused ensure_org (org-files.sql removes it).
 -- Every record belongs to one organization; the server only reads and writes the signed-in person's organization.
 -- Existing records (from before organizations) all go into one organization, "My organization".
 
@@ -48,16 +49,28 @@ declare
   legacy uuid;
   t text;
   k text;
+  orphans boolean := false;
+  n bigint;
 begin
-  select id into legacy from organizations where name = 'My organization' order by created_at limit 1;
-  if legacy is null then
-    insert into organizations (name, ai_monthly_limit_usd, plan) values ('My organization', null, 'owner') returning id into legacy;
+  -- Only make "My organization" when some record has no organization yet (the first run). Re-running after the
+  -- organization was renamed must not make an empty one.
+  foreach t in array array['rfp_reviews','comparisons','readings','projects','consultants','schedules','fees','settings','pursuits'] loop
+    execute format('alter table %I add column if not exists org_id uuid references organizations on delete cascade', t);
+    execute format('select count(*) from %I where org_id is null', t) into n;
+    if n > 0 then orphans := true; end if;
+  end loop;
+  if orphans then
+    select id into legacy from organizations where name = 'My organization' order by created_at limit 1;
+    if legacy is null then
+      insert into organizations (name, ai_monthly_limit_usd, plan) values ('My organization', null, 'owner') returning id into legacy;
+    end if;
   end if;
 
   foreach t in array array['rfp_reviews','comparisons','readings','projects','consultants','schedules','fees','settings','pursuits'] loop
     k := case when t = 'readings' then 'hash' else 'id' end;
-    execute format('alter table %I add column if not exists org_id uuid references organizations on delete cascade', t);
-    execute format('update %I set org_id = %L where org_id is null', t, legacy);
+    if legacy is not null then
+      execute format('update %I set org_id = %L where org_id is null', t, legacy);
+    end if;
     execute format('alter table %I alter column org_id set not null', t);
     -- The key becomes (org_id, id): two organizations can never collide or overwrite each other's records.
     execute format('alter table %I drop constraint if exists %I', t, t || '_pkey');

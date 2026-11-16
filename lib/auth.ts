@@ -1,6 +1,6 @@
 import { errorResponse, UserFacingError } from "./claude.js";
-import { requestContext, runWithContext, setUsageSink, type RequestContext } from "./context.js";
-import { dbConfigured, insertRow, rpc } from "./db.js";
+import { requestContext, runWithContext, setFileSink, setUsageSink, type RequestContext } from "./context.js";
+import { dbConfigured, insertRow, query, rpc } from "./db.js";
 
 /**
  * Supabase Auth + organizations. The browser signs in with Supabase and sends its access token as
@@ -82,6 +82,26 @@ async function orgFor(user: AuthUser, fresh: boolean): Promise<Org> {
   if (orgs.size > 1000) orgs.clear();
   orgs.set(user.id, { org, until: now + ORG_MS });
   return org;
+}
+
+setFileSink((ctx, fileId) => insertRow("org_files", { file_id: fileId, org_id: ctx.orgId }));
+
+/**
+ * Refuses file ids (PDFs held at Anthropic) that the request's organization didn't upload. 410 like an expired file,
+ * so the chat offers "Re-attach PDFs". Skipped when login is off (local dev).
+ */
+export async function assertOwnFiles(fileIds: string[]): Promise<void> {
+  const org = currentOrgId();
+  if (!org) return;
+  const ids = [...new Set(fileIds)];
+  if (!ids.length) return;
+  if (ids.some((id) => !/^file_[A-Za-z0-9_-]{1,200}$/.test(id))) throw new UserFacingError("Invalid file.");
+  const owned = await query<{ file_id: string }[]>(
+    `org_files?select=file_id&org_id=eq.${encodeURIComponent(org)}&file_id=in.(${ids.map((id) => `"${id}"`).join(",")})`,
+  );
+  if (owned.length !== ids.length) {
+    throw new UserFacingError("The source PDFs aren't available anymore. Re-attach them (or add them again) and retry.", 410);
+  }
 }
 
 /** After renaming or deleting an organization: forget the cached copies on this server, so the change shows at once. */
