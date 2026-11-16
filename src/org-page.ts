@@ -28,9 +28,12 @@ const usd = (n: number) => `$${n.toLocaleString("en-US", { minimumFractionDigits
 const orgAction = <T>(action: string, body: object = {}) => post<T>("/api/auth", JSON.stringify(body), { "content-type": "application/json", "x-action": action });
 
 let info: Info | null = null;
+/** The name's edit box is open. */
+let editingName = false;
 
 export async function showOrg() {
   const page = $("org-page");
+  editingName = false;
   if (isDemo()) {
     page.innerHTML = `
       <h1 class="headline">Demo Architects</h1>
@@ -88,9 +91,11 @@ function render() {
     <div class="block">
       <h2 class="label">Name</h2>
       ${
-        owner
-          ? `<form id="org-rename" class="org-row"><input id="org-name-input" type="text" maxlength="120" value="${esc(info.name)}" aria-label="Organization name" /><button class="btn" type="submit">Save</button><span class="status" id="org-rename-status"></span></form>`
-          : `<p>${esc(info.name)} <span class="org-muted">(the owner can change it)</span></p>`
+        !owner
+          ? `<p>${esc(info.name)} <span class="org-muted">(the owner can change it)</span></p>`
+          : editingName
+            ? `<form id="org-rename" class="org-row"><input id="org-name-input" type="text" maxlength="120" value="${esc(info.name)}" aria-label="Organization name" /><button class="btn primary" type="submit">Save</button><button class="btn" type="button" id="org-rename-cancel">Cancel</button><span class="status" id="org-rename-status"></span></form>`
+            : `<p>${esc(info.name)} <button class="link edit-link" type="button" id="org-rename-edit">Edit</button></p>`
       }
     </div>
 
@@ -130,17 +135,36 @@ function render() {
         : ""
     }`;
 
+  // The name reads as text; Edit opens a box with Save and Cancel (Escape cancels too), so nothing changes by accident.
+  $("org-rename-edit")?.addEventListener("click", () => {
+    editingName = true;
+    render();
+    const box = $<HTMLInputElement>("org-name-input");
+    box.focus();
+    box.select();
+  });
+  const stopEditing = () => {
+    editingName = false;
+    render();
+  };
+  $("org-rename-cancel")?.addEventListener("click", stopEditing);
+  $("org-name-input")?.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") stopEditing();
+  });
   $("org-rename")?.addEventListener("submit", async (e) => {
     e.preventDefault();
     const status = $("org-rename-status");
     const name = $<HTMLInputElement>("org-name-input").value.trim();
-    if (!name || name === info!.name) return;
+    if (!name) return;
+    if (name === info!.name) return stopEditing();
+    status.classList.remove("error");
     status.textContent = "Saving…";
     try {
       await orgAction("org-rename", { name });
       info!.name = name;
       setOrgName(name);
       $("org-name").textContent = name;
+      editingName = false;
       render();
     } catch (err) {
       status.textContent = (err as Error).message;

@@ -801,6 +801,13 @@ table.outline { table-layout: auto; }
 /* The top bar offers one button: Request access while invite-only, otherwise Try the demo. */
 .invite-only .landing-bar .bar-demo { display: none; }
 
+/* Landing footer, the app footer's links, and the sign-in form's legal line. */
+.landing-foot { max-width: 1120px; margin: 48px auto 0; padding-top: 16px; border-top: 1px solid var(--rule); display: flex; flex-wrap: wrap; gap: 8px 20px; font-size: 13px; }
+.landing-foot a, .gate-legal a { color: var(--ink); text-underline-offset: 2px; }
+footer.site .foot-links { display: block; margin-top: 4px; }
+footer.site a { color: #fff; text-underline-offset: 2px; }
+.gate .gate-legal { font-size: 12px; margin: 0; }
+
 /* The demo banner, under the site header while the demo is on. */
 .demo-banner { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding: 10px 32px; background: var(--site-blue); color: #fff; font-size: 14px; }
 .demo-banner[hidden] { display: none; }

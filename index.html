@@ -5,13 +5,30 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Proposal Workspace</title>
     <meta name="description" content="Proposal tools for architecture firms: level your consultants' fees, read RFPs, and build your fee and schedule in one shared project." />
-    <!-- With a saved sign-in (or a sign-in link's ?code=), the gate stays blank while it's checked, so the form doesn't flash on every load. -->
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <meta name="theme-color" content="#111111" />
+    <link rel="canonical" href="%SITE_URL%/" />
+    <!-- Link previews (texts, email, LinkedIn, Slack). %SITE_URL% is filled in at build time (site-files-plugin.ts). -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Proposal Workspace" />
+    <meta property="og:title" content="Proposal Workspace: Really Fast Proposals" />
+    <meta property="og:description" content="For architecture firms: level your consultants' fees side by side, read the owner's RFP, and build your fee and schedule in one shared project." />
+    <meta property="og:url" content="%SITE_URL%/" />
+    <meta property="og:image" content="%SITE_URL%/og-image.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="Proposal Workspace: Really Fast Proposals. For architecture firms." />
+    <meta name="twitter:card" content="summary_large_image" />
+    <!-- The sign-in form stays blank until the page knows what to show (the app, the landing page, or the form, and
+         whether sign-ups are invite-only), so it never flashes on load. main.ts removes the class once it decides. -->
     <script>
-      try {
-        if (/[?&]code=/.test(location.search) || location.hash.startsWith("#schedule-print") || Object.keys(localStorage).some((k) => /^sb-.*-auth-token$/.test(k)))
-          document.documentElement.classList.add("gate-checking");
-      } catch {}
+      document.documentElement.classList.add("gate-checking");
     </script>
+    <!-- The same rule as in style.css, here so it applies before the stylesheet arrives. -->
+    <style>
+      .gate-checking .gate form { visibility: hidden; }
+    </style>
     <link rel="stylesheet" href="/src/style.css" />
   </head>
   <body>
@@ -36,6 +53,7 @@
           <button class="link" type="button" data-show="signup" data-go="signin">Have an account? Sign in</button>
         </div>
         <span id="gate-error" class="status error"></span>
+        <p class="gate-legal">By signing in, you agree to the <a href="/terms">Terms of Service</a> and <a href="/privacy">Privacy Policy</a>.</p>
       </form>
     </div>
 
@@ -203,10 +221,16 @@
         </div>
         <p class="landing-note invite-note">Accounts are invite only for now. Request access and we'll email you an invite.</p>
       </section>
+
+      <footer class="landing-foot">
+        <span>© <span data-year>2026</span> Proposal Workspace, LLC</span>
+        <a href="/privacy">Privacy Policy</a>
+        <a href="/terms">Terms of Service</a>
+      </footer>
     </div>
 
     <header class="site">
-      <a class="mark" href="/">Proposal Workspace</a>
+      <a class="mark" href="#project">Proposal Workspace</a>
       <nav class="tabs">
         <a href="#project" data-tab="project">Projects</a>
         <a href="#calls" data-tab="calls">Open Calls</a>
@@ -394,6 +418,7 @@
 
     <footer class="site">
       This site is in development, so features and how they work may change.
+      <span class="foot-links">© <span data-year>2026</span> Proposal Workspace, LLC · <a href="/privacy">Privacy</a> · <a href="/terms">Terms</a></span>
     </footer>
 
     <div id="feedback" class="feedback">

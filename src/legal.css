@@ -1,0 +1,37 @@
+/* The Privacy, Terms and 404 pages: plain reading pages in the site's look. */
+:root {
+  --ink: #111;
+  --rule: #e2e2e2;
+  --soft: #f6f6f4;
+  --bg: #fff;
+  --site-blue: #2f5bd3;
+  --sans: "Inter Variable", "Helvetica Neue", Arial, sans-serif;
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.6 var(--sans); min-height: 100vh; display: flex; flex-direction: column; }
+a { color: var(--ink); text-underline-offset: 2px; }
+a:hover { text-decoration-thickness: 2px; }
+
+.legal-bar { padding: 20px 32px; border-bottom: 1px solid var(--ink); }
+.legal-bar .mark { font-weight: 700; text-decoration: none; }
+
+.legal { flex: 1; width: 100%; max-width: 760px; margin: 0 auto; padding: 48px 32px 64px; }
+.legal h1 { font-size: clamp(32px, 5vw, 48px); font-weight: 800; letter-spacing: -0.02em; line-height: 1.05; margin: 0 0 8px; }
+.legal-meta { font-size: 13px; margin: 0 0 32px; }
+.legal h2 { font-size: 20px; font-weight: 700; margin: 40px 0 12px; padding-bottom: 6px; border-bottom: 1.5px solid var(--ink); }
+.legal p, .legal li { max-width: 68ch; }
+.legal ul { padding-left: 20px; }
+.legal li { margin: 6px 0; }
+
+.legal-404 { display: flex; flex-direction: column; justify-content: center; }
+.legal-btn { display: inline-block; padding: 8px 18px; background: var(--ink); color: var(--bg); text-decoration: none; font-size: 14px; }
+.legal-btn:hover { background: #333; }
+
+.legal-foot { display: flex; flex-wrap: wrap; gap: 8px 20px; padding: 14px 32px; background: var(--site-blue); color: #fff; font-size: 12px; }
+.legal-foot a { color: #fff; }
+
+@media (max-width: 640px) {
+  .legal-bar, .legal, .legal-foot { padding-left: 16px; padding-right: 16px; }
+  .legal { padding-top: 32px; }
+}

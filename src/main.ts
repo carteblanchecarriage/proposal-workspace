@@ -17,6 +17,11 @@ import {
 } from "./store";
 import { post, setDemoBlockedHandler, setUnauthorizedHandler } from "./api";
 import { setOrgName } from "./org";
+import { startAnalytics } from "./analytics";
+
+// The current year in the footers; cookie-free page-view analytics (src/analytics.ts).
+document.querySelectorAll("[data-year]").forEach((el) => (el.textContent = String(new Date().getFullYear())));
+startAnalytics();
 import { authEnabled, currentEmail, hasSession, initAuth, isInviteOnly, isRecovering, sendPasswordReset, sendSignInLink, setNewPassword, signInWithPassword, signOut, signUp } from "./auth";
 import { confirmDelete, confirmModal, formModal, noticeModal } from "./modal";
 import { getCurrentRfp, initRfp, openRfp, showRfpStart } from "./rfp";
@@ -820,10 +825,29 @@ function setGateMessage(text: string, isError = true) {
 }
 
 /** Asks the server whether this browser's sign-in is good (or that none is needed); it also makes a new account's organization. */
-async function signedIn(): Promise<boolean> {
-  me = await post<Me>("/api/auth", "", {}).catch(() => null);
-  setOrgName(me?.org?.name);
-  return me?.ok === true;
+/**
+ * Asks the server whether this browser's sign-in is good. "no" only when the server says so (401/403); "error" when
+ * it couldn't answer (a cold start, a timeout, a network blip), which must never be mistaken for being signed out.
+ */
+async function signedIn(): Promise<"ok" | "no" | "error"> {
+  try {
+    me = await post<Me>("/api/auth", "", {});
+    setOrgName(me?.org?.name);
+    return me?.ok ? "ok" : "error";
+  } catch (err) {
+    const status = (err as { status?: number }).status;
+    return status === 401 || status === 403 ? "no" : "error";
+  }
+}
+
+/** On page load with a saved sign-in: retries a server that couldn't answer, before giving up. */
+async function confirmSignIn(): Promise<"ok" | "no" | "error"> {
+  for (const wait of [0, 800, 2000, 4000]) {
+    if (wait) await new Promise((r) => setTimeout(r, wait));
+    const result = await signedIn();
+    if (result !== "error") return result;
+  }
+  return "error";
 }
 
 async function enter() {
@@ -884,7 +908,7 @@ gateForm.addEventListener("submit", async (e) => {
       }
       gatePassword.value = "";
     }
-    if (await signedIn()) enter();
+    if ((await signedIn()) === "ok") enter();
     else setGateMessage("This account doesn't have access.");
   } finally {
     gateSubmit.disabled = false;
@@ -924,7 +948,15 @@ signoutBtn.addEventListener("click", async () => {
     document.documentElement.classList.toggle("invite-only", isInviteOnly());
     // Opened from a password-reset email: choose a new password before going in.
     if (isRecovering()) return showGate("reset");
-    if ((!loginOn || hasSession()) && (await signedIn())) return enter();
+    if (!loginOn || hasSession()) {
+      const result = await confirmSignIn();
+      if (result === "ok") return enter();
+      if (result === "error") {
+        // Signed in, but the server couldn't confirm it: say so, rather than show the sign-in form as if signed out.
+        showGate("signin");
+        return setGateMessage("Couldn't reach the server to confirm your sign-in. Refresh the page in a moment.");
+      }
+    }
     // Signed out. A link to a page in the app (a teammate sharing #rfp/<id>, #project/<id>, …) or the team's sign-in
     // link (#signin) goes straight to the sign-in form, and the page opens once they're in. Otherwise: back into the
     // demo if this tab was in it, to the form they left the demo for, or the landing page.
