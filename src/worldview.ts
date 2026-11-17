@@ -1,4 +1,4 @@
-import { estimateFitCheck, estimateRfp, estimateSuggest, usd, usdRange, type Usage } from "../lib/cost";
+import { type Usage } from "../lib/cost";
 import type { Fit, Rfp, SiteDraft } from "../lib/claude";
 import { FEATURES } from "../lib/prompts";
 import {
@@ -313,7 +313,6 @@ function viewHtml(): string {
       ([key, label]) =>
         `<div class="wv-part"><h3>${esc(label)}</h3>${wv![key].trim() ? `<p>${esc(wv![key].trim()).replace(/\n/g, "<br />")}</p>` : `<p class="none">Not written yet.</p>`}</div>`,
     ).join("")}
-    <div class="actions"><button class="btn" data-edit-view>Edit</button></div>
   </div>`;
 }
 
@@ -344,8 +343,13 @@ async function saveView(form: HTMLFormElement) {
 function render() {
   if (!wv) return;
   $("worldview-page").innerHTML = `
-    <h1 class="headline">World view</h1>
-    <p class="wv-intro">Our firm's perspective. Every AI tool in the app keeps it in mind, so its answers fit our work.</p>
+    <div class="proj-head wv-head">
+      <div class="proj-title">
+        <h1 class="headline">World view</h1>
+        <p class="wv-intro">Our firm's perspective. Every AI tool in the app keeps it in mind, so its answers fit our work.</p>
+      </div>
+      ${editingView ? "" : `<span class="tools"><button class="btn" data-edit-view>Edit</button></span>`}
+    </div>
     <span class="status" id="wv-status"></span>
     ${savesShared() ? "" : `<p class="estimate">Saved in this browser only until the database is set up.</p>`}
 
@@ -618,25 +622,11 @@ function rfpChoice(): string {
     ${upload}`;
 }
 
-// Vercel's request limit; larger PDFs go through storage, and can't be measured for an estimate first.
-const DIRECT_BYTES = 4.4 * 1024 * 1024;
-
-/** Reads a past RFP's PDFs once (billed, so it asks first, with an estimate when one can be measured). */
+/** Reads a past RFP's PDFs once (it asks first). */
 async function readPastRfp(files: File[]): Promise<{ rfp: Rfp; costUsd: number | null } | null> {
-  let estimate = "Reading PDFs costs roughly 1–2 cents a page.";
-  if (files.every((f) => f.size <= DIRECT_BYTES)) {
-    try {
-      const tokens = await Promise.all(
-        files.map((f) => post<{ input_tokens: number }>("/api/upload", f, { "content-type": "application/pdf", "x-action": "estimate" }).then((r) => r.input_tokens)),
-      );
-      estimate = `Estimated cost ${usdRange(estimateRfp(tokens.reduce((a, b) => a + b, 0)))}.`;
-    } catch {
-      /* the plain rule of thumb stays */
-    }
-  }
   const ok = await confirmModal({
     title: "Read this RFP?",
-    body: `Claude reads ${files.map((f) => f.name).join(", ")} once and keeps what it needs with this past pursuit. ${estimate}`,
+    body: `Claude reads ${files.map((f) => f.name).join(", ")} once and keeps what it needs with this past pursuit.`,
     confirm: "Read",
   });
   if (!ok) return null;
@@ -749,7 +739,7 @@ async function summarizeOwnPdf(input: HTMLInputElement) {
     });
     const box = document.querySelector<HTMLTextAreaElement>('[data-pursuit-form] [name="ourProposal"]');
     if (box) box.value = res.summary;
-    if (status) status.textContent = res.usage.cost_usd != null ? usd(res.usage.cost_usd) : "";
+    if (status) status.textContent = "";
   } catch (err) {
     if (status) {
       status.classList.add("error");
@@ -786,7 +776,6 @@ function checkHtml(): string {
         )
         .join("")}</tbody>
     </table>
-    <p class="estimate">Cost ${usd(check.costUsd)}</p>
     ${button}
     ${
       suggestion
@@ -802,7 +791,7 @@ async function runCheck() {
   const usable = checkable();
   const ok = await confirmModal({
     title: "Check the world view?",
-    body: `Claude gives a verdict on each of the ${usable.length} past pursuits, as if deciding today, and it's compared with how each turned out. Estimated cost ${usdRange(estimateFitCheck(usable.length))}.`,
+    body: `Claude gives a verdict on each of the ${usable.length} past pursuits, as if deciding today, and it's compared with how each turned out.`,
     confirm: "Check",
   });
   if (!ok) return;
@@ -855,7 +844,7 @@ async function draftFromSite() {
   }
   const ok = await confirmModal({
     title: "Draft from your website?",
-    body: "Claude reads up to 6 pages of your website and drafts two sections for you to check. Estimated cost about $0.10–$0.60.",
+    body: "Claude reads up to 6 pages of your website and drafts two sections for you to check.",
     confirm: "Draft",
   });
   if (!ok) return;
@@ -899,7 +888,6 @@ async function draftFromSite() {
       offered.length ? `Suggested below what you've written: ${offered.join(", ")}.` : "",
       res.draft.notes,
       filled.length || offered.length ? "Check it, then Save." : "",
-      res.usage.cost_usd != null ? `Cost ${usd(res.usage.cost_usd)}.` : "",
     ]
       .filter(Boolean)
       .join(" ");
@@ -917,7 +905,7 @@ async function runSuggest() {
   if (!wv || !check || busy) return;
   const ok = await confirmModal({
     title: "Suggest changes?",
-    body: `Claude reads the world view and these results, and suggests edits. Estimated cost ${usdRange(estimateSuggest(check.results.length))}.`,
+    body: `Claude reads the world view and these results, and suggests edits.`,
     confirm: "Suggest",
   });
   if (!ok) return;

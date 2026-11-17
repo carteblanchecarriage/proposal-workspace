@@ -965,3 +965,6 @@ html:not(.project-dash) .proj-card-body { overflow: visible; }
   pointer-events: none;
 }
 @media print { .tooltip { display: none; } }
+
+/* World view: Edit at the top right (it edits the firm's description, the first section). */
+.wv-head .wv-intro { margin: 0; }

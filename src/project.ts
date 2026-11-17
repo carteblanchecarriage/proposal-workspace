@@ -5,7 +5,7 @@ import { makeFee, proposalHtml, withWaiting } from "./fee";
 import { scheduleSnapshotHtml } from "./schedule-snapshot";
 import { SCHEDULE_TEMPLATES } from "./schedule/lib/data/templates.js";
 import { post } from "./api";
-import { estimateScheduleDraft, usdRange, type Usage } from "../lib/cost";
+import { type Usage } from "../lib/cost";
 import type { ScheduleDraft } from "../lib/claude";
 import { proposalTable, totals } from "./fee-calc";
 import { CONSULTANT_STATUS, type ConsultantStatus, deleteProject, listFees, saveFee, type SavedFee, projectLabel, listComparisons, listProjects, listSchedules, getScheduleStyle, type ScheduleStyle, savesShared, listRfps, saveComparison, saveProject, saveRfp, saveSchedule, listConsultants, type SavedConsultant, type SavedComparison, type SavedProject, type SavedRfp, type SavedSchedule } from "./store";
@@ -295,7 +295,7 @@ async function makeSchedule() {
   if (picked[0] === AI_SCHEDULE && rfp) {
     const ok = await confirmModal({
       title: "Draft the schedule with AI?",
-      body: `Claude reads the RFP review and drafts the phases, reviews and milestones, with its assumptions in the schedule's notes. Estimated cost ${usdRange(estimateScheduleDraft())}.`,
+      body: `Claude reads the RFP review and drafts the phases, reviews and milestones, with its assumptions in the schedule's notes.`,
       confirm: "Draft",
     });
     if (!ok) return;

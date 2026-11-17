@@ -1,6 +1,6 @@
 import "@fontsource-variable/inter";
 import type { ChatResponse, Comparison, Proposal } from "../lib/claude";
-import { estimateChat, estimateCompare, estimateExtract, sumRanges, usd, usdRange, type Usage } from "../lib/cost";
+import { type Usage } from "../lib/cost";
 import {
   deleteComparison,
   listProjects,
@@ -62,8 +62,6 @@ type Entry = {
   reused?: boolean;
   uploadedAt?: number;
   pdfTokens?: number;
-  estTokens?: number;
-  estFailed?: boolean;
   error?: string;
 };
 
@@ -117,20 +115,6 @@ async function reuseOrEstimate() {
       }),
   );
   render();
-  estimateNew();
-}
-
-// Measures each new PDF's input tokens (free) so the cost estimate is based on the actual document.
-async function estimateNew() {
-  const todo = entries.filter((e) => e.state === "queued" && e.hash !== undefined && e.estTokens == null && !e.estFailed);
-  await pool(todo, 2, async (e) => {
-    try {
-      e.estTokens = (await post<{ input_tokens: number }>("/api/upload", e.file, { "content-type": "application/pdf", "x-action": "estimate" })).input_tokens;
-    } catch {
-      e.estFailed = true;
-    }
-    render();
-  });
 }
 
 input.addEventListener("change", () => {
@@ -157,7 +141,6 @@ filesEl.addEventListener("click", (e) => {
     if (!entry) return;
     Object.assign(entry, { state: "queued", reused: false, result: undefined, fileId: undefined, usage: undefined });
     render();
-    estimateNew();
   }
 });
 
@@ -184,11 +167,10 @@ const fmtSize = (b: number) => (b > 1024 * 1024 ? `${(b / 1024 / 1024).toFixed(1
 function stateLabel(e: Entry) {
   if (e.state === "reading") return `Reading… ${Math.round((Date.now() - (e.started ?? Date.now())) / 1000)}s`;
   if (e.state === "error") return esc(e.error);
-  if (e.state === "done" && e.reused) return "Read before · no cost";
-  if (e.state === "done") return e.usage?.cost_usd != null ? `Done · ${usd(e.usage.cost_usd)}` : "Done";
-  if (e.estTokens != null) return `Ready · ${usdRange(estimateExtract(e.estTokens))}`;
+  if (e.state === "done" && e.reused) return "Read before";
+  if (e.state === "done") return "Done";
   if (e.hash === undefined) return "Checking…";
-  return e.estFailed ? "Ready" : "Ready · estimating…";
+  return "Ready";
 }
 
 function render() {
@@ -200,7 +182,7 @@ function render() {
         <span>${
           busy
             ? fmtSize(e.file.size)
-            : `${e.reused ? `<button data-reread="${e.id}" title="Pay to read this PDF again from scratch">Re-read</button> · ` : ""}<button data-remove="${e.id}" title="Remove">Remove</button>`
+            : `${e.reused ? `<button data-reread="${e.id}" title="Read this PDF again from scratch">Re-read</button> · ` : ""}<button data-remove="${e.id}" title="Remove">Remove</button>`
         }</span>
       </li>`,
     )
@@ -209,32 +191,7 @@ function render() {
   runBtn.disabled = busy || usable.length < 1;
   runBtn.textContent = busy ? "Working…" : usable.length === 1 ? "Analyze" : "Compare";
   clearBtn.hidden = entries.length === 0 || busy;
-  renderRunEstimate(usable);
   drop.style.pointerEvents = busy ? "none" : "";
-}
-
-const runEstimateEl = $<HTMLParagraphElement>("run-estimate");
-
-function renderRunEstimate(usable: Entry[]) {
-  const toRead = usable.filter((e) => e.state !== "done");
-  if (busy || usable.length < 1) {
-    runEstimateEl.textContent = "";
-    return;
-  }
-  if (toRead.some((e) => e.estTokens == null && !e.estFailed)) {
-    runEstimateEl.textContent = "Estimating cost…";
-    return;
-  }
-  // A partial estimate would understate the run, so show none rather than a misleading number.
-  if (toRead.some((e) => e.estTokens == null)) {
-    runEstimateEl.textContent =
-      "Cost estimate unavailable right now. This run uses the Anthropic API and is billed to its account; the actual cost is shown when it finishes.";
-    return;
-  }
-  const total = sumRanges([...toRead.map((e) => estimateExtract(e.estTokens!)), estimateCompare(usable.length)]);
-  runEstimateEl.textContent =
-    `Estimated cost for this run: ${usdRange(total)}, billed to the Anthropic API account. ` +
-    "The actual cost is shown when it finishes.";
 }
 
 function setStatus(msg: string, isError = false) {
@@ -332,7 +289,7 @@ runBtn.addEventListener("click", async () => {
     const saveError = await persist().then(() => "", (err: Error) => ` Not saved: ${err.message}`);
     const failed = entries.length - done.length;
     setStatus(
-      `Done${failed ? `, ${failed} file(s) skipped` : ""}. This comparison cost ${usd(costUsd)}${partial ? " (some costs unavailable)" : ""}.${saveError}`,
+      `Done${failed ? `, ${failed} file(s) skipped` : ""}.${saveError}`,
       !!saveError,
     );
   } catch (err) {
@@ -391,27 +348,6 @@ $("delete-comparison").addEventListener("click", async () => {
 // The analysis currently on screen (saved in this browser); chat corrections replace parts of it.
 let current: SavedComparison | null = null;
 
-function renderCost() {
-  if (!current) return;
-  const c = current;
-  $("cost").textContent =
-    c.costUsd != null ? `Spent on this comparison: ${usd(c.costUsd)}${c.costPartial ? "+" : ""} (reading, comparing and chat)` : "";
-  const tokens = c.proposals.map((p) => p.pdf_tokens);
-  const chatCost = $("chat-cost");
-  if (tokens.every((t) => t != null)) {
-    const est = estimateChat(
-      tokens.reduce<number>((a, t) => a + t!, 0),
-      c.proposals.length,
-    );
-    chatCost.textContent =
-      `Each question costs about ${usdRange(est.followUp).replace("≈ ", "")} while you keep chatting. ` +
-      `The first one, or one after ~5 idle minutes, is ${usdRange(est.first)} because it re-reads the PDFs. ` +
-      `Corrections that rewrite the analysis can reach about ${usd(est.correctionMax)}.`;
-  } else {
-    chatCost.textContent = "Each question has a small API cost; corrections that rewrite the analysis cost more.";
-  }
-}
-
 async function persist() {
   if (!current) return;
   current.savedAt = Date.now();
@@ -430,7 +366,6 @@ function showResults(scroll: boolean) {
   (document.querySelector(".toolbar .toggle") as HTMLElement).hidden = single;
   scopeEl.classList.toggle("diff-only", diffOnly.checked && !single);
   $("notes").innerHTML = notesHtml(proposals);
-  renderCost();
   fillProjectSelect();
   $("print-meta").textContent = [projectName, new Date().toLocaleDateString()].filter(Boolean).join(" — ");
   results.hidden = false;
@@ -465,7 +400,7 @@ function resetChat() {
 function addMessage(role: ChatMessage["role"] | "error", text: string, updated = false, cost?: number | null): HTMLDivElement {
   const div = document.createElement("div");
   div.className = `msg ${role}`;
-  const meta = [updated ? "Analysis updated" : "", cost != null ? usd(cost) : ""].filter(Boolean).join(" · ");
+  const meta = updated ? "Analysis updated" : "";
   div.innerHTML = esc(text).replace(/\n/g, "<br>") + (meta ? `<span class="updated">${meta}</span>` : "");
   chatLog.appendChild(div);
   chatLog.scrollTop = chatLog.scrollHeight;
@@ -532,7 +467,6 @@ chatForm.addEventListener("submit", async (e) => {
     if (cost == null) c.costPartial = true;
     if (current === c) {
       addMessage("assistant", res.reply, updated, cost);
-      renderCost();
     }
     await saveComparison(c);
   } catch (err) {

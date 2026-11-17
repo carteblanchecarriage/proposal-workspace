@@ -8,7 +8,7 @@ import { post } from "./api";
 import { feeCurveAt, type FeePoint } from "../lib/worldview";
 import { contextForRfp } from "./worldview";
 import type { FeeDraft } from "../lib/claude";
-import { usd, type Usage } from "../lib/cost";
+import { type Usage } from "../lib/cost";
 import { applyFeeChanges, closeFeeChat, openFeeChat } from "./fee-chat";
 import { feeTimeHtml, hideFeeTimeTip, onFeeTimeMove } from "./fee-time";
 
@@ -529,7 +529,6 @@ function summaryHtml(f: SavedFee): string {
     fromRfp && f.lens
       ? `Drafted with the <a class="link" href="#worldview">world view</a>${f.lens.savedAt ? ` of ${esc(shortDate(f.lens.savedAt))}` : ""}${f.lens.text ? "" : " (none written yet)"}`
       : "",
-    fromRfp && d!.costUsd != null ? `Draft cost ${esc(usd(d!.costUsd))}` : "",
     d?.revisedAt ? `Revised by the AI assistant ${esc(shortDate(d.revisedAt))}` : "",
   ].filter(Boolean);
   return `<div class="block fee-draft">

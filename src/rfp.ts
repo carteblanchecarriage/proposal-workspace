@@ -2,7 +2,7 @@ import { RFP_FACTS, type Fit, type Rfp, type RfpFactKey } from "../lib/claude";
 import { showPdfPage } from "./pdf-page";
 import { reviewContext } from "./worldview";
 import { DISCIPLINES, toDisciplines, type Discipline } from "../lib/disciplines";
-import { estimateRfp, usd, usdRange, type Usage } from "../lib/cost";
+import { type Usage } from "../lib/cost";
 import { post, postPdf } from "./api";
 import { deleteRfp, listProjects, listRfps, projectLabel, saveProject, saveRfp, savesShared, type SavedProject, type SavedRfp } from "./store";
 import { clearPendingProject, pendingProject } from "./pending";
@@ -14,10 +14,8 @@ import { esc } from "./table";
 // Locally there's no limit. Storage takes up to 50 MB per file.
 const MAX_BYTES = import.meta.env.PROD ? 4.4 * 1024 * 1024 : Infinity;
 const MAX_STORED = 50 * 1024 * 1024;
-/** tokens value for a large file, which can't be measured before it's uploaded */
-const UNMEASURED = -2;
 
-type Entry = { file: File; tokens?: number; error?: string };
+type Entry = { file: File; error?: string };
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 let entries: Entry[] = [];
@@ -64,12 +62,6 @@ function addFiles(list: FileList) {
     const entry: Entry = { file };
     if (!isPdf) entry.error = "Not a PDF";
     else if (file.size > MAX_STORED) entry.error = "Over 50 MB, compress or split it first";
-    else if (file.size > MAX_BYTES) entry.tokens = UNMEASURED;
-    else
-      post<{ input_tokens: number }>("/api/upload", file, { "content-type": "application/pdf", "x-action": "estimate" })
-        .then((r) => (entry.tokens = r.input_tokens))
-        .catch(() => (entry.tokens = -1))
-        .finally(renderFiles);
     entries.push(entry);
   }
   renderFiles();
@@ -89,14 +81,6 @@ function renderFiles() {
   const run = $<HTMLButtonElement>("rfp-run");
   run.disabled = busy || usable.length === 0;
   run.textContent = busy ? "Reviewing…" : "Review";
-  const known = usable.every((e) => e.tokens != null && e.tokens >= 0);
-  $("rfp-estimate").textContent = busy
-    ? ""
-    : usable.some((e) => e.tokens === UNMEASURED)
-      ? "No cost estimate for files over 4.4 MB"
-      : usable.length && known
-        ? `Estimated cost ${usdRange(estimateRfp(usable.reduce((a, e) => a + e.tokens!, 0)))}`
-        : "";
 }
 
 function setStatus(msg: string, isError = false) {
@@ -441,7 +425,7 @@ function showResults() {
       </div>
     </div>
     ${outlineBlock()}
-    <p class="estimate">${filesLine()}${current.costUsd != null ? ` · ${usd(current.costUsd)}` : ""}</p>
+    <p class="estimate">${filesLine()}</p>
     <p class="print-note">AI can make mistakes, so check important details against the original documents.</p>`;
 
   $("rfp-intake").hidden = true;
@@ -952,26 +936,14 @@ function addendaBlock(): string {
 }
 
 /**
- * Reads an addendum into a saved review (from the project page): asks first with an estimate, keeps the PDF with the
+ * Reads an addendum into a saved review (from the project page): asks first, keeps the PDF with the
  * review for 30 days, updates the review and records what changed. Resolves the updated review, or null if cancelled.
  */
 export async function addAddendum(review: SavedRfp, files: File[]): Promise<SavedRfp | null> {
-  let estimate = "Reading PDFs costs roughly 1–2 cents a page, plus rewriting the review.";
-  if (files.every((f) => f.size <= MAX_BYTES)) {
-    try {
-      const tokens = await Promise.all(
-        files.map((f) => post<{ input_tokens: number }>("/api/upload", f, { "content-type": "application/pdf", "x-action": "estimate" }).then((r) => r.input_tokens)),
-      );
-      // The current review goes along too, and the whole review is written back.
-      estimate = `Estimated cost ${usdRange(estimateRfp(tokens.reduce((a, b) => a + b, 0) + 6_000))}.`;
-    } catch {
-      /* the rule of thumb stays */
-    }
-  }
   const number = (review.addenda?.length ?? 0) + 1;
   const ok = await confirmModal({
     title: `Add Addendum ${number}?`,
-    body: `Claude reads ${files.map((f) => f.name).join(", ")} and updates the RFP review with what it changes, keeping the team's edits and notes. ${estimate}`,
+    body: `Claude reads ${files.map((f) => f.name).join(", ")} and updates the RFP review with what it changes, keeping the team's edits and notes.`,
     confirm: "Add",
   });
   if (!ok) return null;

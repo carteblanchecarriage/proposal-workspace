@@ -3,7 +3,7 @@
 // and returns a list of edits; they're checked here against the worksheet before anything changes, applied as one
 // step (one Undo reverses them), and saved like any other edit.
 import type { FeeChat } from "../lib/claude";
-import { usd, type Usage } from "../lib/cost";
+import { type Usage } from "../lib/cost";
 import { post } from "./api";
 import { budgetOf, taskCost, taskHours, totals } from "./fee-calc";
 import type { SavedFee } from "./store";
@@ -178,7 +178,7 @@ function build(): HTMLElement {
     <div class="chat-log" data-fee-chat-log></div>
     <form class="chat-form" data-fee-chat-form>
       <textarea rows="3" placeholder="Ask a question or ask for a change…" aria-label="Message"></textarea>
-      <p class="estimate">Each message costs a few cents. Changes can be undone with Undo.</p>
+      <p class="estimate">Changes can be undone with Undo.</p>
       <div class="chat-actions"><span class="status" data-fee-chat-status></span><button class="btn primary" type="submit">Send</button></div>
     </form>`;
   el.querySelector("[data-fee-chat-close]")!.addEventListener("click", () => closeFeeChat());
@@ -239,7 +239,6 @@ async function send(box: HTMLTextAreaElement) {
     const meta = [
       applied ? `Worksheet updated (${applied} change${applied === 1 ? "" : "s"})` : "",
       skipped ? `${skipped} change${skipped === 1 ? "" : "s"} couldn't be applied` : "",
-      res.usage.cost_usd != null ? usd(res.usage.cost_usd) : "",
     ]
       .filter(Boolean)
       .join(" · ");

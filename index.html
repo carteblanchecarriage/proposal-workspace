@@ -257,13 +257,12 @@
             <input id="rfp-input" type="file" accept="application/pdf,.pdf" multiple hidden />
             <span>Drop the RFP and any addenda here, or <u>browse</u></span>
           </label>
-          <p class="estimate tip">Tip: every page costs money to read. Leave out pages you don't need, like blank forms and sample documents.</p>
+          <p class="estimate tip">Tip: leave out pages you don't need, like blank forms and sample documents. Shorter PDFs read faster.</p>
           <ol id="rfp-files" class="files"></ol>
           <div class="actions">
             <button id="rfp-run" class="btn primary" disabled>Review</button>
             <span id="rfp-status" class="status"></span>
           </div>
-          <p id="rfp-estimate" class="estimate"></p>
         </section>
         <section id="rfp-results" hidden></section>
       </div>
@@ -317,9 +316,8 @@
           <span>Drop PDFs here, or <u>browse</u></span>
         </label>
         <p class="estimate tip">
-          Tip: every page costs money to read. Upload only the pages that matter: scope, fees, assumptions and
-          exclusions. Leave out resumes, firm history, project sheets and marketing pages. A trimmed PDF is cheaper,
-          faster and often more accurate.
+          Tip: upload only the pages that matter: scope, fees, assumptions and exclusions. Leave out resumes, firm
+          history, project sheets and marketing pages. A trimmed PDF is faster and often more accurate.
         </p>
 
         <ol id="files" class="files"></ol>
@@ -330,7 +328,6 @@
           <button id="clear" class="btn" hidden>Clear</button>
           <span id="status" class="status"></span>
         </div>
-        <p id="run-estimate" class="estimate"></p>
 
       </section>
 
@@ -346,7 +343,6 @@
             ><input id="diff-only" type="checkbox" /> Show differences
             only</label
           >
-          <span id="cost" class="cost"></span>
           <span class="tools">
             <button id="chat-open" class="btn">Ask / correct</button>
             <button id="share" class="btn">Share</button>
@@ -399,7 +395,6 @@
       <input id="reattach-input" type="file" accept="application/pdf,.pdf" multiple hidden />
       <form id="chat-form" class="chat-form">
         <textarea id="chat-input" rows="3" placeholder="Ask a question or request a correction…"></textarea>
-        <p id="chat-cost" class="estimate"></p>
         <div class="chat-actions">
           <span id="chat-status" class="status"></span>
           <button id="chat-send" class="btn primary" type="submit">Send</button>
