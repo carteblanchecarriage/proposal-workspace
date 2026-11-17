@@ -943,7 +943,7 @@ export async function addAddendum(review: SavedRfp, files: File[]): Promise<Save
   const number = (review.addenda?.length ?? 0) + 1;
   const ok = await confirmModal({
     title: `Add Addendum ${number}?`,
-    body: `Claude reads ${files.map((f) => f.name).join(", ")} and updates the RFP review with what it changes, keeping the team's edits and notes.`,
+    body: `AI reads ${files.map((f) => f.name).join(", ")} and updates the RFP review with what it changes, keeping the team's edits and notes.`,
     confirm: "Add",
   });
   if (!ok) return null;

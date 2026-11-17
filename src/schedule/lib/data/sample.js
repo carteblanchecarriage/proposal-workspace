@@ -191,8 +191,9 @@ export function createSmallTemplate() {
 // ─── Medium template ───────────────────────────────────────────────────────────
 // Commercial / Institutional project
 // ~23 months: Programming → SD → 50% DD → 95% CDs → 100% CDs → Final CDs with client reviews
-export function createMediumTemplate() {
-  const base = new Date(); base.setDate(1);
+/** start: the kick-off date (the first of this month when not given). */
+export function createMediumTemplate(start) {
+  const base = start ? new Date(start) : new Date(); if (!start) base.setDate(1);
 
   const prS   = base,          prE   = w(base, 4);   // programming
   const sdS   = prE,           sdE   = w(sdS, 8);

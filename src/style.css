@@ -968,3 +968,12 @@ html:not(.project-dash) .proj-card-body { overflow: visible; }
 
 /* World view: Edit at the top right (it edits the firm's description, the first section). */
 .wv-head .wv-intro { margin: 0; }
+
+/* Consultants: CSV import help and the import preview. */
+.csv-help { margin: 10px 0 0; font-size: 14px; max-width: 760px; }
+.csv-help summary { cursor: pointer; text-decoration: underline; text-underline-offset: 3px; width: fit-content; }
+.csv-help p { margin: 8px 0 0; }
+dialog.modal.wide { max-width: 640px; }
+.csv-issues-head { font-size: 15px; font-weight: 700; margin: 12px 0 6px; }
+dialog.modal .csv-issues { margin: 0 0 16px; padding-left: 18px; font-size: 13px; max-height: 220px; overflow-y: auto; }
+dialog.modal .csv-issues li { margin: 0 0 4px; }

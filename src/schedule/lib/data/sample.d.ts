@@ -3,5 +3,5 @@ type ScheduleProject = Record<string, unknown>;
 export function createSampleProject(): ScheduleProject;
 export function createBlankProject(): ScheduleProject;
 export function createSmallTemplate(): ScheduleProject;
-export function createMediumTemplate(): ScheduleProject;
+export function createMediumTemplate(start?: Date): ScheduleProject;
 export function createLargeTemplate(): ScheduleProject;

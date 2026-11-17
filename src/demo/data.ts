@@ -49,6 +49,7 @@ const requested: Record<string, ["yes" | "no" | "unclear", string, number]> = {
   Plumbing: ["yes", "Restroom expansion to meet current code.", 6],
   Mechanical: ["yes", "Replace 1990s rooftop units; evaluate geothermal per the Township's sustainability goals.", 6],
   Electrical: ["yes", "Service upgrade, LED lighting, EV charging rough-in for 4 spaces.", 6],
+  Acoustics: ["unclear", "The quiet reading room and new meeting room need sound isolation, but the RFP doesn't say whether that's a separate consultant.", 4],
   "Cost Estimating": ["unclear", "Estimates are required at SD, DD and 95% CD, but the RFP doesn't say whether by the architect's team or the Township's construction manager.", 7],
 };
 
@@ -416,8 +417,18 @@ const project: SavedProject = {
   ],
 };
 
+/**
+ * The sample schedule starts after the sample RFP's proposals are due, so it never looks already under way:
+ * January 1, 2027, or the first of the month after the due date once that's later.
+ */
+function scheduleStart(): Date {
+  const afterDue = new Date(due.getFullYear(), due.getMonth() + 1, 1); // the first of the next month
+  const jan2027 = new Date(2027, 0, 1);
+  return afterDue > jan2027 ? afterDue : jan2027;
+}
+
 function schedule(): SavedSchedule {
-  const s = createMediumTemplate() as Record<string, unknown>;
+  const s = createMediumTemplate(scheduleStart()) as Record<string, unknown>;
   return { ...s, id: "demo-schedule-library", title: PROJECT_NAME, number: "2611", workspaceProjectId: PROJECT_ID, savedAt: now - DAY, createdAt: now - 3 * DAY };
 }
 

@@ -295,7 +295,7 @@ async function makeSchedule() {
   if (picked[0] === AI_SCHEDULE && rfp) {
     const ok = await confirmModal({
       title: "Draft the schedule with AI?",
-      body: `Claude reads the RFP review and drafts the phases, reviews and milestones, with its assumptions in the schedule's notes.`,
+      body: `AI reads the RFP review and drafts the phases, reviews and milestones, with its assumptions in the schedule's notes.`,
       confirm: "Draft",
     });
     if (!ok) return;

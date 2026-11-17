@@ -16,6 +16,7 @@ export const DISCIPLINES = [
   "Plumbing",
   "Mechanical",
   "Electrical",
+  "Acoustics",
   "Cost Estimating",
 ] as const;
 export type Discipline = (typeof DISCIPLINES)[number];
@@ -38,6 +39,8 @@ const MATCHERS: [Discipline, RegExp][] = [
   ["Plumbing", /plumbing|\bmep\b|\bmepf?p?\b|domestic water|sanitary/i],
   ["Mechanical", /mechanical|\bmep\b|\bmepf?p?\b|hvac|\bm\/e\/p\b/i],
   ["Electrical", /electrical|\bmep\b|\bmepf?p?\b|power|lighting design|low[\s-]?voltage/i],
+  // Acoustics, noise and vibration consulting ("architectural acoustics" too; Architecture skips it).
+  ["Acoustics", /acoustic|noise[\s-]+(and|&)[\s-]+vibration|\bvibration\b|sound (isolation|transmission|attenuation)/i],
   ["Cost Estimating", /cost estimat|\bestimat|cost consult|quantity survey/i],
 ];
 

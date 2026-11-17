@@ -290,7 +290,7 @@ const BASE = {
 
 function checkStop(msg: { stop_reason: string | null }) {
   if (msg.stop_reason === "refusal") {
-    throw new UserFacingError("Claude declined to process this document.", 422);
+    throw new UserFacingError("The AI declined to process this document.", 422);
   }
   if (msg.stop_reason === "max_tokens") {
     throw new UserFacingError("The response was too long and got cut off. Try splitting the document.", 422);
@@ -385,7 +385,7 @@ export async function extractProposal(pdf: Buffer, filename: string): Promise<{ 
   });
   const msg = await stream.finalMessage();
   checkStop(msg);
-  if (!msg.parsed_output) throw new UserFacingError("Couldn't parse Claude's response for this proposal.", 502);
+  if (!msg.parsed_output) throw new UserFacingError("Couldn't read the AI's response for this proposal. Try again.", 502);
   return { proposal: msg.parsed_output, file_id: file.id, usage: usageOf(msg) };
 }
 
@@ -411,7 +411,7 @@ export async function compareProposals(
   });
   const msg = await stream.finalMessage();
   checkStop(msg);
-  if (!msg.parsed_output) throw new UserFacingError("Couldn't parse Claude's comparison.", 502);
+  if (!msg.parsed_output) throw new UserFacingError("Couldn't read the AI's comparison. Try again.", 502);
   return { comparison: msg.parsed_output, usage: usageOf(msg) };
 }
 
@@ -437,7 +437,7 @@ export async function reviewRfp(files: { file_id: string; filename: string }[], 
   });
   const msg = await stream.finalMessage();
   checkStop(msg);
-  if (!msg.parsed_output) throw new UserFacingError("Couldn't parse Claude's RFP review.", 502);
+  if (!msg.parsed_output) throw new UserFacingError("Couldn't read the AI's RFP review. Try again.", 502);
   return { rfp: fromWire(msg.parsed_output), usage: usageOf(msg) };
 }
 
@@ -474,7 +474,7 @@ export async function applyAddendum(
   });
   const msg = await stream.finalMessage();
   checkStop(msg);
-  if (!msg.parsed_output) throw new UserFacingError("Couldn't parse Claude's addendum update.", 502);
+  if (!msg.parsed_output) throw new UserFacingError("Couldn't read the AI's addendum update. Try again.", 502);
   return { rfp: fromWire(msg.parsed_output.rfp), changes: msg.parsed_output.changes, usage: usageOf(msg) };
 }
 
@@ -502,7 +502,7 @@ export async function draftSchedule(rfp: unknown, context = ""): Promise<{ draft
   });
   const msg = await stream.finalMessage();
   checkStop(msg);
-  if (!msg.parsed_output) throw new UserFacingError("Couldn't parse Claude's schedule draft.", 502);
+  if (!msg.parsed_output) throw new UserFacingError("Couldn't read the AI's schedule draft. Try again.", 502);
   return { draft: msg.parsed_output, usage: usageOf(msg) };
 }
 
@@ -516,7 +516,7 @@ export async function fitCheck(rfp: unknown, context: string): Promise<{ fit: Fi
   });
   const msg = await stream.finalMessage();
   checkStop(msg);
-  if (!msg.parsed_output) throw new UserFacingError("Couldn't parse Claude's verdict.", 502);
+  if (!msg.parsed_output) throw new UserFacingError("Couldn't read the AI's verdict. Try again.", 502);
   return { fit: msg.parsed_output, usage: usageOf(msg) };
 }
 
@@ -665,7 +665,7 @@ export async function checkProject(rfp: Rfp, proposals: Proposal[], firm = ""): 
   });
   const msg = await stream.finalMessage();
   checkStop(msg);
-  if (!msg.parsed_output) throw new UserFacingError("Couldn't parse Claude's project check.", 502);
+  if (!msg.parsed_output) throw new UserFacingError("Couldn't read the AI's project check. Try again.", 502);
   return { check: msg.parsed_output, usage: usageOf(msg) };
 }
 
@@ -712,7 +712,7 @@ export async function draftFee(
   });
   const msg = await stream.finalMessage();
   checkStop(msg);
-  if (!msg.parsed_output) throw new UserFacingError("Couldn't parse Claude's fee draft.", 502);
+  if (!msg.parsed_output) throw new UserFacingError("Couldn't read the AI's fee draft. Try again.", 502);
   return { draft: msg.parsed_output, usage: usageOf(msg) };
 }
 
@@ -754,7 +754,7 @@ export async function askFeeAssistant(
   });
   const msg = await stream.finalMessage();
   checkStop(msg);
-  if (!msg.parsed_output) throw new UserFacingError("Couldn't parse Claude's answer.", 502);
+  if (!msg.parsed_output) throw new UserFacingError("Couldn't read the AI's answer. Try again.", 502);
   return { answer: msg.parsed_output, usage: usageOf(msg) };
 }
 
@@ -791,7 +791,7 @@ export async function chat(
   });
   const msg = await stream.finalMessage();
   checkStop(msg);
-  if (!msg.parsed_output) throw new UserFacingError("Couldn't parse Claude's reply.", 502);
+  if (!msg.parsed_output) throw new UserFacingError("Couldn't read the AI's reply. Try again.", 502);
   return { ...applyChatUpdates(msg.parsed_output, proposals.length), usage: usageOf(msg) };
 }
 
@@ -827,17 +827,22 @@ function applyChatUpdates(wire: z.infer<typeof ChatWireSchema>, firmCount: numbe
 export function errorResponse(err: unknown): Response {
   let status = 500;
   let message = "Unexpected server error.";
+  // What went wrong with the AI service, for the server log only (people see a plain message).
+  let detail = "";
   if (err instanceof UserFacingError) {
     status = err.status;
     message = err.message;
   } else if (err instanceof Anthropic.AuthenticationError) {
-    message = "The Anthropic API key was rejected. Check ANTHROPIC_API_KEY.";
+    message = "The AI service isn't available right now. Try again later.";
+    detail = "API key rejected; check ANTHROPIC_API_KEY";
   } else if (err instanceof Anthropic.RateLimitError) {
     status = 429;
-    message = "Rate limited by the Anthropic API. Wait a minute and retry.";
+    message = "The AI service is busy. Wait a minute and try again.";
+    detail = "rate limited";
   } else if (err instanceof Anthropic.BadRequestError && /credit balance/i.test(err.message)) {
     status = 402;
-    message = "The Anthropic account is out of API credits. Add credits under Plans & Billing in the Claude Console, then retry.";
+    message = "The AI service isn't available right now. Try again later.";
+    detail = "out of API credits; add credits in the Anthropic Console";
   } else if (
     err instanceof Anthropic.NotFoundError ||
     (err instanceof Anthropic.BadRequestError && /file/i.test(err.message) && /not found|does not exist/i.test(err.message))
@@ -846,12 +851,14 @@ export function errorResponse(err: unknown): Response {
     message = "The source PDFs have expired (they're deleted after a day). Run the comparison again to keep chatting.";
   } else if (err instanceof Anthropic.BadRequestError) {
     status = 400;
-    message = `Anthropic API rejected the request: ${err.message}`;
+    message = "The AI couldn't handle this request. Try again, or try a smaller file.";
+    detail = `request rejected: ${err.message}`;
   } else if (err instanceof Anthropic.APIError) {
     status = 502;
-    message = `Anthropic API error (${err.status ?? "network"}). Try again.`;
+    message = "The AI service had a problem. Try again.";
+    detail = `API error ${err.status ?? "network"}`;
   }
   // Log status only — never document content.
-  console.error(`[api] ${status}: ${message}`);
+  console.error(`[api] ${status}: ${message}${detail ? ` (${detail})` : ""}`);
   return Response.json({ error: message }, { status });
 }

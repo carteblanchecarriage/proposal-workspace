@@ -298,7 +298,7 @@ function viewHtml(): string {
         <label class="edit-field wv-field"><span>Firm website</span><input name="website" type="text" inputmode="url" autocomplete="url" placeholder="yourfirm.com" value="${esc(wv!.website ?? "")}" /></label>
         <button class="btn" type="button" data-draft-site ${busy ? "disabled" : ""}>${busy ? "Reading the website…" : "Draft from website"}</button>
       </div>
-      <p class="wv-intro">Claude reads your website and drafts “Who we are” and “What makes a good pursuit” for you to check. Red flags, how to weigh things and market conditions are yours to write.</p>
+      <p class="wv-intro">AI reads your website and drafts “Who we are” and “What makes a good pursuit” for you to check. Red flags, how to weigh things and market conditions are yours to write.</p>
       <p class="wv-site-status" id="wv-site-status"></p>
       ${VIEW_PARTS.map(
         ([key, label, placeholder]) =>
@@ -308,7 +308,7 @@ function viewHtml(): string {
     </form>`;
   const site = (wv!.website ?? "").trim();
   return `<div class="block wv-view">
-    <div class="wv-part"><h3>Firm website</h3>${site && webLink(site) ? `<p><a class="link" href="${esc(webLink(site))}" target="_blank" rel="noopener noreferrer">${esc(site)}</a></p>` : `<p class="none">Not added yet. Add it under Edit, and Claude can draft the world view from it.</p>`}</div>
+    <div class="wv-part"><h3>Firm website</h3>${site && webLink(site) ? `<p><a class="link" href="${esc(webLink(site))}" target="_blank" rel="noopener noreferrer">${esc(site)}</a></p>` : `<p class="none">Not added yet. Add it under Edit, and AI can draft the world view from it.</p>`}</div>
     ${VIEW_PARTS.map(
       ([key, label]) =>
         `<div class="wv-part"><h3>${esc(label)}</h3>${wv![key].trim() ? `<p>${esc(wv![key].trim()).replace(/\n/g, "<br />")}</p>` : `<p class="none">Not written yet.</p>`}</div>`,
@@ -626,7 +626,7 @@ function rfpChoice(): string {
 async function readPastRfp(files: File[]): Promise<{ rfp: Rfp; costUsd: number | null } | null> {
   const ok = await confirmModal({
     title: "Read this RFP?",
-    body: `Claude reads ${files.map((f) => f.name).join(", ")} once and keeps what it needs with this past pursuit.`,
+    body: `AI reads ${files.map((f) => f.name).join(", ")} once and keeps what it needs with this past pursuit.`,
     confirm: "Read",
   });
   if (!ok) return null;
@@ -725,7 +725,7 @@ async function summarizeOwnPdf(input: HTMLInputElement) {
   if (!file) return;
   const ok = await confirmModal({
     title: "Summarize this proposal?",
-    body: `Claude reads ${file.name} once and writes about 150 words on what it emphasized. Reading PDFs costs roughly 1–2 cents a page.`,
+    body: `AI reads ${file.name} once and writes about 150 words on what it emphasized.`,
     confirm: "Summarize",
   });
   if (!ok) return;
@@ -791,7 +791,7 @@ async function runCheck() {
   const usable = checkable();
   const ok = await confirmModal({
     title: "Check the world view?",
-    body: `Claude gives a verdict on each of the ${usable.length} past pursuits, as if deciding today, and it's compared with how each turned out.`,
+    body: `AI gives a verdict on each of the ${usable.length} past pursuits, as if deciding today, and it's compared with how each turned out.`,
     confirm: "Check",
   });
   if (!ok) return;
@@ -844,7 +844,7 @@ async function draftFromSite() {
   }
   const ok = await confirmModal({
     title: "Draft from your website?",
-    body: "Claude reads up to 6 pages of your website and drafts two sections for you to check.",
+    body: "AI reads up to 6 pages of your website and drafts two sections for you to check.",
     confirm: "Draft",
   });
   if (!ok) return;
@@ -905,7 +905,7 @@ async function runSuggest() {
   if (!wv || !check || busy) return;
   const ok = await confirmModal({
     title: "Suggest changes?",
-    body: `Claude reads the world view and these results, and suggests edits.`,
+    body: `AI reads the world view and these results, and suggests edits.`,
     confirm: "Suggest",
   });
   if (!ok) return;

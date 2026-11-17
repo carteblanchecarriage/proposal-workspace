@@ -74,7 +74,7 @@ export type SavedConsultant = {
   name: string;
   /** from the governing discipline list */
   disciplines: string[];
-  /** anything else they do (Acoustics, Lighting, ...) */
+  /** anything else they do (Audiovisual, Lighting design, ...) */
   specialties?: string[];
   location?: string;
   contacts?: Contact[];

@@ -1,5 +1,6 @@
 import { DISCIPLINES, firmDisciplines, toDisciplines } from "../lib/disciplines";
-import { confirmDelete, formModal, noticeModal } from "./modal";
+import { confirmDelete, confirmModal, formModal, noticeModal } from "./modal";
+import { COLUMNS, downloadCsv, MAX_BYTES, planImport, templateCsv, type Issue } from "./consultants-csv";
 import { deleteConsultant, listComparisons, listConsultants, saveConsultant, savesShared, type SavedConsultant } from "./store";
 import { contactText, parseContacts, type Contact } from "./contacts";
 import { esc, firmName } from "./table";
@@ -51,6 +52,13 @@ export async function showConsultants() {
       filter = el.value;
       renderList();
     });
+    $("consultants-page").addEventListener("change", (e) => {
+      const el = e.target as HTMLInputElement;
+      if (!el.matches("[data-import-csv]") || !el.files?.[0]) return;
+      const file = el.files[0];
+      el.value = "";
+      void importCsv(file);
+    });
   }
   await load();
   render();
@@ -96,7 +104,16 @@ function render() {
     <input class="filter" data-filter type="search" placeholder="Search firms, disciplines, locations or certifications…" aria-label="Search consultants" value="${esc(filter)}" />
     <div class="consultants-actions">
       <button class="btn" data-add>Add consultant</button>
+      <label class="btn">Import CSV<input type="file" accept=".csv,text/csv" hidden data-import-csv /></label>
+      <button class="link" data-csv-template>Download CSV template</button>
     </div>
+    <details class="csv-help">
+      <summary>How the CSV import works</summary>
+      <p>Download the template, fill it in (in Excel, Google Sheets or Numbers) and save it as CSV, then choose Import CSV. Use one row per contact: a firm with three contacts takes three rows with the same firm name.</p>
+      <p><b>Columns:</b> ${COLUMNS.map(esc).join(", ")}. Only Firm name is required, plus at least one discipline per firm. Separate several disciplines with semicolons.</p>
+      <p><b>Disciplines:</b> ${DISCIPLINES.map(esc).join("; ")}. Others, like Audiovisual, go in the Other disciplines column.</p>
+      <p>You see what will be added before anything is saved. Firms already here get new disciplines and contacts, and empty details filled in; nothing saved is overwritten or deleted.</p>
+    </details>
     ${savesShared() ? "" : `<p class="estimate">Saved in this browser only until the database is set up.</p>`}
     <div id="consultant-list"></div>`;
   renderList();
@@ -175,9 +192,9 @@ async function editConsultant(start: Partial<SavedConsultant>): Promise<boolean>
     title: start.id ? "Edit consultant" : "Add consultant",
     fields: [
       { label: "Firm name", value: start.name ?? "", required: true },
-      { label: "Disciplines", value: toDisciplines(start.disciplines ?? []).join("\n"), options: DISCIPLINES },
-      { label: "Specialties", value: (start.specialties ?? []).join("\n"), options: knownSpecialties(start.specialties ?? []) },
-      { label: "New specialty", value: "", placeholder: "Not listed above? Type it, e.g. Acoustics" },
+      { label: "Disciplines", value: firmDisciplines(start).join("\n"), options: DISCIPLINES },
+      { label: "Other disciplines", value: (start.specialties ?? []).filter((s) => !firmDisciplines({ specialties: [s] }).length).join("\n"), options: knownSpecialties(start.specialties ?? []) },
+      { label: "New discipline", value: "", placeholder: "Not listed above? Type it, e.g. Audiovisual" },
       { label: "Location", value: start.location ?? "", placeholder: "City, state" },
       { label: "Contacts", value: JSON.stringify(start.contacts ?? parseContacts(start.contact)), contacts: true },
       { label: "Website", value: start.website ?? "" },
@@ -228,8 +245,65 @@ export async function copyEmail(button: HTMLElement) {
   }, 1500);
 }
 
+const issueList = (title: string, issues: Issue[], max = 15) =>
+  issues.length
+    ? `<h3 class="csv-issues-head">${esc(title)} (${issues.length})</h3><ul class="csv-issues">${issues
+        .slice(0, max)
+        .map((i) => `<li>${i.row ? `Row ${i.row}: ` : ""}${esc(i.message)}</li>`)
+        .join("")}${issues.length > max ? `<li>…and ${issues.length - max} more.</li>` : ""}</ul>`
+    : "";
+
+/** Reads a CSV, shows what it would add (and any problems), then saves on confirmation. */
+async function importCsv(file: File) {
+  if (!/\.csv$/i.test(file.name) && file.type !== "text/csv")
+    return noticeModal("Not a CSV file", "Save the spreadsheet as CSV (File → Save As or Download → CSV), then import that file.");
+  if (file.size > MAX_BYTES) return noticeModal("File too large", "Import at most 2 MB at a time. Split the file and import each part.");
+  const existing = await listConsultants();
+  const plan = planImport(await file.text(), existing);
+  if ("fatal" in plan) return noticeModal("Couldn't read the file", plan.fatal);
+  const firmsWord = (n: number) => `${n} firm${n === 1 ? "" : "s"}`;
+  const summary = plan.records.length
+    ? `<p>${[
+        plan.added ? `${firmsWord(plan.added)} to add` : "",
+        plan.updated ? `${firmsWord(plan.updated)} already here to update` : "",
+        plan.contacts ? `${plan.contacts} new contact${plan.contacts === 1 ? "" : "s"}` : "",
+      ]
+        .filter(Boolean)
+        .join(", ")}.</p>`
+    : `<p>Nothing to import${plan.errors.length ? ": every row has a problem" : ": everything in the file is already here"}.</p>`;
+  const html = `${summary}${issueList("Left out", plan.errors)}${issueList("Notes", plan.warnings)}`;
+  if (!plan.records.length) return void (await confirmModal({ title: "Import consultants", body: "", html, confirm: "OK", single: true, wide: true }));
+  const ok = await confirmModal({
+    title: "Import consultants",
+    body: "",
+    html,
+    confirm: `Import ${firmsWord(plan.records.length)}`,
+    wide: true,
+  });
+  if (!ok) return;
+  let saved = 0;
+  const failed: string[] = [];
+  const queue = [...plan.records];
+  await Promise.all(
+    Array.from({ length: 4 }, async () => {
+      for (let r = queue.shift(); r; r = queue.shift()) {
+        try {
+          await saveConsultant(r);
+          saved++;
+        } catch {
+          failed.push(r.name);
+        }
+      }
+    }),
+  );
+  await load();
+  render();
+  if (failed.length) await noticeModal("Some firms weren't saved", `Saved ${firmsWord(saved)}. Not saved: ${failed.join(", ")}. Try importing the file again; firms already saved won't be duplicated.`);
+}
+
 async function onClick(e: Event) {
   const t = e.target as HTMLElement;
+  if (t.closest("[data-csv-template]")) return downloadCsv("Consultants template.csv", templateCsv());
   const firm = (attr: string) => firms.find((f) => f.key === t.closest(`[${attr}]`)?.getAttribute(attr));
   let changed = false;
   const copy = t.closest<HTMLElement>("[data-copy-email]");

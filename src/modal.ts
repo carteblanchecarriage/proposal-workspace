@@ -3,13 +3,22 @@ import type { Contact } from "./contacts";
 import { esc } from "./table";
 
 /** A small confirm dialog. Resolves true when the user accepts. Escape, the backdrop, or Cancel resolve false. */
-export function confirmModal(opts: { title: string; body: string; confirm: string; danger?: boolean; single?: boolean }): Promise<boolean> {
+export function confirmModal(opts: {
+  title: string;
+  body: string;
+  confirm: string;
+  danger?: boolean;
+  single?: boolean;
+  /** trusted markup shown in place of the body (callers escape anything from users) */
+  html?: string;
+  wide?: boolean;
+}): Promise<boolean> {
   return new Promise((resolve) => {
     const dialog = document.createElement("dialog");
-    dialog.className = "modal";
+    dialog.className = opts.wide ? "modal wide" : "modal";
     dialog.innerHTML = `
       <h2>${esc(opts.title)}</h2>
-      <p>${esc(opts.body)}</p>
+      ${opts.html ?? `<p>${esc(opts.body)}</p>`}
       <div class="modal-actions">
         ${opts.single ? "" : '<button class="btn" value="cancel">Cancel</button>'}
         <button class="btn primary ${opts.danger ? "danger" : ""}" value="ok">${esc(opts.confirm)}</button>
