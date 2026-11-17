@@ -24,7 +24,7 @@ document.querySelectorAll("[data-year]").forEach((el) => (el.textContent = Strin
 startAnalytics();
 import { authEnabled, currentEmail, hasSession, initAuth, isInviteOnly, isRecovering, sendPasswordReset, sendSignInLink, setNewPassword, signInWithPassword, signOut, signUp } from "./auth";
 import { confirmDelete, confirmModal, formModal, noticeModal } from "./modal";
-import { getCurrentRfp, initRfp, openRfp, showRfpStart } from "./rfp";
+import { getCurrentRfp, initRfp, openRfp, rfpBusy, showRfpIntakeProject, showRfpStart } from "./rfp";
 import { showCalls } from "./calls";
 import { showConsultants } from "./consultants";
 import { flushFee, showFee } from "./fee";
@@ -34,6 +34,7 @@ import { showOrg } from "./org-page";
 import { typeSplash } from "./splash";
 import { clearPendingProject, initProject, openProject, pendingProject, showProjectList } from "./project";
 import { setPrintName } from "./print";
+import { initTooltips } from "./tooltip";
 import { copyShareLink, parseHash } from "./share";
 import { briefingHtml, esc, feeTable, firmName, notesHtml, scopeTable, type Sourced } from "./table";
 
@@ -171,9 +172,9 @@ function resetProposals() {
   history.replaceState(null, "", "#proposals");
   resetChat();
   setChatOpen(false);
-  renderSaved();
   setStatus("");
   render();
+  showIntakeProject();
 }
 
 // ---------- Rendering ----------
@@ -373,6 +374,19 @@ const diffOnly = $<HTMLInputElement>("diff-only");
 diffOnly.addEventListener("change", () => scopeEl.classList.toggle("diff-only", diffOnly.checked));
 $("print").addEventListener("click", () => window.print());
 $("share").addEventListener("click", (e) => current && copyShareLink("proposals", current.id, e.currentTarget as HTMLElement));
+$("delete-comparison").addEventListener("click", async () => {
+  const c = current;
+  if (!c || busy || chatting || !(await confirmDelete("comparison"))) return;
+  try {
+    await deleteComparison(c.id);
+  } catch (err) {
+    return noticeModal("Couldn't delete", (err as Error).message);
+  }
+  current = null;
+  results.hidden = true;
+  setChatOpen(false);
+  location.hash = c.projectId ? `#project/${encodeURIComponent(c.projectId)}` : "#project";
+});
 
 // The analysis currently on screen (saved in this browser); chat corrections replace parts of it.
 let current: SavedComparison | null = null;
@@ -402,7 +416,6 @@ async function persist() {
   if (!current) return;
   current.savedAt = Date.now();
   await saveComparison(current);
-  await renderSaved();
 }
 
 function showResults(scroll: boolean) {
@@ -522,7 +535,6 @@ chatForm.addEventListener("submit", async (e) => {
       renderCost();
     }
     await saveComparison(c);
-    await renderSaved();
   } catch (err) {
     // Give the question back for a retry; it isn't added to the saved conversation.
     chatInput.value = text;
@@ -582,58 +594,14 @@ reattachInput.addEventListener("change", async () => {
   }
 });
 
-// ---------- Saved comparisons (this browser only) ----------
-
-const savedEl = $<HTMLElement>("saved");
-const savedList = $<HTMLOListElement>("saved-list");
-
-async function renderSaved() {
-  const all = await listComparisons();
-  savedEl.hidden = all.length === 0;
-  savedList.innerHTML = all
-    .map((s) => {
-      const firms = s.proposals.map((p) => firmName(p.firm)).join(", ");
-      const when = new Date(s.savedAt).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
-      return `<li class="${s.id === current?.id ? "active" : ""}">
-        <button class="link open" data-open="${esc(s.id)}"><b>${esc(s.projectName ?? firms)}</b> <span>${s.projectName ? esc(firms) : ""}</span></button>
-        <span class="when">${s.costUsd != null ? usd(s.costUsd) + " · " : ""}${esc(when)}</span>
-        <button class="link" data-delete="${esc(s.id)}">Delete</button>
-      </li>`;
-    })
-    .join("");
-}
-
-/** Opens a saved comparison by id (from the list or a shared link). */
+/** Opens a saved comparison by id (from its project or a shared link). */
 async function openComparison(id: string) {
   const saved = (await listComparisons()).find((s) => s.id === id);
   if (!saved) return noticeModal("Comparison not found", "It may have been deleted.");
   current = saved;
   resetChat();
   showResults(true);
-  await renderSaved();
 }
-
-savedList.addEventListener("click", async (e) => {
-  const target = e.target as HTMLElement;
-  const openId = target.closest("[data-open]")?.getAttribute("data-open");
-  const deleteId = target.closest("[data-delete]")?.getAttribute("data-delete");
-  if (openId && !busy && !chatting) {
-    await openComparison(openId);
-  } else if (deleteId && (await confirmDelete("comparison"))) {
-    try {
-      await deleteComparison(deleteId);
-    } catch (err) {
-      await noticeModal("Couldn't delete", (err as Error).message);
-      return;
-    }
-    if (current?.id === deleteId) {
-      current = null;
-      results.hidden = true;
-      setChatOpen(false);
-    }
-    await renderSaved();
-  }
-});
 
 /** True once the app has loaded (after sign-in). */
 let started = false;
@@ -1000,7 +968,7 @@ setPrintName(() => {
 function start() {
   if (started) return;
   started = true;
-  renderSaved();
+  initTooltips();
   initRfp();
   initProject();
   showTab();
@@ -1023,7 +991,8 @@ function showTab() {
   if (onSchedule()) {
     if (!started) return; // waits for sign-in; start() calls showTab again
     for (const t of TABS) $(`tab-${t}`).hidden = true;
-    document.querySelectorAll("nav.tabs a, a.worldview-link, a.org-name").forEach((a) => a.classList.toggle("on", a.getAttribute("data-tab") === "schedule"));
+    // Schedules belong to projects: the Projects tab stays highlighted.
+    document.querySelectorAll("nav.tabs a, a.worldview-link, a.org-name").forEach((a) => a.classList.toggle("on", a.getAttribute("data-tab") === "project"));
     setChatOpen(false);
     flushFee();
     closeFeeChat();
@@ -1037,13 +1006,18 @@ function showTab() {
   const { tab: t, id } = parseHash();
   // Opening the site (no page in the address, or the name in the header) shows the projects list.
   const tab = TABS.includes(t) ? t : "project";
+  // RFP reviews, proposal comparisons and fees live inside projects: their start pages only open from a project (which
+  // says what they'll belong to), so anything made there is linked to it. Without one, go to Projects.
+  if (started && !id && needsProject(tab)) return void location.replace("#project");
   for (const t of TABS) $(`tab-${t}`).hidden = t !== tab;
-  document.querySelectorAll("nav.tabs a, a.worldview-link, a.org-name").forEach((a) => a.classList.toggle("on", a.getAttribute("data-tab") === tab));
+  const navTab = ["rfp", "proposals", "fee"].includes(tab) ? "project" : tab;
+  document.querySelectorAll("nav.tabs a, a.worldview-link, a.org-name").forEach((a) => a.classList.toggle("on", a.getAttribute("data-tab") === navTab));
   if (reset && started) {
     if (tab === "rfp") showRfpStart();
     if (tab === "proposals") resetProposals();
   }
   if (tab === "proposals") showIntakeProject();
+  if (tab === "rfp") showRfpIntakeProject();
   if (tab !== "proposals") setChatOpen(false);
   // A shared link (#rfp/<id> or #proposals/<id>) opens that item once signed in.
   if (id && started) tab === "rfp" ? openRfp(id) : tab === "proposals" ? openComparison(id) : tab === "project" && openProject(id);
@@ -1059,18 +1033,28 @@ function showTab() {
   }
 }
 
-/** On the intake, names the project the next comparison will be linked to (when started from a project page). */
+/**
+ * A tool's start page opened with nothing to belong to: no project chose it, and nothing is running or on screen.
+ * (Fees always open by id, from their project.)
+ */
+function needsProject(tab: string): boolean {
+  if (tab === "fee") return true;
+  if (tab === "rfp") return !pendingProject() && !rfpBusy() && !getCurrentRfp();
+  if (tab === "proposals") return !pendingProject() && !busy && !current;
+  return false;
+}
+
+/** On the intake, names the project the next comparison belongs to (it's always started from a project page). */
 function showIntakeProject() {
   const p = pendingProject();
+  // No project, no upload: a comparison is always made for a project.
+  $("drop").hidden = !p;
   const el = $("intake-project");
-  el.hidden = !p;
-  el.innerHTML = p ? `For project <b>${esc(p.name)}</b> <button class="link" data-unpend>Don't link</button>` : "";
+  el.hidden = false;
+  el.innerHTML = p
+    ? `For project <a class="link" href="#project/${encodeURIComponent(p.id)}"><b>${esc(p.name)}</b></a>`
+    : `Proposals are compared within a project. <a class="link" href="#project">Go to Projects</a>, open one, and choose Compare proposals.`;
 }
-$("intake-project").addEventListener("click", (e) => {
-  if (!(e.target as HTMLElement).closest("[data-unpend]")) return;
-  clearPendingProject();
-  showIntakeProject();
-});
 addEventListener("hashchange", showTab);
 
 // Clicking a tab (or World view) always opens its first page, not the review, comparison or item last open in it.

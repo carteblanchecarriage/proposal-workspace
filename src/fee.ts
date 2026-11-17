@@ -379,7 +379,7 @@ async function openFee(id: string) {
   const found = fees.find((f) => f.id === id);
   if (!found) {
     fee = null;
-    $("fee-page").innerHTML = `<p class="none">This fee wasn't found. It may have been deleted. <a class="link" href="#fee">All fees</a></p>`;
+    $("fee-page").innerHTML = `<p class="none">This fee wasn't found. It may have been deleted. <a class="link" href="#project">Projects</a></p>`;
     return;
   }
   if (fee?.id !== id) {
@@ -407,7 +407,7 @@ function render() {
   const by = budgetBy(f);
   $("fee-page").innerHTML = `
     <div class="rfp-top">
-      <a class="link" href="#fee">← All fees</a>
+      ${project ? `<a class="link" href="#project/${encodeURIComponent(project.id)}">← ${esc(projectLabel(project))}</a>` : `<a class="link" href="#project">← Projects</a>`}
       <span class="status error" id="fee-save-error"></span>
       <div class="actions"><button class="btn" data-fee-chat>Ask AI</button><button class="btn" data-undo title="Undo (Ctrl+Z)" ${undoStack.length ? "" : "disabled"}>Undo</button><button class="btn" data-delete-fee>Delete</button></div>
     </div>
@@ -883,7 +883,8 @@ async function onClick(e: Event) {
       return noticeModal("Couldn't delete", (err as Error).message);
     }
     fee = null;
-    location.hash = "#fee";
+    // Back to the fee's project (fees live inside projects).
+    location.hash = f.workspaceProjectId ? `#project/${encodeURIComponent(f.workspaceProjectId)}` : "#project";
   } else if ((id = attr("data-toggle-phase"))) {
     if (openPhases.has(id)) openPhases.delete(id);
     else openPhases.add(id);

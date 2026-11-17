@@ -4,7 +4,8 @@ import { reviewContext } from "./worldview";
 import { DISCIPLINES, toDisciplines, type Discipline } from "../lib/disciplines";
 import { estimateRfp, usd, usdRange, type Usage } from "../lib/cost";
 import { post, postPdf } from "./api";
-import { deleteRfp, listRfps, projectLabel, saveProject, saveRfp, savesShared, type SavedProject, type SavedRfp } from "./store";
+import { deleteRfp, listProjects, listRfps, projectLabel, saveProject, saveRfp, savesShared, type SavedProject, type SavedRfp } from "./store";
+import { clearPendingProject, pendingProject } from "./pending";
 import { askProjectName, confirmDelete, confirmModal, noticeModal } from "./modal";
 import { copyShareLink } from "./share";
 import { esc } from "./table";
@@ -43,7 +44,6 @@ export function initRfp() {
     renderFiles();
   });
   $("rfp-run").addEventListener("click", run);
-  $("rfp-saved-list").addEventListener("click", onSavedClick);
   $("rfp-results").addEventListener("click", onResultsClick);
   $("rfp-results").addEventListener("submit", addQuestion);
   $("rfp-results").addEventListener("submit", onEditSubmit);
@@ -54,7 +54,6 @@ export function initRfp() {
     editing = null;
     rerenderInPlace();
   });
-  renderSaved();
 }
 
 // ---------- Intake ----------
@@ -126,9 +125,12 @@ async function run() {
       JSON.stringify({ files, worldView: context.worldView, pursuits: context.pursuits, sections: context.sections }),
       { "content-type": "application/json" },
     );
+    // Started from a project page: the review is that project's RFP review.
+    const linkTo = pendingProject();
     current = {
       id: reviewId,
       savedAt: Date.now(),
+      ...(linkTo ? { projectId: linkTo.id, project: linkTo.name } : {}),
       files: files.map((f) => f.filename),
       ...(stored.length ? { stored, storedAt: Date.now() } : {}),
       rfp: res.rfp,
@@ -143,6 +145,11 @@ async function run() {
     await saveRfp(current).catch((err) =>
       $("rfp-results").insertAdjacentHTML("afterbegin", `<p class="status error">Not saved: ${esc((err as Error).message)}</p>`),
     );
+    if (linkTo) {
+      clearPendingProject();
+      const project = (await listProjects()).find((p) => p.id === linkTo.id);
+      if (project && !project.rfpId) await saveProject({ ...project, rfpId: reviewId }).catch(() => {});
+    }
   } catch (err) {
     setStatus((err as Error).message, true);
   } finally {
@@ -181,23 +188,6 @@ async function uploadKept(file: File, reviewId: string, index: number): Promise<
   }
 }
 
-// ---------- Saved ----------
-
-async function renderSaved() {
-  const all = await listRfps();
-  $("rfp-saved").hidden = all.length === 0;
-  $("rfp-saved-list").innerHTML = all
-    .map((s) => {
-      const due = proposalDue(s.rfp);
-      return `<li>
-        <button class="link open" data-open="${esc(s.id)}"><b>${esc(s.project ?? s.rfp.project_name)}</b> <span>${esc(s.rfp.client)}</span></button>
-        <span class="when">${due ? `Due ${esc(formatWhen(due))}` : ""}</span>
-        <button class="link" data-delete="${esc(s.id)}">Delete</button>
-      </li>`;
-    })
-    .join("");
-}
-
 /** Creates a project from this review (name confirmed by the user) and links the review to it. */
 async function startProject(review: SavedRfp) {
   const entered = await askProjectName("Start a project", "Start project", { name: review.project || review.rfp.project_name });
@@ -218,6 +208,19 @@ async function startProject(review: SavedRfp) {
 export const getCurrentRfp = () => current;
 
 /** Opens a saved review by id (from the list or a shared link). */
+/** A review is being read right now (its page stays reachable while it runs). */
+export const rfpBusy = () => busy;
+
+/** On the upload page, names the project the review is for (it's always started from a project page). */
+export function showRfpIntakeProject() {
+  const p = pendingProject();
+  // No project, no upload: a review is always made for a project.
+  $("rfp-drop").hidden = !p;
+  $("rfp-intake-project").innerHTML = p
+    ? `For project <a class="link" href="#project/${encodeURIComponent(p.id)}"><b>${esc(p.name)}</b></a>`
+    : `RFP reviews start from a project. <a class="link" href="#project">Go to Projects</a>, open one (or make a new one), and choose Review the RFP.`;
+}
+
 /** The RFP tab's first page: the upload and the saved reviews (also where clicking the tab goes). */
 export function showRfpStart() {
   if (busy) return; // a review is running; it shows itself when done
@@ -226,7 +229,7 @@ export function showRfpStart() {
   history.replaceState(null, "", "#rfp");
   $("rfp-results").hidden = true;
   $("rfp-intake").hidden = false;
-  renderSaved();
+  showRfpIntakeProject();
 }
 
 export async function openRfp(id: string) {
@@ -237,23 +240,20 @@ export async function openRfp(id: string) {
   showResults();
 }
 
-async function onSavedClick(e: Event) {
-  const t = e.target as HTMLElement;
-  const openId = t.closest("[data-open]")?.getAttribute("data-open");
-  const deleteId = t.closest("[data-delete]")?.getAttribute("data-delete");
-  if (openId && !busy) {
-    await openRfp(openId);
-  } else if (deleteId && (await confirmDelete("RFP review"))) {
-    try {
-      const paths = (await listRfps()).find((r) => r.id === deleteId)?.stored?.map((f) => f.path) ?? [];
-      // Best effort: anything left is removed after 30 days anyway.
-      if (paths.length) await post("/api/upload", JSON.stringify({ paths }), { "content-type": "application/json", "x-action": "delete-stored" }).catch(() => {});
-      await deleteRfp(deleteId);
-    } catch (err) {
-      await noticeModal("Couldn't delete", (err as Error).message);
-    }
-    renderSaved();
+/** Deletes the review on screen (and its stored PDFs), then goes back to its project. */
+async function deleteCurrentRfp() {
+  const review = current;
+  if (!review || busy || !(await confirmDelete("RFP review"))) return;
+  try {
+    const paths = review.stored?.map((f) => f.path) ?? [];
+    // Best effort: anything left is removed after 30 days anyway.
+    if (paths.length) await post("/api/upload", JSON.stringify({ paths }), { "content-type": "application/json", "x-action": "delete-stored" }).catch(() => {});
+    await deleteRfp(review.id);
+  } catch (err) {
+    return noticeModal("Couldn't delete", (err as Error).message);
   }
+  current = null;
+  location.hash = review.projectId ? `#project/${encodeURIComponent(review.projectId)}` : "#project";
 }
 
 // ---------- Results ----------
@@ -327,7 +327,7 @@ function showResults() {
   const canEditFacts = !Array.isArray(rfp.facts);
   $("rfp-results").innerHTML = `
     <div class="rfp-top">
-      <button class="link" data-back>← All RFPs</button>
+      ${current.projectId ? `<a class="link" href="#project/${encodeURIComponent(current.projectId)}">← ${esc(current.project || "Project")}</a>` : `<a class="link" href="#project">← Projects</a>`}
       <span class="project-name">${
         current.projectId
           ? `Project: <a class="link" href="#project/${encodeURIComponent(current.projectId)}"><b>${esc(current.project ?? "")}</b></a>`
@@ -338,7 +338,7 @@ function showResults() {
       <span class="tools">${current.projectId ? "" : '<button class="btn" data-start-project>Start project</button>'}${
         // The original RFP (the first file), while it's kept; opens the whole PDF in a new tab.
         isKept(current.stored?.[0]) ? `<button class="btn" data-open-file="0" title="Open ${esc(current.stored![0].name)}">View RFP</button>` : ""
-      }<button class="btn" data-share>Share</button><button class="btn" data-print>Print</button></span>
+      }<button class="btn" data-share>Share</button><button class="btn" data-print>Print</button><button class="btn" data-delete-rfp>Delete</button></span>
     </div>
     ${
       editing === "header"
@@ -541,12 +541,12 @@ async function onResultsClick(e: Event) {
     document.getElementById("rfp-fit")?.scrollIntoView({ behavior: "smooth", block: "start" });
     return;
   }
-  if (t.closest("[data-back]")) {
-    showRfpStart();
-  } else if (t.closest("[data-print]")) {
+  if (t.closest("[data-print]")) {
     print();
   } else if (t.closest("[data-start-project]") && current) {
     await startProject(current);
+  } else if (t.closest("[data-delete-rfp]") && current) {
+    await deleteCurrentRfp();
   } else if (t.closest("[data-share]") && current) {
     await copyShareLink("rfp", current.id, t.closest("[data-share]") as HTMLElement);
   } else if (t.closest("[data-remove-q]") && current) {
@@ -774,6 +774,23 @@ function onEditClick(t: HTMLElement): boolean {
 
 const VERDICTS: Record<Fit["verdict"], string> = { pursue: "Pursue", consider: "Consider", pass: "Pass" };
 
+/** What each verdict means, for the pill's tooltip. */
+const VERDICT_HELP: Record<Fit["verdict"], string> = {
+  pursue:
+    "Pursue: this RFP lines up well with your firm, judged against your world view, the fee you'd expect at this budget and your past pursuits. Worth going after.",
+  consider:
+    "Consider: a judgment call, not a clear yes or no. The RFP has real strengths and real concerns, such as a tight fee for the budget, work outside your usual experience or an unclear scope. Read the reasons in the Fit section and decide as a team.",
+  pass:
+    "Pass: something here works against you, such as a deal-breaker from your world view or a fee too low for the budget. Probably not worth the effort of a proposal.",
+};
+
+/** The fit verdict as a pill, with a tooltip saying what the verdict means. A link when href is given. */
+export function verdictPill(fit: Fit, href?: string, attrs = ""): string {
+  const tip = `${VERDICT_HELP[fit.verdict]} You can change the verdict on the review.`;
+  const tag = href ? "a" : "span";
+  return `<${tag} class="fit-pill fit-pill-${esc(fit.verdict)}"${href ? ` href="${esc(href)}"` : ' tabindex="0"'} data-tip="${esc(tip)}" ${attrs}>${VERDICTS[fit.verdict]}</${tag}>`;
+}
+
 /** Whether to pursue it, and the world view it was judged with. Older reviews have no fit and show nothing here. */
 function fitBlock(): string {
   if (!current) return "";
@@ -805,7 +822,7 @@ function fitBlock(): string {
 function fitPill(): string {
   const fit = current && (current.rfp as { fit?: Fit }).fit;
   if (!fit) return "";
-  return `<a class="fit-pill fit-pill-${fit.verdict}" href="#rfp-fit" data-fit-pill title="See why">${VERDICTS[fit.verdict]}</a>`;
+  return verdictPill(fit, "#rfp-fit", "data-fit-pill");
 }
 
 const dayText = (ms: number) => new Date(ms).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });

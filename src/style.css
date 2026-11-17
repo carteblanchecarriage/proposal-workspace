@@ -26,7 +26,7 @@ body {
 /* Footer sits at the bottom of short pages too */
 body { min-height: 100vh; display: flex; flex-direction: column; }
 body > main { flex: 1; }
-footer.site { background: var(--site-blue); color: #fff; padding: 14px 32px; font-size: 12px; line-height: 1.5; }
+footer.site { background: var(--site-blue); color: #fff; padding: 14px 32px; font-size: 12px; line-height: 1.5; display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 24px; }
 
 /* Header */
 header.site {
@@ -897,3 +897,71 @@ a.fee-on-project:hover table, a.fee-on-project:focus-visible table { outline: 2p
 .org-muted { font-size: 13px; }
 .org-danger { border-top: 1px solid var(--bad); padding-top: 16px; }
 .org-danger .label { color: var(--bad); }
+
+/* ---------- Project page: a dashboard ---------- */
+#project-page.is-dash { max-width: none; padding-top: 24px; }
+.proj-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px 24px; margin-bottom: 16px; }
+.proj-title .headline { margin: 8px 0 4px; }
+.proj-sub { margin: 0; font-size: 14px; }
+.proj-head .tools { display: flex; gap: 8px; flex-shrink: 0; padding-top: 2px; }
+
+/* RFP review, proposals and consultants across the top; schedule and fee below (the taller row). */
+.proj-grid {
+  display: grid; gap: 16px;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  grid-template-rows: minmax(0, 1fr) minmax(0, 1.35fr);
+}
+.proj-schedule { grid-column: span 8; }
+.proj-fee { grid-column: span 4; }
+/* The consultants' rows (firm chips with a status) need the most width; the RFP summary the least. */
+.proj-rfp { grid-column: span 3; }
+.proj-proposals { grid-column: span 4; }
+.proj-consultants { grid-column: span 5; }
+.proj-card { border: 1px solid var(--ink); display: flex; flex-direction: column; min-height: 0; min-width: 0; background: var(--bg); }
+.proj-card-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 10px 14px; border-bottom: 1px solid var(--rule); }
+.proj-card-head .label { margin: 0; }
+.proj-card-links { display: flex; gap: 14px; font-size: 13px; white-space: nowrap; }
+.proj-card-body { flex: 1; min-height: 0; overflow: auto; padding: 12px 14px; font-size: 14px; }
+.proj-card-body p { margin: 0 0 6px; }
+.proj-card-body .actions { margin-top: 12px; }
+.proj-strong { font-weight: 600; font-size: 15px; }
+/* Lists inside cards keep the site's list look without the page-level spacing. */
+.proj-card.saved { margin-top: 0; }
+.proj-card .saved ol, .proj-card ol { margin: 0; }
+
+/* The schedule snapshot fills its card (no frame of its own; the card has one). */
+.proj-card .schedule-snap { border: 0; padding: 0; margin: 0; max-width: 1100px; }
+.proj-card .schedule-snap:hover { background: transparent; }
+
+/* The fee in brief. */
+.proj-fee-link { display: block; color: inherit; text-decoration: none; }
+.proj-fee-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+.proj-fee-table th { text-align: left; font-weight: 400; padding: 5px 0; border-bottom: 1px solid var(--rule); }
+.proj-fee-table td { text-align: right; padding: 5px 0; border-bottom: 1px solid var(--rule); white-space: nowrap; }
+.proj-fee-total { font-size: 28px; font-weight: 800; letter-spacing: -0.01em; line-height: 1.1; margin: 0 0 2px !important; }
+.proj-fee-pct { font-size: 13px; margin: 0 0 10px !important; }
+.proj-fee-link:hover .proj-fee-total { text-decoration: underline; text-underline-offset: 3px; }
+
+/* Fitted to the window (large screens; see fitDashboard in project.ts): the page itself doesn't scroll. */
+html.project-dash body > main { padding-bottom: 24px; }
+html:not(.project-dash) .proj-grid { grid-template-rows: none; }
+html:not(.project-dash) .proj-card-body { overflow: visible; }
+
+@media (max-width: 1099px) {
+  .proj-grid { grid-template-columns: minmax(0, 1fr); }
+  .proj-schedule, .proj-fee, .proj-rfp, .proj-proposals, .proj-consultants { grid-column: auto; }
+}
+@media (max-width: 640px) {
+  .proj-head { flex-direction: column; }
+}
+
+.project-list-head { display: flex; justify-content: space-between; align-items: center; gap: 16px; margin-bottom: 12px; }
+.project-list-head .label { margin: 0; }
+
+/* Tooltips (src/tooltip.ts). */
+.tooltip {
+  position: fixed; z-index: 1000; max-width: 300px; padding: 8px 11px;
+  background: var(--ink); color: var(--bg); font-size: 13px; line-height: 1.4; font-weight: 400;
+  pointer-events: none;
+}
+@media print { .tooltip { display: none; } }

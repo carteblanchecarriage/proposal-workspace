@@ -235,11 +235,7 @@
       <nav class="tabs">
         <a href="#project" data-tab="project">Projects</a>
         <a href="#calls" data-tab="calls">Open Calls</a>
-        <a href="#rfp" data-tab="rfp">RFP</a>
-        <a href="#proposals" data-tab="proposals">Proposals</a>
         <a href="#consultants" data-tab="consultants">Consultants</a>
-        <a href="#schedule" data-tab="schedule">Schedule</a>
-        <a href="#fee" data-tab="fee">Fee</a>
       </nav>
       <a class="worldview-link" href="#worldview" data-tab="worldview">World view</a>
       <a class="org-name" id="org-name" href="#org" data-tab="org" title="Organization" hidden></a>
@@ -256,6 +252,7 @@
       <div id="tab-rfp" class="tab" hidden>
         <section id="rfp-intake">
           <p class="lede">Drop in an RFP to see its key dates, critical components and questions to ask.</p>
+          <p id="rfp-intake-project" class="intake-project"></p>
           <label id="rfp-drop" class="drop">
             <input id="rfp-input" type="file" accept="application/pdf,.pdf" multiple hidden />
             <span>Drop the RFP and any addenda here, or <u>browse</u></span>
@@ -267,10 +264,6 @@
             <span id="rfp-status" class="status"></span>
           </div>
           <p id="rfp-estimate" class="estimate"></p>
-          <div id="rfp-saved" class="saved" hidden>
-            <h2 class="label">Recent RFPs</h2>
-            <ol id="rfp-saved-list"></ol>
-          </div>
         </section>
         <section id="rfp-results" hidden></section>
       </div>
@@ -339,10 +332,6 @@
         </div>
         <p id="run-estimate" class="estimate"></p>
 
-        <div id="saved" class="saved" hidden>
-          <h2 class="label">Recent comparisons <span class="note">saved in this browser only</span></h2>
-          <ol id="saved-list"></ol>
-        </div>
       </section>
 
       <section id="results" hidden>
@@ -362,6 +351,7 @@
             <button id="chat-open" class="btn">Ask / correct</button>
             <button id="share" class="btn">Share</button>
             <button id="print" class="btn">Print / PDF</button>
+            <button id="delete-comparison" class="btn">Delete</button>
           </span>
         </div>
 
@@ -418,7 +408,8 @@
     </aside>
 
     <footer class="site">
-      This site is in development, so features and how they work may change.
+      <span>AI can make mistakes. Check important dates, figures and requirements against the original documents.</span>
+      <span>This site is in development, so features and how they work may change.</span>
     </footer>
 
     <div id="feedback" class="feedback">

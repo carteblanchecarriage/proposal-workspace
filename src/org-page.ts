@@ -114,6 +114,11 @@ function render() {
     </div>
 
     <div class="block">
+      <h2 class="label">Schedules</h2>
+      <p>Colors, font and other settings for every schedule in your organization: <a class="link" href="#schedule">Colors and style</a>.</p>
+    </div>
+
+    <div class="block">
       <h2 class="label">AI use</h2>
       <p>${usage}</p>
     </div>

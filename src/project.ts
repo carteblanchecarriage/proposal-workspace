@@ -7,9 +7,10 @@ import { SCHEDULE_TEMPLATES } from "./schedule/lib/data/templates.js";
 import { post } from "./api";
 import { estimateScheduleDraft, usdRange, type Usage } from "../lib/cost";
 import type { ScheduleDraft } from "../lib/claude";
-import { proposalTable } from "./fee-calc";
+import { proposalTable, totals } from "./fee-calc";
 import { CONSULTANT_STATUS, type ConsultantStatus, deleteProject, listFees, saveFee, type SavedFee, projectLabel, listComparisons, listProjects, listSchedules, getScheduleStyle, type ScheduleStyle, savesShared, listRfps, saveComparison, saveProject, saveRfp, saveSchedule, listConsultants, type SavedConsultant, type SavedComparison, type SavedProject, type SavedRfp, type SavedSchedule } from "./store";
-import { addAddendum, formatWhen, parseDay, projectDisciplines, proposalDue } from "./rfp";
+import { addAddendum, formatWhen, parseDay, projectDisciplines, proposalDue, verdictPill } from "./rfp";
+import { setPendingProject } from "./pending";
 import { copyShareLink } from "./share";
 import { esc, firmName } from "./table";
 import { contactsHtml, copyEmail, keyOf, siteLink } from "./consultants";
@@ -27,13 +28,25 @@ let fees: SavedFee[] = [];
 /** the Consultants directory, for contact details */
 let directory: SavedConsultant[] = [];
 
-// "Compare proposals" on a project page: the next comparison is linked to this project.
-let pending: { id: string; name: string } | null = null;
-export const pendingProject = () => pending;
-export const clearPendingProject = () => (pending = null);
+// "Review the RFP" and "Compare proposals" on a project page: what's started next belongs to this project.
+export { pendingProject, clearPendingProject } from "./pending";
 
 export function initProject() {
   $("project-page").addEventListener("click", onClick);
+}
+
+/** Asks for a new project's number and name, saves it, and returns it (null if cancelled or not saved). */
+export async function newProject(): Promise<SavedProject | null> {
+  const entered = await askProjectName("New project", "Create project", { name: "" });
+  if (!entered) return null;
+  const p: SavedProject = { id: crypto.randomUUID(), savedAt: Date.now(), ...entered };
+  try {
+    await saveProject(p);
+    return p;
+  } catch (err) {
+    await noticeModal("Project not saved", (err as Error).message);
+    return null;
+  }
 }
 
 export async function openProject(id: string) {
@@ -72,16 +85,24 @@ async function load() {
 /** All projects, newest first, each opening its page. */
 export async function showProjectList() {
   project = null;
+  $("project-page").classList.remove("is-dash");
   const [projects, rfps] = await Promise.all([listProjects(), listRfps()]);
-  // Sorted by proposal due date: upcoming soonest first, then past ones (most recent first), then those without one.
-  const today = new Date().setHours(0, 0, 0, 0);
+  // Sorted by project number, highest first; projects without a number last, newest first.
   const rows = projects.map((p) => {
     const r = rfps.find((x) => x.id === p.rfpId) ?? rfps.find((x) => x.projectId === p.id);
     const due = r ? proposalDue(r.rfp) : undefined;
-    return { p, r, due, t: due ? parseDay(due.date)?.getTime() : undefined };
+    return { p, r, due };
   });
-  const rank = (t?: number) => (t == null ? 2 : t >= today ? 0 : 1);
-  rows.sort((a, b) => rank(a.t) - rank(b.t) || (rank(a.t) === 0 ? a.t! - b.t! : rank(a.t) === 1 ? b.t! - a.t! : b.p.savedAt - a.p.savedAt));
+  const num = (p: SavedProject) => {
+    const n = parseInt(String(p.number ?? "").replace(/\D/g, ""), 10);
+    return Number.isFinite(n) ? n : null;
+  };
+  rows.sort((a, b) => {
+    const x = num(a.p), y = num(b.p);
+    if (x != null && y != null && x !== y) return y - x;
+    if ((x == null) !== (y == null)) return x == null ? 1 : -1;
+    return b.p.savedAt - a.p.savedAt;
+  });
   const items = rows
     .map(({ p, r, due }) => {
       return `<li>
@@ -92,8 +113,10 @@ export async function showProjectList() {
     })
     .join("");
   $("project-page").innerHTML = `
-    <div class="saved project-list"><h2 class="label">Projects</h2>
-    ${items ? `<ol>${items}</ol>` : `<p class="none">No projects yet. Start one from an RFP review.</p>`}</div>`;
+    <div class="saved project-list">
+      <div class="project-list-head"><h2 class="label">Projects</h2><button class="btn primary" data-new-project>New project</button></div>
+      ${items ? `<ol>${items}</ol>` : `<p class="none">No projects yet. Everything starts from a project: its RFP review, proposals, fee and schedule.</p>`}
+    </div>`;
 }
 
 function render() {
@@ -110,81 +133,118 @@ function render() {
     .join("");
 
 
+  const due = rfp ? proposalDue(rfp.rfp) : undefined;
+  const sub = [rfp?.rfp.client, due ? `Proposals due ${formatWhen(due)}` : ""].filter(Boolean).map((x) => esc(String(x))).join(" · ");
+  const fee = fees[0];
+  const sched = schedules[0];
+
+  $("project-page").classList.add("is-dash");
+  // A dashboard: the RFP review, proposals and consultants first, then the schedule and fee. On a large enough screen it fits the window (see fitDashboard); long lists scroll inside their card.
   $("project-page").innerHTML = `
-    <div class="rfp-top">
-      <a class="link" href="#project">← All projects</a>
+    <div class="proj-head">
+      <div class="proj-title">
+        <a class="link" href="#project">← All projects</a>
+        <h1 class="headline">${esc(projectLabel(p))}</h1>
+        ${sub ? `<p class="proj-sub">${sub}</p>` : ""}
+      </div>
       <span class="tools"><button class="btn" data-rename>Edit</button><button class="btn" data-share>Share</button><button class="btn" data-delete-project="${esc(p.id)}">Delete</button></span>
     </div>
-    <h1 class="headline">${esc(projectLabel(p))}</h1>
 
-    <div class="block">
-      <h2 class="label">RFP review</h2>
-      ${
-        rfp
-          ? `<p class="none"><a class="link" href="#rfp/${encodeURIComponent(rfp.id)}">${esc(rfp.rfp.project_name)}</a> · ${esc(rfp.rfp.client)}${
-              rfp.addenda?.length ? ` · ${rfp.addenda.length} addend${rfp.addenda.length === 1 ? "um" : "a"}` : ""
-            }</p>
-            <div class="actions"><label class="btn">Add addendum<input type="file" accept="application/pdf,.pdf" multiple hidden data-addendum /></label><span class="status" id="addendum-status"></span></div>`
-          : `<p class="none">None linked.</p>`
-      }
-    </div>
+    <div class="proj-grid">
+      <div class="proj-card proj-rfp">
+        <div class="proj-card-head">
+          <h2 class="label">RFP review</h2>
+          ${rfp ? `<span class="proj-card-links"><a class="link" href="#rfp/${encodeURIComponent(rfp.id)}">Open</a></span>` : ""}
+        </div>
+        <div class="proj-card-body">
+          ${
+            rfp
+              ? `<p class="proj-strong"><a class="link" href="#rfp/${encodeURIComponent(rfp.id)}">${esc(rfp.rfp.project_name)}</a></p>
+                 <p>${esc(rfp.rfp.client)}</p>
+                 ${rfp.rfp.fit ? `<p>${verdictPill(rfp.rfp.fit, `#rfp/${encodeURIComponent(rfp.id)}`)}</p>` : ""}
+                 ${due ? `<p>Proposals due ${esc(formatWhen(due))}</p>` : ""}
+                 ${rfp.addenda?.length ? `<p>${rfp.addenda.length} addend${rfp.addenda.length === 1 ? "um" : "a"} read in</p>` : ""}
+                 <div class="actions"><label class="btn">Add addendum<input type="file" accept="application/pdf,.pdf" multiple hidden data-addendum /></label><span class="status" id="addendum-status"></span></div>`
+              : `<p class="none">None yet.</p><div class="actions"><button class="btn" data-review-rfp>Review the RFP</button></div>`
+          }
+        </div>
+      </div>
 
-    <div class="block saved">
-      <h2 class="label">Proposals</h2>
-      ${cmpList ? `<ol>${cmpList}</ol>` : `<p class="none">None yet.</p>`}
-      <div class="actions"><button class="btn" data-compare>Compare proposals</button></div>
-    </div>
+      <div class="proj-card proj-proposals saved">
+        <div class="proj-card-head"><h2 class="label">Proposals</h2></div>
+        <div class="proj-card-body">
+          ${cmpList ? `<ol>${cmpList}</ol>` : `<p class="none">None yet.</p>`}
+          <div class="actions"><button class="btn" data-compare>Compare proposals</button></div>
+        </div>
+      </div>
 
-    <div class="block">
-      <h2 class="label">Consultants</h2>
-      ${consultantsHtml(p)}
-    </div>
+      <div class="proj-card proj-consultants">
+        <div class="proj-card-head"><h2 class="label">Consultants</h2></div>
+        <div class="proj-card-body">${consultantsHtml(p)}</div>
+      </div>
 
-    <div class="block saved">
-      <h2 class="label">Schedule</h2>
-      ${
-        schedules.length
-          ? `<ol>${schedules
-              .map(
-                (s) => `<li>
-                  <a class="link open" href="#schedule/${encodeURIComponent(s.id)}"><b>${esc(String(s.title || "Untitled schedule"))}</b></a>
-                  <span></span>
-                  <span></span>
-                </li>`,
-              )
-              .join("")}</ol>`
-          : `<p class="none">None yet.</p>`
-      }
-      ${schedules[0] ? scheduleSnapshotHtml(schedules[0], scheduleStyle) : ""}
-      ${schedules.length ? "" : `<div class="actions"><button class="btn" data-make-schedule>Make schedule</button></div>`}
-    </div>
+      <div class="proj-card proj-schedule">
+        <div class="proj-card-head">
+          <h2 class="label">Schedule</h2>
+          ${sched ? `<span class="proj-card-links"><a class="link" href="#schedule/${encodeURIComponent(sched.id)}">Open</a></span>` : ""}
+        </div>
+        <div class="proj-card-body">
+          ${
+            sched
+              ? scheduleSnapshotHtml(sched, scheduleStyle) ||
+                `<p class="none">${esc(String(sched.title || "Untitled schedule"))} has no dated tasks yet. <a class="link" href="#schedule/${encodeURIComponent(sched.id)}">Open it</a>.</p>`
+              : `<p class="none">None yet.</p><div class="actions"><button class="btn" data-make-schedule>Make schedule</button></div>`
+          }
+        </div>
+      </div>
 
-    <div class="block saved">
-      <h2 class="label">Fee</h2>
-      ${
-        fees.length
-          ? `<ol>${fees
-              .map(
-                (f) => `<li>
-                  <a class="link open" href="#fee/${encodeURIComponent(f.id)}"><b>${esc(f.title || "Untitled fee")}</b></a>
-                  <span></span>
-                  <span></span>
-                </li>`,
-              )
-              .join("")}</ol>`
-          : `<p class="none">None yet.</p>`
-      }
-      ${(() => {
-        // The fee as it goes in the proposal, once it has amounts.
-        const table = fees[0] && proposalTable(fees[0]);
-        // The whole table opens the fee on the Fee tab, like the schedule snapshot opens the schedule.
-        return table?.total
-          ? `<a class="scroll fee-on-project" href="#fee/${encodeURIComponent(fees[0].id)}" aria-label="Open the fee" title="Open the fee">${proposalHtml(table)}</a>`
-          : "";
-      })()}
-      ${fees.length ? "" : `<div class="actions"><button class="btn" data-make-fee>Make fee</button></div>`}
+      <div class="proj-card proj-fee">
+        <div class="proj-card-head">
+          <h2 class="label">Fee</h2>
+          ${fee ? `<span class="proj-card-links"><a class="link" href="#fee/${encodeURIComponent(fee.id)}">Open</a></span>` : ""}
+        </div>
+        <div class="proj-card-body">${feeSummaryHtml(fee)}</div>
+      </div>
     </div>`;
+  fitDashboard();
 }
+
+const money = (n: number) => `$${Math.round(n).toLocaleString("en-US")}`;
+
+/** The fee in brief: each phase's total, the fee, and how it compares with the construction budget. Opens the fee. */
+function feeSummaryHtml(f: SavedFee | undefined): string {
+  if (!f) return `<p class="none">None yet.</p><div class="actions"><button class="btn" data-make-fee>Make fee</button></div>`;
+  const table = proposalTable(f);
+  const t = totals(f);
+  if (!table.total) return `<p class="none">${esc(f.title || "Untitled fee")} has no amounts yet. <a class="link" href="#fee/${encodeURIComponent(f.id)}">Open it</a>.</p>`;
+  return `<a class="proj-fee-link" href="#fee/${encodeURIComponent(f.id)}" aria-label="Open the fee">
+      <p class="proj-fee-total">${money(table.total)}</p>
+      <p class="proj-fee-pct">Total fee${t.percentOfBudget != null && t.budget ? ` · ${t.percentOfBudget.toFixed(1)}% of a ${money(t.budget)} construction budget` : ""}</p>
+      <table class="proj-fee-table">
+        <tbody>${table.rows.map((r) => `<tr><th scope="row">${esc(r.label)}</th><td class="num">${money(r.total)}</td></tr>`).join("")}</tbody>
+      </table>
+    </a>`;
+}
+
+/**
+ * On a large enough window, sizes the dashboard to the space between the header and the footer, so the page doesn't
+ * scroll (cards scroll inside instead). Elsewhere (phones, short windows) the cards stack and the page scrolls.
+ */
+function fitDashboard() {
+  const grid = document.querySelector<HTMLElement>("#project-page .proj-grid");
+  const page = $("project-page");
+  const on = !!grid && !!page.offsetParent && innerWidth >= 1100 && innerHeight >= 680;
+  document.documentElement.classList.toggle("project-dash", on);
+  if (!grid) return;
+  if (!on) return void (grid.style.height = "");
+  const footer = document.querySelector<HTMLElement>("footer.site")?.offsetHeight ?? 0;
+  const feedback = document.getElementById("feedback-toggle")?.offsetHeight ?? 0;
+  const avail = innerHeight - (grid.getBoundingClientRect().top + scrollY) - footer - feedback - 32;
+  grid.style.height = avail >= 420 ? `${avail}px` : "";
+}
+addEventListener("resize", () => fitDashboard());
+// Leaving the project page drops the fitted layout (the tab is hidden by then).
+addEventListener("hashchange", () => requestAnimationFrame(fitDashboard));
 
 const MONTH_MS = 31 * 864e5;
 const firstOfMonth = (t: number) => {
@@ -542,8 +602,15 @@ async function onClick(e: Event) {
   }
   else if (t.closest("[data-rename]")) await rename();
   else if (t.closest("[data-unlink]")) await unlink(t.closest("[data-unlink]")!.getAttribute("data-unlink")!);
-  else if (t.closest("[data-compare]") && project) {
-    pending = { id: project.id, name: projectLabel(project) };
+  else if (t.closest("[data-new-project]")) {
+    const p = await newProject();
+    if (p) location.hash = `#project/${encodeURIComponent(p.id)}`;
+  } else if (t.closest("[data-review-rfp]") && project) {
+    // The review is read on the RFP page and links itself to this project when it's done.
+    setPendingProject({ id: project.id, name: projectLabel(project) });
+    location.hash = "#rfp";
+  } else if (t.closest("[data-compare]") && project) {
+    setPendingProject({ id: project.id, name: projectLabel(project) });
     location.hash = "#proposals";
   }
 }

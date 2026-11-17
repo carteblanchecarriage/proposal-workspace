@@ -1,28 +1,13 @@
 <script>
   // The Schedule tab: every schedule, in the site's own list style (the editor keeps the schedule maker's look).
   import { projectStore } from '../lib/stores/projects.js';
-  import { SCHEDULE_TEMPLATES as TEMPLATES } from '../lib/data/templates.js';
-  import { goto } from '../lib/nav.js';
-  import { confirmDelete, formModal } from '../../modal';
+  import { confirmDelete } from '../../modal';
   import { CATEGORIES, BADGES, FONTS, palette, options, cleanPalette, cleanOptions } from '../lib/palette.js';
   import { saveScheduleStyle } from '../../store';
 
   let projects = $state([]);
   projectStore.subscribe(v => { projects = v; });
 
-
-  async function newSchedule() {
-    const values = await formModal({
-      title: 'New schedule',
-      fields: [{ label: 'Start from', value: TEMPLATES[2].label, options: TEMPLATES.map((t) => t.label), single: true, required: true }],
-      confirm: 'Make schedule',
-    });
-    const tpl = values && TEMPLATES.find((t) => t.label === values[0]);
-    if (!tpl) return;
-    const p = tpl.make();
-    projectStore.addProject(p);
-    goto(`/project/${p.id}`);
-  }
 
   async function deleteSchedule(id) {
     if (await confirmDelete('schedule')) projectStore.deleteProject(id);
@@ -88,9 +73,9 @@
         {/each}
       </ol>
     {:else}
-      <p class="empty">None yet. Make one here, or from a project page.</p>
+      <p class="empty">None yet.</p>
     {/if}
-    <div class="actions"><button class="btn" onclick={newSchedule}>New schedule</button></div>
+    <p class="empty">Each schedule belongs to a project: make one from its project's page.</p>
   </div>
 
   <div class="colors">
