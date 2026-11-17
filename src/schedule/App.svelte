@@ -18,7 +18,8 @@
     // The organization's schedule style, loaded before a schedule opens (the editor starts with its Today default).
     // The print page instead uses the style handed over with the schedule (it may be the server's PDF browser, which
     // isn't signed in).
-    const style = location.hash.startsWith('#schedule-print')
+    const printing = location.hash.startsWith('#schedule-print');
+    const style = printing
       ? Promise.resolve()
       : getScheduleStyle()
           .then((s) => {
@@ -26,7 +27,7 @@
             options.set(cleanOptions(s));
           })
           .catch(() => {});
-    Promise.all([projectStore.init(true), style]).then(() => { ready = true; });
+    Promise.all([printing ? null : projectStore.init(true), style]).then(() => { ready = true; });
   });
 </script>
 

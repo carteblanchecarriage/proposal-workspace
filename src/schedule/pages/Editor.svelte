@@ -471,26 +471,6 @@
     setTimeout(() => URL.revokeObjectURL(url), 10_000);
     printPanelOpen = false;
   }
-
-  function printSchedule({ showToday = true, showLegend = true, paper = 'tabloid' } = {}) {
-    printPanelOpen = false;
-    if (project) { sessionStorage.setItem('schedule_preview', JSON.stringify(project)); handOver($palette, $options); }
-
-    const today    = new Date();
-    const yyyymmdd = `${today.getFullYear()}${String(today.getMonth()+1).padStart(2,'0')}${String(today.getDate()).padStart(2,'0')}`;
-    const num      = project?.number?.trim();
-    const title    = [num, yyyymmdd, 'Project Schedule'].filter(Boolean).join('_');
-
-    const params = new URLSearchParams({
-      paper,
-      autoprint: '1',
-      today:  showToday  ? '1' : '0',
-      legend: showLegend ? '1' : '0',
-      title,
-    });
-
-    window.open(`${window.location.pathname}#schedule-print?${params}`, '_blank');
-  }
 </script>
 
 <svelte:window onkeydown={handleKeyDown} bind:innerWidth={innerW} />
@@ -548,8 +528,8 @@
         <button class="action-btn action-btn-undo" onclick={handleUndo} disabled={!canUndo} title="Undo (Ctrl+Z)">
           Undo
         </button>
-        <button class="action-btn" onclick={openPrintPanel} title="Print / Export PDF">
-          Print
+        <button class="action-btn" onclick={openPrintPanel} title="Download a PDF">
+          PDF
         </button>
         <button class="action-btn action-btn-share" onclick={shareProject} title="Copy shareable link">
           {shareCopied ? 'Copied!' : 'Share'}
@@ -684,7 +664,6 @@
       contentWidth={TASK_COL_W + ganttWidth}
       monthCount={ganttMonths.length}
       showTodayDefault={showTodayLine}
-      onPrint={printSchedule}
       onDownload={downloadPdf}
       onClose={() => printPanelOpen = false}
     />

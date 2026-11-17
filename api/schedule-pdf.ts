@@ -13,7 +13,8 @@ const Body = z.object({
   showLegend: z.boolean(),
   filename: z.string().max(200).default("Schedule"),
   /** the organization's schedule colors, by category (src/schedule/lib/palette.js) */
-  palette: z.record(z.enum(["design", "review", "hold", "construction", "permit", "other", "deliverable", "milestone", "estimate", "approval"]), z.string().regex(/^#[0-9a-fA-F]{6}$/)).optional(),
+  // partialRecord: any of these keys, none required (z.record with an enum key requires every key in Zod 4).
+  palette: z.partialRecord(z.enum(["design", "review", "hold", "construction", "permit", "other", "deliverable", "milestone", "estimate", "approval"]), z.string().regex(/^#[0-9a-fA-F]{6}$/)).optional(),
   /** the organization's schedule font */
   font: z.enum(["barlow", "inter", "roboto", "lora"]).optional(),
 });

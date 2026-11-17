@@ -5,7 +5,6 @@
     contentWidth     = 0,
     monthCount       = 0,
     showTodayDefault = true,
-    onPrint,
     onDownload,
     onClose,
   } = $props();
@@ -67,9 +66,6 @@
   let fits        = $derived(scale >= 1);
   let iframeSrc   = $derived(projectId ? `${location.pathname}#schedule-print?paper=${paper}` : '');
 
-  function handlePrint() {
-    onPrint?.({ showToday, showLegend, paper });
-  }
 
   function onIframeLoad() {
     // Re-send current options once the iframe finishes loading.
@@ -81,14 +77,14 @@
 
 {#if open}
   <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <div class="overlay" onmousedown={onClose} role="dialog">
+  <div class="overlay" onmousedown={onClose} role="dialog" aria-modal="true" aria-labelledby="print-panel-title">
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div class="panel" onmousedown={(e) => e.stopPropagation()}>
 
       <!-- Header -->
       <div class="panel-hdr">
-        <span class="panel-title">Print / Export PDF</span>
-        <button class="close-btn" onclick={onClose} title="Close">✕</button>
+        <h2 class="panel-title" id="print-panel-title">Download PDF</h2>
+        <button class="close-btn" onclick={onClose}>Close</button>
       </div>
 
       <!-- Body: preview (left) + options (right) -->
@@ -172,11 +168,9 @@
       <!-- Footer -->
       <div class="panel-foot">
         {#if downloadError}<p class="dl-error" role="alert">{downloadError}</p>{/if}
-        <button class="btn-cancel" onclick={onClose}>Cancel</button>
-        <!-- Straight to a printer, through the browser's print dialog (a PDF printer there may change the page). -->
-        <button class="btn-cancel" onclick={handlePrint} title="Send to a printer through the browser's print dialog">Print…</button>
+        <button class="btn" onclick={onClose}>Cancel</button>
         <!-- The reliable PDF: made on the server, always this paper size, landscape. -->
-        <button class="btn-print" onclick={handleDownload} disabled={downloading}>{downloading ? 'Making PDF…' : 'Download PDF →'}</button>
+        <button class="btn primary" onclick={handleDownload} disabled={downloading}>{downloading ? 'Making PDF…' : 'Download PDF'}</button>
       </div>
 
     </div>
@@ -184,41 +178,37 @@
 {/if}
 
 <style>
+  /* Matches the site's dialogs (src/style.css: dialog.modal, .label, .btn): square, ink border, Inter, no shadow. */
   .overlay {
     position: fixed; inset: 0; z-index: 500;
-    background: rgba(0,0,0,.4);
+    background: rgba(17, 17, 17, .35);
     display: flex; align-items: center; justify-content: center;
   }
 
   .panel {
-    background: #fff;
-    border: 1px solid #ddd;
-    border-radius: 4px;
-    box-shadow: 0 12px 40px rgba(0,0,0,.22);
+    background: var(--bg, #fff);
+    border: 1px solid var(--ink, #111);
     display: flex; flex-direction: column;
-    font-family: 'Barlow Condensed', sans-serif;
+    font: 15px/1.5 var(--sans);
+    color: var(--ink, #111);
     max-width: 95vw;
     max-height: 90vh;
     overflow: hidden;
   }
 
   .panel-hdr {
-    display: flex; align-items: center; justify-content: space-between;
-    padding: 14px 16px 12px;
-    border-bottom: 1px solid var(--lgray);
+    display: flex; align-items: baseline; justify-content: space-between; gap: 16px;
+    padding: 18px 24px 14px;
+    border-bottom: 1px solid var(--rule, #e2e2e2);
     flex-shrink: 0;
   }
-  .panel-title {
-    font-weight: 700; font-size: 12px;
-    text-transform: uppercase; letter-spacing: .1em;
-    color: var(--black);
-  }
+  .panel-title { margin: 0; font: 500 18px/1.3 var(--sans); }
   .close-btn {
-    background: none; border: none; cursor: pointer;
-    color: var(--black); font-size: 13px; line-height: 1; padding: 0;
-    transition: color .12s;
+    background: none; border: 0; padding: 0; cursor: pointer;
+    font: 14px var(--sans); color: var(--ink, #111);
+    text-decoration: underline; text-underline-offset: 3px;
   }
-  .close-btn:hover { color: var(--black); }
+  .close-btn:hover { text-decoration-thickness: 2px; }
 
   /* Body row */
   .panel-body {
@@ -232,10 +222,10 @@
   /* Preview column */
   .preview-col {
     flex-shrink: 0;
-    border-right: 1px solid var(--lgray);
+    border-right: 1px solid var(--rule, #e2e2e2);
   }
   .preview-bg {
-    background: #e8e8e8;
+    background: var(--soft, #f6f6f4);
     display: flex; align-items: flex-start; justify-content: center;
     padding: 0;
     overflow: hidden;
@@ -244,7 +234,8 @@
     position: relative;
     overflow: hidden;
     flex-shrink: 0;
-    box-shadow: 0 2px 12px rgba(0,0,0,.2);
+    background: #fff;
+    outline: 1px solid var(--rule, #e2e2e2);
   }
   .preview-frame {
     border: none; display: block;
@@ -253,107 +244,72 @@
   .preview-placeholder {
     display: flex; align-items: center; justify-content: center;
     width: 100%; height: 100%;
-    font-size: 11px; color: var(--black);
+    font-size: 14px;
   }
 
   /* Options column */
   .opts-col {
-    width: 190px;
+    width: 220px;
     flex-shrink: 0;
-    padding: 16px 14px;
-    display: flex; flex-direction: column; gap: 14px;
+    padding: 18px 20px;
+    display: flex; flex-direction: column; gap: 16px;
     overflow-y: auto;
   }
 
   .section { display: flex; flex-direction: column; gap: 6px; }
-  .section-label {
-    font-size: 11px; font-weight: 700;
-    text-transform: uppercase; letter-spacing: .13em;
-    color: var(--black); margin-bottom: 2px;
-  }
+  .section-label { font: 700 15px/1.3 var(--sans); margin-bottom: 4px; }
 
-  /* Paper size buttons */
-  .paper-btns { display: flex; flex-direction: column; gap: 4px; }
+  /* Paper size: a choice of two, like the site's buttons (the chosen one filled). */
+  .paper-btns { display: flex; flex-direction: column; gap: 6px; }
   .paper-btn {
-    font-family: 'Barlow', sans-serif;
-    font-weight: 600; font-size: 11px;
+    font: 14px var(--sans);
     text-align: left;
-    background: #fff; border: 1px solid var(--lgray);
-    border-radius: 3px; padding: 5px 9px;
-    color: var(--black); cursor: pointer;
-    transition: border-color .12s, color .12s, background .12s;
+    background: var(--bg, #fff); border: 1px solid var(--ink, #111);
+    border-radius: 0; padding: 7px 12px;
+    color: var(--ink, #111); cursor: pointer;
   }
-  .paper-btn:hover:not(.paper-active) {
-    border-color: #bbb; color: var(--black);
-  }
-  .paper-active {
-    border-color: var(--black); color: var(--black);
-    background: var(--off);
-  }
+  .paper-btn:hover:not(.paper-active) { background: var(--soft, #f6f6f4); }
+  .paper-active { background: var(--ink, #111); color: var(--bg, #fff); }
 
-  .divider { height: 1px; background: var(--lgray); }
+  .divider { height: 1px; background: var(--rule, #e2e2e2); }
 
   .info-row {
-    display: flex; align-items: center; justify-content: space-between;
-    font-size: 12px;
+    display: flex; align-items: baseline; justify-content: space-between;
+    font-size: 14px;
   }
-  .info-key { color: var(--black); }
-  .info-val { color: var(--black); font-weight: 600; }
-  .scale-full { color: #3B8FA0; }
-  .scale-down { color: #9E9068; }
+  .info-val { font-weight: 600; }
+  .scale-down { color: var(--bad, #b3261e); }
 
   .opt-row {
     display: flex; align-items: center; gap: 8px;
-    font-size: 12px; color: var(--black);
+    font-size: 14px;
     cursor: pointer; user-select: none; padding: 2px 0;
   }
   .opt-row input[type="checkbox"] {
-    width: 14px; height: 14px; cursor: pointer;
-    accent-color: var(--blue); flex-shrink: 0;
+    width: 15px; height: 15px; margin: 0; cursor: pointer;
+    accent-color: var(--ink, #111); flex-shrink: 0;
   }
-  .opt-lbl { font-weight: 500; }
 
   /* Narrow screens: options below the preview, whole body scrolls */
   .panel-body.stacked { flex-direction: column; overflow-y: auto; }
-  .stacked .preview-col { border-right: none; border-bottom: 1px solid var(--lgray); }
+  .stacked .preview-col { border-right: none; border-bottom: 1px solid var(--rule, #e2e2e2); }
   .stacked .opts-col { width: auto; overflow: visible; }
   .stacked .paper-btns { flex-direction: row; }
   .stacked .paper-btn { flex: 1; text-align: center; padding: 9px; }
 
   @media (pointer: coarse) {
     .opt-row input[type="checkbox"] { width: 20px; height: 20px; }
-    .opt-row { font-size: 14px; padding: 6px 0; }
-    .btn-cancel, .btn-print { padding: 11px 16px; }
-    .close-btn { font-size: 18px; padding: 4px; margin: -4px; }
+    .opt-row { padding: 6px 0; }
   }
 
-  /* Footer */
+  /* Footer: the site's buttons (global .btn, .btn.primary). */
   .panel-foot {
-    display: flex; justify-content: flex-end; gap: 8px;
-    padding: 12px 16px 14px;
-    border-top: 1px solid var(--lgray);
+    display: flex; justify-content: flex-end; align-items: center; flex-wrap: wrap; gap: 8px;
+    padding: 14px 24px 18px;
+    border-top: 1px solid var(--rule, #e2e2e2);
     flex-shrink: 0;
   }
-  .btn-cancel {
-    font-family: 'Barlow', sans-serif;
-    font-weight: 600; font-size: 11px;
-    text-transform: uppercase; letter-spacing: .1em;
-    background: none; border: 1px solid var(--lgray);
-    color: var(--black); border-radius: 3px;
-    padding: 7px 14px; cursor: pointer;
-    transition: border-color .12s, color .12s;
-  }
-  .btn-cancel:hover { border-color: #aaa; color: var(--black); }
-  .btn-print:disabled { opacity: .6; cursor: progress; }
-  .dl-error { margin: 0 auto 0 0; align-self: center; color: #b3261e; font-family: 'Barlow', sans-serif; font-size: 12px; font-weight: 600; }
-  .btn-print {
-    font-family: 'Barlow', sans-serif;
-    font-weight: 700; font-size: 11px;
-    text-transform: uppercase; letter-spacing: .1em;
-    background: var(--black); border: 1px solid var(--black);
-    color: #fff; border-radius: 3px;
-    padding: 7px 16px; cursor: pointer;
-    transition: background .12s, border-color .12s;
-  }
-  .btn-print:hover { background: var(--blue); border-color: var(--blue); }
+  .panel-foot :global(.btn) { font-family: var(--sans); }
+  .panel-foot :global(.btn.primary:disabled) { opacity: .6; cursor: progress; }
+  .dl-error { margin: 0 auto 0 0; color: var(--bad, #b3261e); font-size: 14px; }
 </style>
