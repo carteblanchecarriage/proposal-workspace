@@ -22,12 +22,13 @@ const og = `<!doctype html><html><head><style>${font}
   <div class="bottom"><div class="line">Level consultant fees, read the RFP, build your fee and schedule.</div><div class="mark">Proposal Workspace</div></div>
 </body></html>`;
 
-const icon = `<!doctype html><html><head><style>${font}
+// The home-screen icon is the favicon (a script "P", public/favicon.svg) on a full square: phones round the corners.
+const favicon = readFileSync(new URL("../public/favicon.svg", import.meta.url)).toString("base64");
+const icon = `<!doctype html><html><head><style>
   * { margin: 0; }
-  body { width: 180px; height: 180px; background: #111; position: relative; font-family: Inter, sans-serif; }
-  b { position: absolute; left: 40px; top: 12px; font-size: 140px; font-weight: 800; color: #fff; line-height: 1; }
-  i { position: absolute; left: 130px; top: 116px; width: 28px; height: 28px; border-radius: 50%; background: #2f5bd3; }
-</style></head><body><b>P</b><i></i></body></html>`;
+  body { width: 180px; height: 180px; background: #111; }
+  img { display: block; width: 180px; height: 180px; }
+</style></head><body><img src="data:image/svg+xml;base64,${favicon}"></body></html>`;
 
 const browser = await puppeteer.launch({ args: chromium.args, executablePath: await chromium.executablePath(), headless: true });
 const page = await browser.newPage();

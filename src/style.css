@@ -120,7 +120,7 @@ body > main section { padding-top: 40px; }
 .chat-form .estimate { margin: 6px 0 0; }
 
 /* Results */
-#results { border-top: 1px solid var(--ink); margin-top: 56px; }
+#results { margin-top: 8px; }
 .toolbar { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 16px; margin-bottom: 32px; }
 .toggle { display: flex; align-items: center; gap: 8px; cursor: pointer; }
 .block { margin-bottom: 56px; }
@@ -128,16 +128,17 @@ body > main section { padding-top: 40px; }
 .headline { font-size: 26px; line-height: 1.25; max-width: 1100px; margin: 0 0 14px; }
 .overview { font-size: 16px; line-height: 1.5; max-width: 1000px; margin: 0 0 32px; color: var(--ink); }
 .briefing h3.label { margin-top: 28px; }
-.flags { list-style: none; padding: 0; margin: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 0 40px; }
-.flags li { display: grid; grid-template-columns: 64px 1fr; gap: 12px; padding: 12px 0; border-top: 1px solid var(--rule); font-size: 14px; }
-.flags b { font-weight: 500; }
-.flags .who { font-family: var(--mono); font-size: 10px; text-transform: uppercase; color: var(--muted); }
-.flags p { margin: 2px 0 0; color: var(--ink); }
-.lv { font-family: var(--mono); font-size: 10px; text-transform: uppercase; letter-spacing: .04em; padding-top: 3px; color: var(--muted); }
-.lv-high .lv { color: var(--bad); }
-.lv-medium .lv { color: var(--ink); }
-.questions { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px 40px; font-size: 14px; }
-.questions h4 { font-size: 14px; font-weight: 500; margin: 0 0 4px; }
+.flags { list-style: none; padding: 0; margin: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); gap: 0 40px; }
+.flags li { display: grid; grid-template-columns: 70px 1fr; gap: 12px; padding: 14px 0; border-top: 1px solid var(--rule); font-size: 15px; line-height: 1.45; }
+.flags b { font-weight: 700; }
+.flags .who { display: block; font-size: 13px; margin-top: 1px; }
+.flags p { margin: 4px 0 0; color: var(--ink); }
+/* Level labels: Act in red, Clarify outlined, Note plain. */
+.lv { align-self: start; justify-self: start; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; padding: 3px 8px; border: 1px solid var(--rule); }
+.lv-high .lv { background: var(--bad); border-color: var(--bad); color: #fff; }
+.lv-medium .lv { border-color: var(--ink); }
+.questions { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px 40px; font-size: 15px; }
+.questions h4 { font-size: 15px; font-weight: 700; margin: 0 0 6px; }
 .questions ul { margin: 0; padding-left: 16px; color: var(--ink); }
 .questions li { margin-bottom: 3px; }
 
@@ -152,7 +153,7 @@ details.more[open] > .notes { margin-top: 16px; }
 
 /* Tables fit the page; only scroll on phones (see --min-table) */
 .scroll { overflow-x: auto; }
-table.grid { border-collapse: collapse; width: 100%; font-size: 13px; table-layout: fixed; }
+table.grid { border-collapse: collapse; width: 100%; font-size: 14px; line-height: 1.45; table-layout: fixed; }
 .grid th, .grid td {
   text-align: left; vertical-align: top; padding: 9px 14px 9px 0; border-bottom: 1px solid var(--rule);
   overflow-wrap: anywhere;
@@ -160,8 +161,9 @@ table.grid { border-collapse: collapse; width: 100%; font-size: 13px; table-layo
 .grid thead th {
   font-weight: 500; font-size: 14px; border-bottom: 1px solid var(--ink); padding-bottom: 10px;
 }
-.grid thead th small { display: block; font-family: var(--mono); font-size: 10px; color: var(--muted); font-weight: 400; text-transform: uppercase; }
-.grid th[scope="row"] { font-weight: 400; color: var(--muted); }
+.grid thead th small { display: block; font-size: 12px; color: var(--muted); font-weight: 400; }
+.grid thead th .firm { display: block; font-size: 15px; font-weight: 700; }
+.grid th[scope="row"] { font-weight: 400; color: var(--ink); }
 .grid thead th small.src, .notes h3 small.src { text-transform: none; letter-spacing: 0; margin-top: 2px; }
 .notes h3 small.src { display: block; font-family: var(--mono); font-size: 10px; color: var(--muted); font-weight: 400; }
 .grid col.rowhead { width: 22%; }
@@ -169,11 +171,13 @@ table.grid { border-collapse: collapse; width: 100%; font-size: 13px; table-layo
 .grid tr.total td, .grid tr.total th { font-weight: 500; color: var(--ink); border-bottom: 1px solid var(--ink); }
 .grid td.low { background: var(--soft); }
 .grid .sub { display: block; color: var(--muted); font-size: 12px; }
+.grid .ref { font-size: 12px; margin-left: 4px; white-space: nowrap; }
+.grid .amt { font-weight: 600; }
 .grid .flag { color: var(--bad); }
 .grid ul { margin: 0; padding-left: 14px; }
 .grid tr.cat th {
-  font-family: var(--mono); font-size: 11px; text-transform: uppercase; letter-spacing: .04em;
-  color: var(--ink); padding-top: 22px; border-bottom: 1px solid var(--ink); font-weight: 400;
+  font-size: 12px; text-transform: uppercase; letter-spacing: .06em;
+  color: var(--ink); padding-top: 26px; border-bottom: 1px solid var(--ink); font-weight: 700;
 }
 .grid tr.scenario th {
   padding: 28px 0 10px; border-bottom: 2px solid var(--ink); font-size: 15px; font-weight: 500; color: var(--ink);
@@ -181,7 +185,9 @@ table.grid { border-collapse: collapse; width: 100%; font-size: 13px; table-layo
 .grid tr.scenario th .sub { display: inline; margin-left: 12px; font-weight: 400; }
 .grid tr.scenario + tr.cat th { padding-top: 12px; }
 .grid td.st { white-space: nowrap; }
-.st-included { color: var(--ink); font-weight: 500; }
+.st-included { color: var(--ink); }
+.st-mark { display: inline-block; width: 1.2em; font-weight: 700; font-style: normal; }
+.diff-dot { color: var(--bad); }
 .st-optional { color: #8a5a00; }
 .st-excluded { color: var(--bad); }
 .st-not_mentioned { color: var(--ink); font-style: italic; }
@@ -290,8 +296,6 @@ body.chat-open .feedback { display: none; }
 .feedback-actions .status { text-transform: none; letter-spacing: 0; font-size: 12px; }
 
 /* Project link, shown with results */
-select.project { font: inherit; font-size: 14px; padding: 4px 6px; border: 1px solid var(--rule); background: var(--bg); color: var(--ink); max-width: 280px; }
-select.project:focus { border-color: var(--ink); outline: none; }
 .rfp-top .project-name { margin-right: auto; margin-left: 32px; font-size: 14px; }
 .rfp-top .project-name b { font-weight: 600; }
 @media (max-width: 640px) {
@@ -354,10 +358,15 @@ h2.group { font-size: 20px; font-weight: 700; margin: 40px 0 20px; padding-botto
 .rfp-sub { color: var(--muted); margin: 0 0 16px; }
 .rfp-cols { display: grid; grid-template-columns: 3fr 2fr; gap: 56px; }
 .pg { font-family: var(--mono); font-size: 10px; color: var(--muted); margin-left: 4px; white-space: nowrap; }
-mark, .dates tr.due td { background: #ffff00; color: var(--ink); -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-mark { padding: 0 3px; }
-/* A proposal due date that has passed: red instead of yellow. */
-mark.past, .dates tr.due.past td { background: #e8000b; color: #fff; }
+/* The proposals-due date: bold, with how long is left; red once it has passed. */
+.due-line b { margin-left: 4px; }
+.due-line.past, .due-line.past b { color: var(--bad); }
+.dates tr.due td { font-weight: 700; }
+.dates tr.past td { color: var(--muted); }
+.dates tr.past:not(.due) td { opacity: .55; }
+.dates tr.next td { background: var(--soft); }
+.dates .rel { display: block; font-size: 12px; font-weight: 400; }
+.next-tag { display: inline-block; margin-left: 6px; padding: 0 6px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; background: var(--ink); color: var(--bg); vertical-align: 1px; }
 .none { margin: 0; font-size: 14px; }
 .dates td { padding-left: 10px; }
 .dates .when { width: 34%; font-variant-numeric: tabular-nums; }
@@ -369,19 +378,22 @@ mark.past, .dates tr.due.past td { background: #e8000b; color: #fff; }
 .watch p { margin: 2px 0 0; color: var(--ink); }
 .qs { margin: 0; padding: 0; list-style: none; font-size: 14px; line-height: 21px; }
 .qs li { margin-bottom: 8px; display: flex; align-items: flex-start; gap: 10px; }
-.q-remove {
-  /* Same height as one line of text, so the × sits on the middle of the question's first line. */
-  flex: none; display: flex; align-items: center; justify-content: center; width: 21px; height: 21px;
-  border: 1px solid var(--ink); background: var(--bg); padding: 0; font: 700 15px/1 var(--sans); color: var(--ink); cursor: pointer;
-}
-.q-remove:hover { background: var(--bad); border-color: var(--bad); color: #fff; }
+.qs .q-num { flex: none; min-width: 1.6em; font-weight: 700; font-variant-numeric: tabular-nums; }
+.qs .q-text { flex: 1; }
+/* Remove shows on hover (always on touch screens), so the list reads as questions, not checkboxes. */
+.qs .q-remove { flex: none; font-size: 12px; opacity: 0; }
+.qs li:hover .q-remove, .qs .q-remove:focus-visible { opacity: 1; }
+@media (hover: none) { .qs .q-remove { opacity: 1; } }
 .q-add { display: flex; gap: 8px; margin-top: 12px; }
 .q-add input { flex: 1; min-width: 0; font: inherit; font-size: 14px; padding: 6px 8px; border: 1px solid var(--rule); background: var(--bg); color: var(--ink); outline: none; }
 .q-add input:focus { border-color: var(--ink); }
-.services th[scope="row"] { width: 40%; }
-.services td.req { width: 26%; }
-.services .req-yes td.req { font-weight: 700; }
-.services .req-unclear td.req { color: var(--bad); font-weight: 600; }
+.services th[scope="row"] { width: 22%; font-weight: 700; }
+.services td.req { width: 18%; }
+.req-tag { display: inline-block; padding: 1px 8px; font-size: 12px; font-weight: 700; border: 1px solid var(--ink); white-space: nowrap; }
+.services .req-yes .req-tag { background: var(--ink); color: var(--bg); }
+.services .req-unclear .req-tag { border-color: var(--bad); color: var(--bad); }
+.services .req-needed .req-tag { font-style: italic; }
+.req-not { font-size: 14px; margin: 12px 0 0; }
 .label .link { margin-left: 8px; font-size: 13px; font-weight: 400; }
 .facts th[scope="row"] { width: 45%; }
 .facts td.num { text-align: right; padding-right: 0; }
@@ -392,7 +404,7 @@ mark.past, .dates tr.due.past td { background: #e8000b; color: #fff; }
 @media print {
   /* Printed RFP reviews end with this reminder, in a box so it isn't missed. */
   .print-note { display: block; margin-top: 24px; padding: 10px; border: 1.5pt solid #000; font-weight: 700; font-size: 12px; break-inside: avoid; }
-  header.site, footer.site, .feedback, .q-remove, .q-add, #intake, #rfp-intake, .rfp-top, .toolbar, .chat, select.project, .project-name { display: none !important; }
+  header.site, footer.site, .feedback, .q-remove, .q-add, #intake, #rfp-intake, .rfp-top, .toolbar, .chat, .project-name { display: none !important; }
   body.chat-open > main, body.chat-open footer.site { margin-right: 0; }
   body > main { padding: 0; max-width: none; }
   #results { border: 0; margin: 0; padding: 0; }
@@ -427,17 +439,6 @@ header.site, .feedback, dialog.modal { font-size: 15px; line-height: 1.5; }
 dialog.modal { margin: auto; }
 
 /* ---------- Fee ---------- */
-/* Work-in-progress strip across the top of the Fee tab: scrolls, or stays still for reduced motion. */
-.wip { margin: 0 -32px; overflow: hidden; background: var(--ink); color: var(--bg); font-size: 12px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase; }
-.wip-track { display: flex; width: max-content; animation: wip-scroll 40s linear infinite; }
-.wip-track span { padding: 8px 32px; white-space: nowrap; }
-@keyframes wip-scroll { from { transform: translateX(0); } to { transform: translateX(-50%); } }
-@media (prefers-reduced-motion: reduce) {
-  .wip-track { animation: none; width: auto; }
-  .wip-track span + span { display: none; }
-}
-@media (max-width: 640px) { .wip { margin: 0 -16px; } }
-
 .fee-in { font: inherit; color: var(--ink); background: transparent; border: 1px solid var(--rule); padding: 4px 6px; width: 100%; min-width: 0; }
 .fee-in:focus { outline: none; border-color: var(--ink); }
 .fee-in.num { text-align: right; }
@@ -466,7 +467,6 @@ table.fee-table, .scroll table.fee-table { table-layout: auto; min-width: 560px;
 .fee-summary tr.total th, .fee-summary tr.total td { border-top: 2px solid var(--ink); font-weight: 700; }
 .fee-summary tr.off td { color: var(--bad); }
 .fee-check { max-width: 640px; margin-top: 24px; }
-@media print { .wip { display: none; } }
 .fee-choice { display: flex; flex-wrap: wrap; gap: 6px 20px; }
 .fee-choice label { display: flex; align-items: center; gap: 6px; }
 .fee-draft { border: 1px solid var(--ink); padding: 16px 20px; max-width: 760px; }
@@ -911,8 +911,9 @@ a.fee-on-project:hover table, a.fee-on-project:focus-visible table { outline: 2p
   grid-template-columns: repeat(12, minmax(0, 1fr));
   grid-template-rows: minmax(0, 1fr) minmax(0, 1.35fr);
 }
-.proj-schedule { grid-column: span 8; }
-.proj-fee { grid-column: span 4; }
+.proj-schedule { grid-column: span 6; }
+.proj-fee { grid-column: span 3; }
+.proj-qaqc { grid-column: span 3; }
 /* The consultants' rows (firm chips with a status) need the most width; the RFP summary the least. */
 .proj-rfp { grid-column: span 3; }
 .proj-proposals { grid-column: span 4; }
@@ -949,7 +950,7 @@ html:not(.project-dash) .proj-card-body { overflow: visible; }
 
 @media (max-width: 1099px) {
   .proj-grid { grid-template-columns: minmax(0, 1fr); }
-  .proj-schedule, .proj-fee, .proj-rfp, .proj-proposals, .proj-consultants { grid-column: auto; }
+  .proj-schedule, .proj-fee, .proj-rfp, .proj-proposals, .proj-consultants, .proj-qaqc { grid-column: auto; }
 }
 @media (max-width: 640px) {
   .proj-head { flex-direction: column; }
@@ -977,3 +978,118 @@ dialog.modal.wide { max-width: 640px; }
 .csv-issues-head { font-size: 15px; font-weight: 700; margin: 12px 0 6px; }
 dialog.modal .csv-issues { margin: 0 0 16px; padding-left: 18px; font-size: 13px; max-height: 220px; overflow-y: auto; }
 dialog.modal .csv-issues li { margin: 0 0 4px; }
+
+/* Organization page: Style and formatting (src/style-settings.ts; the schedule part is ScheduleStyle.svelte). */
+.style-part { margin-top: 28px; max-width: 760px; }
+.style-head { font-size: 15px; font-weight: 700; margin: 0 0 4px; }
+.style-head .edit-link { margin-left: 8px; font-size: 13px; font-weight: 400; }
+.style-intro { margin: 0 0 12px; font-size: 14px; }
+.style-colors { list-style: none; margin: 0 0 8px; padding: 0; }
+.style-colors li { display: grid; grid-template-columns: 36px minmax(0, 1fr) 110px; align-items: center; gap: 14px; padding: 8px 0; border-bottom: 1px solid var(--rule); }
+.style-colors .swatch { width: 32px; height: 32px; border: 1px solid var(--ink); display: block; cursor: pointer; overflow: hidden; }
+.style-colors .swatch input { width: 48px; height: 48px; margin: -8px; border: 0; padding: 0; cursor: pointer; }
+.style-colors .hint { display: block; font-size: 13px; }
+.style-colors .std { font-size: 13px; }
+.style-colors li > .link, .style-colors li > .std { white-space: nowrap; justify-self: start; }
+.style-opts { display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 10px 14px; margin: 20px 0 12px; font-size: 14px; }
+.style-opts dt { font-weight: 700; }
+.style-opts dd { margin: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
+.style-opts select { font: inherit; padding: 5px 8px; border: 1px solid var(--ink); background: var(--bg); }
+.style-opts .check { display: inline-flex; align-items: center; gap: 8px; }
+.style-preview-label { font-size: 13px; font-weight: 700; margin: 16px 0 6px !important; }
+.style-preview { margin-bottom: 12px; }
+#org-fee-style .actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: 8px; }
+#org-fee-style .status { display: block; margin-top: 8px; font-size: 13px; }
+#org-fee-style .status.error { color: var(--bad); }
+#org-fee-style .status, #org-schedule-style .status { text-transform: none; letter-spacing: normal; }
+
+/* Project page: consultant proposals (each read as it arrives; tick some to compare) and the proposal check. */
+.received-list { list-style: none; margin: 0; padding: 0; }
+.proj-card ol.received-list > li.received { display: grid; grid-template-columns: 22px minmax(0, 1fr) auto auto; align-items: center; gap: 4px 10px; padding: 7px 0; border-bottom: 1px solid var(--rule); }
+.received-pick input { margin: 0; width: 15px; height: 15px; accent-color: var(--ink); }
+.received-main { min-width: 0; display: flex; flex-direction: column; }
+.received-main b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.received-meta { font-size: 12px; }
+.received-total { font-variant-numeric: tabular-nums; white-space: nowrap; }
+#received-status, #qaqc-status { margin: 6px 0 0 !important; font-size: 13px; text-transform: none; letter-spacing: normal; min-height: 0; }
+.proj-subhead { font-size: 14px; font-weight: 700; margin: 14px 0 4px; }
+.qaqc-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
+.qaqc-flags { list-style: none; margin: 8px 0 0; padding: 0; }
+.qaqc-flags li { display: flex; flex-direction: column; gap: 2px; padding: 8px 0 8px 10px; border-bottom: 1px solid var(--rule); border-left: 3px solid var(--rule); font-size: 13px; }
+.qaqc-flags li.qaqc-fix { border-left-color: var(--bad); }
+.qaqc-tag { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; }
+.qaqc-fix .qaqc-tag { color: var(--bad); }
+.qaqc-suggest { font-style: italic; }
+label.btn.disabled { opacity: .35; pointer-events: none; }
+
+/* Project consultants: a row's Remove sits under its discipline, shown on hover (always on touch screens). */
+.team th .team-remove { display: block; margin-top: 2px; font-size: 12px; font-weight: 400; opacity: 0; }
+.team tr:hover .team-remove, .team .team-remove:focus-visible { opacity: 1; }
+@media (hover: none) { .team th .team-remove { opacity: 1; } }
+@media print { .team-remove, [data-add-discipline] { display: none; } }
+.ai-mark { margin-left: 1px; cursor: help; font-weight: 700; font-size: 12px; vertical-align: top; }
+.proj-fee-note { font-size: 13px; margin: 0 0 10px !important; }
+
+/* A fee's status (src/fee-status.ts): Draft is a dashed outline, Final is solid. */
+.fee-state { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; padding: 10px 14px; margin: 0 0 20px; font-size: 14px; }
+.fee-state b { text-transform: uppercase; letter-spacing: .06em; font-size: 13px; }
+.fee-state.draft { border: 1.5px dashed var(--ink); background: var(--soft); }
+.fee-state.final { background: var(--ink); color: var(--bg); }
+.fee-state.final .link { color: var(--bg); }
+.fee-state .btn { padding: 5px 12px; font-size: 13px; }
+.fee-state.compact { margin: 0 0 12px; padding: 6px 10px; font-size: 13px; }
+.fee-state.compact .btn { padding: 3px 10px; font-size: 12px; }
+@media print { .fee-state { display: none; } }
+
+/* Comparison page: title, then each firm at a glance, then the details. */
+.cmp-head { margin: 4px 0 18px; }
+.cmp-title { font-size: 30px; font-weight: 800; letter-spacing: -0.01em; line-height: 1.15; margin: 0; }
+.cmp-sub { margin: 6px 0 0; font-size: 14px; }
+.glance { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 14px; margin: 0 0 48px; }
+.glance-card { border: 1px solid var(--ink); padding: 14px 16px; }
+.glance-card.has-act { border-left: 4px solid var(--bad); }
+.glance-card p { margin: 0; }
+.glance-firm { font-weight: 700; font-size: 15px; }
+.glance-low { display: inline-block; margin-left: 6px; padding: 1px 7px; background: var(--ink); color: var(--bg); font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; vertical-align: 2px; }
+.glance-total { font-size: 26px; font-weight: 800; letter-spacing: -0.01em; margin: 6px 0 2px !important; font-variant-numeric: tabular-nums; }
+.glance-structure { font-size: 13px; }
+.glance-facts { font-size: 13px; margin-top: 10px !important; padding-top: 8px; border-top: 1px solid var(--rule); }
+#results .block > h2.label, #results .block > summary.label { font-size: 20px; margin-bottom: 14px; }
+/* Wide screens: the tables fit the page, so the firm names stay pinned at the top while scrolling. */
+@media (min-width: 900px) {
+  #results .scroll { overflow: visible; }
+  #results .grid thead th { position: sticky; top: 0; z-index: 2; background: var(--bg); }
+}
+@media print { .glance-card { break-inside: avoid; } .cmp-title { font-size: 20px; } }
+
+/* Fee workspace: below-the-line items. */
+.fee-intro { font-size: 14px; margin: -4px 0 12px; max-width: 760px; }
+.fee-below th:nth-child(1) { width: 28%; }
+.fee-below th:nth-child(2) { width: 20%; }
+.fee-below th:nth-child(3) { width: 14%; }
+.fee-below th:nth-child(4) { width: 12%; }
+.fee-below th:nth-child(6) { width: 32px; }
+select.fee-basis { font: inherit; font-size: 14px; width: 100%; padding: 5px 4px; border: 1px solid var(--rule); background: var(--bg); color: var(--ink); }
+select.fee-basis:focus { border-color: var(--ink); outline: none; }
+
+/* RFP review: the essentials at a glance, bigger section titles, scoring bars, disciplines full width. */
+.rfp-glance { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; margin: 4px 0 36px; max-width: 1100px; }
+.glance-tile { border: 1px solid var(--ink); padding: 12px 14px; display: flex; flex-direction: column; gap: 2px; }
+.glance-tile.due { border-width: 2px; }
+.glance-tile.past { border-color: var(--bad); }
+.gt-label { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; }
+.gt-value { font-size: 18px; font-weight: 700; line-height: 1.3; }
+.gt-sub { font-size: 13px; }
+.glance-tile.past .gt-sub { color: var(--bad); font-weight: 700; }
+#rfp-results .block > h2.label { font-size: 20px; margin-bottom: 14px; }
+#rfp-results .grid { font-size: 14px; line-height: 1.45; }
+.watch { font-size: 15px; }
+.watch b { font-weight: 700; }
+.qs { font-size: 15px; line-height: 1.45; }
+.rfp-wide { max-width: 1100px; }
+.scoring { list-style: none; margin: 0; padding: 0; }
+.scoring li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 12px; padding: 8px 0; border-bottom: 1px solid var(--rule); font-size: 14px; }
+.sc-weight { font-weight: 700; font-variant-numeric: tabular-nums; }
+.sc-bar { grid-column: 1 / -1; height: 6px; background: var(--soft); }
+.sc-bar span { display: block; height: 100%; background: var(--ink); }
+@media print { .rfp-glance { break-inside: avoid; } .sc-bar span, .services .req-yes .req-tag, .next-tag { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }

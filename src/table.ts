@@ -1,4 +1,5 @@
 import type { Comparison, Proposal } from "../lib/claude";
+import { toDisciplines } from "../lib/disciplines";
 
 type FeeItem = Proposal["fee_items"][number];
 /** A proposal plus the uploaded file it came from and its Anthropic file id (both added client-side). */
@@ -24,6 +25,21 @@ const money = (n: number | null | undefined) =>
 
 const list = (items: string[]) => (items.length ? `<ul>${items.map((i) => `<li>${esc(i)}</li>`).join("")}</ul>` : "—");
 
+/** The proposal's total fee as stated (its own total line, else its fee lines added up), for the list. */
+export function statedTotal(p: Proposal): number | null {
+  const items = p.fee_items.filter((i) => i.amount != null);
+  // One pricing scenario only: the unnamed (base) one when there is one, else the first named.
+  const scenario = items.some((i) => !i.scenario) ? null : (items[0]?.scenario ?? null);
+  const inScenario = items.filter((i) => (i.scenario ?? null) === scenario);
+  const totals = inScenario.filter((i) => i.kind === "total");
+  if (totals.length) return totals[totals.length - 1].amount;
+  const fees = inScenario.filter((i) => i.kind === "fee");
+  return fees.length ? fees.reduce((s, i) => s + (i.amount ?? 0), 0) : null;
+}
+
+/** Marks a figure read by AI (with a tooltip), since it can be wrong. */
+export const AI_MARK = `<span class="ai-mark" tabindex="0" data-tip="Read from the proposal by AI, and it can be wrong (for example with options or alternates). Check it against the PDF." aria-label="Read by AI; check it against the PDF">*</span>`;
+
 const MONTHS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
 
 /**
@@ -47,7 +63,7 @@ const source = (p: Sourced) => (p.source_file ? `<small class="src">${esc(p.sour
 
 function head(proposals: Sourced[]) {
   return `<colgroup><col class="rowhead">${proposals.map(() => "<col>").join("")}</colgroup><thead><tr><th></th>${proposals
-    .map((p) => `<th>${esc(firmName(p.firm))}${p.proposal_date ? `<small>${esc(fmtDate(p.proposal_date))}</small>` : ""}${source(p)}</th>`)
+    .map((p) => `<th><span class="firm">${esc(firmName(p.firm))}</span>${p.proposal_date ? `<small>${esc(fmtDate(p.proposal_date))}</small>` : ""}${source(p)}</th>`)
     .join("")}</tr></thead>`;
 }
 
@@ -139,10 +155,9 @@ export function feeTable(proposals: Sourced[], cmp: Comparison): string {
             const lines = items
               .map((f) => {
                 const tag = BASIS[f.basis];
-                const sub = [items.length > 1 || f.label !== r.label ? f.label : "", tag, f.page ? `page ${Number(f.page)}` : ""]
-                  .filter(Boolean)
-                  .join(" · ");
-                return `<div>${feeValue(f)}${sub ? `<span class="sub">${esc(sub)}</span>` : ""}</div>`;
+                const sub = [items.length > 1 || f.label !== r.label ? f.label : "", tag].filter(Boolean).join(" · ");
+                const ref = f.page ? ` <span class="ref">page ${Number(f.page)}</span>` : "";
+                return `<div><span class="amt">${feeValue(f)}</span>${ref}${sub ? `<span class="sub">${esc(sub)}</span>` : ""}</div>`;
               })
               .join("");
             const lowCls = low != null && items[0].amount === low ? " low" : "";
@@ -187,6 +202,7 @@ export function feeTable(proposals: Sourced[], cmp: Comparison): string {
 }
 
 const STATUS = { included: "Included", optional: "Optional", excluded: "Excluded", not_mentioned: "Not mentioned" } as const;
+const MARK = { included: "✓", optional: "+", excluded: "✕", not_mentioned: "?" } as const;
 
 export function scopeTable(proposals: Sourced[], cmp: Comparison): string {
   const body = cmp.categories
@@ -200,7 +216,7 @@ export function scopeTable(proposals: Sourced[], cmp: Comparison): string {
             .map((c) => {
               const st = c?.status ?? "not_mentioned";
               const title = [c?.note, c?.page ? `page ${Number(c.page)}` : ""].filter(Boolean).join(" · ");
-              return `<td class="st st-${st}" title="${esc(title)}">${STATUS[st]}${
+              return `<td class="st st-${st}" title="${esc(title)}"><span class="st-mark" aria-hidden="true">${MARK[st]}</span>${STATUS[st]}${
                 c?.note ? `<span class="sub">${esc(c.note)}</span>` : ""
               }</td>`;
             })
@@ -243,10 +259,12 @@ export function briefingHtml(proposals: Proposal[], cmp: Comparison): string {
       .filter((f): f is string => !!f)
       .map(firmName)
       .join(", ");
-  const flags = b.flags
+  const order = { high: 0, medium: 1, low: 2 } as const;
+  const flags = [...b.flags]
+    .sort((x, y) => order[x.level] - order[y.level])
     .map(
       (f) => `<li class="lv-${f.level}"><span class="lv">${LEVEL[f.level]}</span><div><b>${esc(f.title)}</b>${
-        f.firm_indexes.length ? ` <span class="who">${esc(names(f.firm_indexes))}</span>` : ""
+        f.firm_indexes.length ? `<span class="who">${esc(names(f.firm_indexes))}</span>` : ""
       }<p>${esc(f.detail)}</p></div></li>`,
     )
     .join("");
@@ -258,4 +276,45 @@ export function briefingHtml(proposals: Proposal[], cmp: Comparison): string {
     <p class="overview">${esc(b.overview)}</p>
     ${flags ? `<h3 class="label">Flags</h3><ol class="flags">${flags}</ol>` : ""}
     ${questions ? `<h3 class="label">Questions to send</h3><div class="questions">${questions}</div>` : ""}`;
+}
+
+/** "MEP + Fire Protection proposals": what's being compared, from the firms' disciplines. */
+export function comparisonTitle(proposals: Proposal[]): string {
+  const ds: string[] = toDisciplines(proposals.flatMap((p) => p.disciplines));
+  const mep = ["Mechanical", "Electrical", "Plumbing"];
+  const named = mep.every((d) => ds.includes(d)) ? ["MEP", ...ds.filter((d) => !mep.includes(d))] : ds;
+  const what = named.length && named.length <= 3 ? named.join(" + ") : "Consultant";
+  return `${what} ${proposals.length === 1 ? "proposal" : "proposals"}`;
+}
+
+/**
+ * One card per firm, before the details: its stated total (lowest marked), fee structure, scope it leaves out, and
+ * flags to act on. Figures come from the proposals as read, so totals carry the AI mark.
+ */
+export function glanceHtml(proposals: Sourced[], cmp: Comparison): string {
+  const totals = proposals.map(statedTotal);
+  const known = totals.filter((t): t is number => t != null);
+  const low = proposals.length > 1 && known.length > 1 ? Math.min(...known) : null;
+  const statusOf = (i: number) =>
+    cmp.categories.flatMap((c) => c.items).map((it) => it.statuses.find((s) => s.firm_index === i)?.status ?? "not_mentioned");
+  return proposals
+    .map((p, i) => {
+      const sts = statusOf(i);
+      const excluded = sts.filter((s) => s === "excluded").length;
+      const unknown = sts.filter((s) => s === "not_mentioned").length;
+      const act = cmp.briefing.flags.filter((f) => f.level === "high" && f.firm_indexes.includes(i)).length;
+      const t = totals[i];
+      const facts = [
+        excluded ? `${excluded} scope item${excluded === 1 ? "" : "s"} excluded` : "",
+        unknown ? `${unknown} not mentioned` : "",
+        act ? `${act} flag${act === 1 ? "" : "s"} to act on` : "",
+      ].filter(Boolean);
+      return `<div class="glance-card${act ? " has-act" : ""}">
+        <p class="glance-firm">${esc(firmName(p.firm))}${t != null && t === low ? ' <span class="glance-low">Lowest</span>' : ""}</p>
+        <p class="glance-total">${t != null ? `${money(t)}${AI_MARK}` : "Total not stated"}</p>
+        ${p.fee_structure ? `<p class="glance-structure">${esc(p.fee_structure)}</p>` : ""}
+        <p class="glance-facts">${facts.length ? facts.map(esc).join(" · ") : "Covers every scope item compared"}</p>
+      </div>`;
+    })
+    .join("");
 }

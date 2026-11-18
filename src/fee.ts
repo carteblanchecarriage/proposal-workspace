@@ -1,8 +1,10 @@
+import { feeStatusHtml, isFinal, setFeeStatus } from "./fee-status";
+import { DEFAULT_FEE_STYLE, feeMoney, feeTableCss, type FeeStyle } from "./fee-style";
 import { budgetBy, budgetOf, readAmount, readArea, consultantTotal, proposalTable, taskCost, taskHours, totals, type ProposalTable } from "./fee-calc";
 import { DEFAULT_ROLES, shortPhase, shortRole, TEMPLATES, templateFor, templatePhases } from "./fee-templates";
 import { confirmDelete, formModal, noticeModal } from "./modal";
 import { projectDisciplines } from "./rfp";
-import { getWorldView, deleteFee, listComparisons, listFees, listProjects, listRfps, projectLabel, saveFee, savesShared, type SavedFee, type SavedProject } from "./store";
+import { BELOW_LINE_BASIS, type BelowLineBasis, getFeeStyle, getWorldView, deleteFee, listComparisons, listFees, listProjects, listRfps, projectLabel, saveFee, savesShared, type SavedFee, type SavedProject } from "./store";
 import { esc, firmName } from "./table";
 import { post } from "./api";
 import { feeCurveAt, type FeePoint } from "../lib/worldview";
@@ -27,12 +29,33 @@ let committed = "";
 /** Records the finished edit, so Undo can step back to before it. */
 function checkpoint() {
   if (!fee) return;
-  const now = JSON.stringify(fee);
+  let now = JSON.stringify(fee);
   if (now === committed) return;
+  // Edited after it was marked final: it's a draft again (saved with the edit).
+  if (isFinal(fee)) {
+    fee.status = "draft";
+    delete fee.finalAt;
+    now = JSON.stringify(fee);
+    const banner = document.querySelector("#fee-page .fee-state");
+    if (banner) banner.outerHTML = feeStatusHtml(fee);
+    scheduleStatusNote();
+  }
   undoStack.push(committed);
   if (undoStack.length > UNDO_LIMIT) undoStack.shift();
   committed = now;
   updateUndo();
+}
+
+/** Says, once, that editing a final fee made it a draft again. */
+function scheduleStatusNote() {
+  const el = document.getElementById("fee-save-error");
+  if (!el || el.textContent) return;
+  el.classList.remove("error");
+  el.textContent = "Edited, so it's a draft again.";
+  setTimeout(() => {
+    if (el.textContent === "Edited, so it's a draft again.") el.textContent = "";
+    el.classList.add("error");
+  }, 6000);
 }
 
 function updateUndo() {
@@ -58,6 +81,8 @@ let summaryBefore: string | null = null;
 
 /** phases whose task tables are open (the rest show one summary line each) */
 const openPhases = new Set<string>();
+/** The Summary section starts collapsed; opening it keeps it open through redraws. */
+let summaryOpen = false;
 let projects: SavedProject[] = [];
 let initialized = false;
 let saveTimer: ReturnType<typeof setTimeout> | undefined;
@@ -116,11 +141,16 @@ function followCurve(f: SavedFee) {
 
 export async function showFee(id: string | null) {
   curve = (await getWorldView().catch(() => null))?.feeCurve ?? [];
+  feeStyle = await getFeeStyle().catch(() => DEFAULT_FEE_STYLE);
   if (!initialized) {
     initialized = true;
     const page = $("fee-page");
     page.addEventListener("click", onClick);
     page.addEventListener("input", onInput);
+    // "toggle" doesn't bubble, so it's caught on the way down.
+    page.addEventListener("toggle", (e) => {
+      if ((e.target as HTMLElement).matches?.(".fee-summary-block")) summaryOpen = (e.target as HTMLDetailsElement).open;
+    }, true);
     page.addEventListener("mousemove", (e) => onFeeTimeMove(e, fee));
     page.addEventListener("mouseleave", hideFeeTimeTip);
     // Fires when an edited box is left or Enter is pressed: recalculate then.
@@ -227,7 +257,7 @@ export async function makeFee(project?: SavedProject) {
     for (const p of c.proposals) for (const d of p.disciplines ?? []) if (p.firm && !firms.has(d)) firms.set(d, firmName(p.firm));
   // Consultant rows for the disciplines the project needs, apart from the firm's own work.
   const IN_HOUSE: string[] = ["Architecture", "Interiors", "FF&E"];
-  const disciplines = project ? projectDisciplines(rfp?.rfp, project.disciplinesRemoved).filter((d) => !IN_HOUSE.includes(d)) : [];
+  const disciplines = project ? projectDisciplines(rfp?.rfp, project.disciplinesRemoved, project.disciplinesAdded).filter((d) => !IN_HOUSE.includes(d)) : [];
 
   const record: SavedFee = {
     id: crypto.randomUUID(),
@@ -406,6 +436,7 @@ function render() {
   const project = projects.find((p) => p.id === f.workspaceProjectId);
   const by = budgetBy(f);
   $("fee-page").innerHTML = `
+    ${feeStatusHtml(f)}
     <div class="rfp-top">
       ${project ? `<a class="link" href="#project/${encodeURIComponent(project.id)}">← ${esc(projectLabel(project))}</a>` : `<a class="link" href="#project">← Projects</a>`}
       <span class="status error" id="fee-save-error"></span>
@@ -490,9 +521,36 @@ function render() {
     </div>
 
     <div class="block">
-      <h2 class="label">Summary</h2>
-      <div id="fee-summary"></div>
+      <h2 class="label">Additional scope items</h2>
+      <p class="fee-intro">Services that aren't in the fee: not asked for, or optional. They appear in the proposal table under its total, in the Total Fee column and under whoever provides them, with their own total; they never count toward the fee.</p>
+      ${
+        (f.belowLine ?? []).length
+          ? `<div class="scroll"><table class="grid fee-table fee-below">
+        <thead><tr><th>Service</th><th>By</th><th>Basis</th><th class="num">Amount</th><th>Note</th><th></th></tr></thead>
+        <tbody>${(f.belowLine ?? [])
+          .map(
+            (b) => `<tr>
+              <td>${input(`data-below="${esc(b.id)}" data-f="label" aria-label="Service"`, b.label, "", "e.g. LEED documentation")}</td>
+              <td><select class="fee-in fee-basis" data-below="${esc(b.id)}" data-f="by" aria-label="Provided by">${byOptions(f, b.by)}</select></td>
+              <td><select class="fee-in fee-basis" data-below="${esc(b.id)}" data-f="basis" aria-label="Basis">${(Object.keys(BELOW_LINE_BASIS) as BelowLineBasis[])
+                .map((k) => `<option value="${k}" ${k === b.basis ? "selected" : ""}>${BELOW_LINE_BASIS[k]}</option>`)
+                .join("")}</select></td>
+              <td class="num">${input(`data-below="${esc(b.id)}" data-f="amount" inputmode="decimal" aria-label="Amount"`, numValue(b.amount), "num", b.basis === "request" ? "" : "$")}</td>
+              <td>${input(`data-below="${esc(b.id)}" data-f="note" aria-label="Note"`, b.note, "", "Optional")}</td>
+              <td><button class="link" data-remove-below="${esc(b.id)}" aria-label="Remove item" title="Remove">×</button></td>
+            </tr>`,
+          )
+          .join("")}</tbody>
+      </table></div>`
+          : `<p class="none">None yet.</p>`
+      }
+      <div class="actions"><button class="btn" data-add-below>Add item</button></div>
     </div>
+
+    <details class="block more fee-summary-block" ${summaryOpen ? "open" : ""}>
+      <summary class="label">Summary</summary>
+      <div id="fee-summary"></div>
+    </details>
 
     <div class="block">
       <h2 class="label">Hours over time</h2>
@@ -656,44 +714,89 @@ async function linkToProject(f: SavedFee) {
 }
 
 // ---------- Proposal table ----------
-// Laid out like the fee tables in the firm's proposals: blue header, a dark Total Fee column and a black Total row.
-// Styles are inline so the formatting survives being pasted into Word, Google Docs or InDesign.
+// Laid out like the fee tables in proposals: a colored header, a dark Total Fee column and a dark Total row, in the
+// organization's colors and font (src/fee-style.ts; set on the Organization page). Styles are inline so the formatting
+// survives being pasted into Word, Google Docs or InDesign.
 
-const PT = {
-  font: "font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; font-size: 13px;",
-  border: "border: 1px solid #bcbec0;",
-  head: "min-width: 120px; background: #20abe2; color: #ffffff; font-weight: 400; text-align: center; vertical-align: bottom; padding: 10px 12px;",
-  headTotal: "min-width: 120px; background: #58595b; color: #ffffff; font-weight: 700; text-align: center; vertical-align: middle; padding: 10px 12px; text-transform: uppercase;",
-  phase: "background: #ffffff; color: #231f20; font-weight: 700; text-align: left; padding: 12px;",
-  cell: "min-width: 120px; background: #ffffff; color: #231f20; text-align: center; padding: 12px; white-space: nowrap;",
-  cellTotal: "min-width: 120px; background: #6d6e71; color: #ffffff; text-align: center; padding: 12px; white-space: nowrap;",
-  foot: "min-width: 120px; background: #231f20; color: #ffffff; text-align: center; padding: 12px; white-space: nowrap;",
-  footLabel: "background: #231f20; color: #ffffff; font-weight: 700; text-align: left; padding: 12px; text-transform: uppercase;",
-};
-/** "$ 241,020.00"; nothing in it shows a dash. */
-const ptMoney = (n: number) => (Math.round(n * 100) ? `$ ${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "-");
+/** The organization's fee table style, loaded when a fee opens. */
+let feeStyle: FeeStyle = DEFAULT_FEE_STYLE;
 
-export function proposalHtml(t: ProposalTable): string {
-  if (!t.total) return `<p class="none">Add hours, rates or consultant fees to fill in the table.</p>`;
+export function proposalHtml(t: ProposalTable, look: FeeStyle = feeStyle): string {
+  const below = t.belowLine ?? [];
+  if (!t.total && !below.length) return `<p class="none">Add hours, rates or consultant fees to fill in the table.</p>`;
+  const PT = feeTableCss(look);
+  const ptMoney = feeMoney;
   const th = (style: string, html: string) => `<th style="${PT.border} ${style}">${html}</th>`;
-  const td = (style: string, html: string) => `<td style="${PT.border} ${style}">${html}</td>`;
+  const td = (style: string, html: string, span = 1) => `<td style="${PT.border} ${style}"${span > 1 ? ` colspan="${span}"` : ""}>${html}</td>`;
   const head = t.columns
     .map((c) => th(PT.head, c.firm ? `${esc(c.firm)}<br />(${esc(c.discipline || "Consultant")})` : esc(c.discipline)))
     .join("");
+  const cols = t.columns.length;
+  // Additional scope items, in the same table: a section heading, a row per item (its amount in its provider's column,
+  // once chosen, and the Total Fee column) and their own total. None of it is in the Total row above.
+  const belowRows = below.length
+    ? [
+        `<tr>${td(PT.section, `Additional scope items <span style="font-weight: 400; text-transform: none; letter-spacing: 0;">(not included in the total fee)</span>`, cols + 2)}</tr>`,
+        ...below.map(
+          (b) =>
+            `<tr>${td(PT.phase, `${esc(b.label)}${b.note ? `<span style="${PT.note}">${esc(b.note)}</span>` : ""}`)}${t.columns.map((_, col) => td(PT.cell, col === b.column ? esc(belowLineValue(b)) : "")).join("")}${td(PT.cellTotal, esc(belowLineValue(b)))}</tr>`,
+        ),
+        ...(t.belowLineTotal
+          ? [`<tr>${td(PT.footLabel, "Total additional scope")}${(t.belowLineTotals ?? []).map((a) => td(PT.foot, a ? ptMoney(a) : "")).join("")}${td(PT.foot, ptMoney(t.belowLineTotal))}</tr>`]
+          : []),
+      ].join("")
+    : "";
   return `<table class="fee-proposal" style="${PT.font} border-collapse: collapse;">
     <thead><tr>${th(PT.head + " text-align: left;", "Phase")}${head}${th(PT.headTotal, "Total Fee")}</tr></thead>
     <tbody>${t.rows
       .map((r) => `<tr>${td(PT.phase, esc(r.label))}${r.amounts.map((a) => td(PT.cell, ptMoney(a))).join("")}${td(PT.cellTotal, ptMoney(r.total))}</tr>`)
-      .join("")}</tbody>
-    <tfoot><tr>${td(PT.footLabel, "Total")}${t.totals.map((a) => td(PT.foot, ptMoney(a))).join("")}${td(PT.foot, ptMoney(t.total))}</tr></tfoot>
+      .join("")}
+    <tr>${td(PT.footLabel, "Total")}${t.totals.map((a) => td(PT.foot, ptMoney(a))).join("")}${td(PT.foot, ptMoney(t.total))}</tr>
+    ${belowRows}</tbody>
   </table>`;
+}
+
+/**
+ * Who can provide an additional scope item: Architecture, or a consultant with a fee on this fee. "Not assigned"
+ * until chosen (the amount then shows only in the Total Fee column). A consultant whose fee was cleared stays listed
+ * while an item still points to them, marked so.
+ */
+function byOptions(f: SavedFee, by: string | undefined): string {
+  const used = f.consultants.filter((c) => consultantTotal(c, f.phases) > 0);
+  const name = (c: SavedFee["consultants"][number]) => [c.firm, c.discipline && `(${c.discipline})`].filter(Boolean).join(" ") || "Consultant";
+  const stale = by && by !== "architecture" && !used.some((c) => c.id === by) ? f.consultants.find((c) => c.id === by) : undefined;
+  const opts: [string, string][] = [
+    ["", "Not assigned"],
+    ["architecture", "Architecture"],
+    ...used.map((c) => [c.id, name(c)] as [string, string]),
+    ...(stale ? [[stale.id, `${name(stale)}, no fee yet`] as [string, string]] : []),
+  ];
+  return opts.map(([v, label]) => `<option value="${esc(v)}" ${v === (by ?? "") ? "selected" : ""}>${esc(label)}</option>`).join("");
+}
+
+/** "$ 12,000", "$ 175/hr", "Not to exceed $ 8,000", "$ 5,000 allowance", "Upon request". */
+function belowLineValue(b: { basis: BelowLineBasis; amount: number | null }): string {
+  if (b.basis === "request" || b.amount == null) return "Upon request";
+  const amt = feeMoney(b.amount);
+  if (b.basis === "hourly") return `${amt}/hr`;
+  if (b.basis === "nte") return `Not to exceed ${amt}`;
+  if (b.basis === "allowance") return `${amt} allowance`;
+  return amt;
 }
 
 /** Plain-text version (tab-separated) for apps that don't take formatted text. */
 function proposalText(t: ProposalTable): string {
   const head = ["Phase", ...t.columns.map((c) => (c.firm ? `${c.firm} (${c.discipline})` : c.discipline)), "Total Fee"];
+  const ptMoney = feeMoney;
   const rows = t.rows.map((r) => [r.label, ...r.amounts.map(ptMoney), ptMoney(r.total)]);
-  return [head, ...rows, ["TOTAL", ...t.totals.map(ptMoney), ptMoney(t.total)]].map((r) => r.join("\t")).join("\n");
+  const table = [head, ...rows, [feeStyle.capitals ? "TOTAL" : "Total", ...t.totals.map(ptMoney), ptMoney(t.total)]].map((r) => r.join("\t")).join("\n");
+  const items = t.belowLine ?? [];
+  if (!items.length) return table;
+  const below = items.map((b) =>
+    [b.label + (b.note ? ` (${b.note})` : ""), ...t.columns.map((_, col) => (col === b.column ? belowLineValue(b) : "")), belowLineValue(b)].join("\t"),
+  );
+  const total = t.belowLineTotal ? [["Total additional scope", ...(t.belowLineTotals ?? []).map((a) => (a ? ptMoney(a) : "")), ptMoney(t.belowLineTotal)].join("\t")] : [];
+  return [table, "Additional scope items (not included in the total fee)", ...below, ...total].join("\n");
 }
 
 async function copyProposalTable() {
@@ -829,6 +932,14 @@ function onInput(e: Event) {
       if (n == null) delete t.hours[field.slice(2)];
       else t.hours[field.slice(2)] = n;
     }
+  } else if (el.dataset.below) {
+    const b = f.belowLine?.find((x) => x.id === el.dataset.below);
+    if (!b) return;
+    if (field === "label") b.label = v;
+    else if (field === "note") b.note = v;
+    else if (field === "amount") b.amount = parseNum(v);
+    else if (field === "basis" && v in BELOW_LINE_BASIS) b.basis = v as BelowLineBasis;
+    else if (field === "by") b.by = v === "architecture" || f.consultants.some((c) => c.id === v) ? v : undefined;
   } else if (el.dataset.cons) {
     const c = f.consultants.find((x) => x.id === el.dataset.cons);
     if (!c) return;
@@ -864,6 +975,18 @@ async function onClick(e: Event) {
   if (t.closest("[data-copy-table]")) return copyProposalTable();
   if (t.closest("[data-undo]")) return undo();
   if (!fee) return;
+  if (t.closest("[data-fee-final]") || t.closest("[data-fee-draft]")) {
+    const next = await setFeeStatus(fee, t.closest("[data-fee-final]") ? "final" : "draft");
+    if (!next || !fee || next.id !== fee.id) return;
+    fee = next;
+    committed = JSON.stringify(fee); // a status change isn't an edit (and isn't undone by Undo)
+    try {
+      await saveFee({ ...fee, savedAt: Date.now() });
+    } catch (err) {
+      showSaveError((err as Error).message);
+    }
+    return render();
+  }
   const f = fee;
   if (t.closest("[data-fee-chat]")) return openAssistant();
   let id: string | null;
@@ -955,6 +1078,13 @@ async function onClick(e: Event) {
     rerender();
   } else if ((id = attr("data-remove-cons"))) {
     f.consultants = f.consultants.filter((c) => c.id !== id);
+    rerender();
+  } else if (t.closest("[data-add-below]")) {
+    (f.belowLine ??= []).push({ id: crypto.randomUUID(), label: "", basis: "lump", amount: null, note: "" });
+    rerender();
+    document.querySelector<HTMLInputElement>("#fee-page .fee-below tbody tr:last-child input")?.focus();
+  } else if ((id = attr("data-remove-below"))) {
+    f.belowLine = (f.belowLine ?? []).filter((b) => b.id !== id);
     rerender();
   }
 }

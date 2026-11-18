@@ -3,8 +3,6 @@ import type { ChatResponse, Comparison, Proposal } from "../lib/claude";
 import { type Usage } from "../lib/cost";
 import {
   deleteComparison,
-  listProjects,
-  projectLabel,
   getReading,
   hashFile,
   isDemo,
@@ -36,7 +34,7 @@ import { clearPendingProject, initProject, openProject, pendingProject, showProj
 import { setPrintName } from "./print";
 import { initTooltips } from "./tooltip";
 import { copyShareLink, parseHash } from "./share";
-import { briefingHtml, esc, feeTable, firmName, notesHtml, scopeTable, type Sourced } from "./table";
+import { briefingHtml, comparisonTitle, esc, feeTable, firmName, glanceHtml, notesHtml, scopeTable, type Sourced } from "./table";
 
 // Opening straight onto a schedule screen: hide the footer (and, for the print preview, the header) from the first
 // paint, so they don't flash before the schedule loads (e.g. inside the print panel's preview).
@@ -72,7 +70,6 @@ const filesEl = $<HTMLOListElement>("files");
 const runBtn = $<HTMLButtonElement>("run");
 const clearBtn = $<HTMLButtonElement>("clear");
 const statusEl = $<HTMLSpanElement>("status");
-const projectEl = $<HTMLSelectElement>("project");
 const results = $<HTMLElement>("results");
 
 let entries: Entry[] = [];
@@ -303,32 +300,15 @@ runBtn.addEventListener("click", async () => {
 
 // ---------- Results ----------
 
-// Optional: link the comparison to a project (projects are started from an RFP review).
-const LEGACY = "__legacy"; // a typed project name from before projects existed
-
-async function fillProjectSelect() {
-  if (!current) return;
+/** Back to the comparison's project (or Projects, for one saved before projects). */
+function setBackLink() {
+  const back = $<HTMLAnchorElement>("cmp-back");
   const c = current;
-  const projects = await listProjects();
-  const linked = projects.some((p) => p.id === c.projectId);
-  projectEl.innerHTML =
-    `<option value="">No project</option>` +
-    (!linked && c.projectName ? `<option value="${LEGACY}" selected>${esc(c.projectName)}</option>` : "") +
-    projects.map((p) => `<option value="${esc(p.id)}" ${p.id === c.projectId ? "selected" : ""}>${esc(projectLabel(p))}</option>`).join("");
+  back.href = c?.projectId ? `#project/${encodeURIComponent(c.projectId)}` : "#project";
+  back.textContent = `← ${c?.projectId && c.projectName ? c.projectName : "Projects"}`;
 }
 
-projectEl.addEventListener("change", async () => {
-  if (!current || projectEl.value === LEGACY) return;
-  const project = (await listProjects()).find((p) => p.id === projectEl.value);
-  current.projectId = project?.id;
-  current.projectName = project ? projectLabel(project) : null;
-  await persist().catch((err) => noticeModal("Not saved", (err as Error).message));
-  await fillProjectSelect();
-});
-
 const scopeEl = $<HTMLTableElement>("scope");
-const diffOnly = $<HTMLInputElement>("diff-only");
-diffOnly.addEventListener("change", () => scopeEl.classList.toggle("diff-only", diffOnly.checked));
 $("print").addEventListener("click", () => window.print());
 $("share").addEventListener("click", (e) => current && copyShareLink("proposals", current.id, e.currentTarget as HTMLElement));
 $("delete-comparison").addEventListener("click", async () => {
@@ -357,16 +337,18 @@ async function persist() {
 function showResults(scroll: boolean) {
   if (!current) return;
   const { proposals, cmp, projectName } = current;
+  $("cmp-title").textContent = comparisonTitle(proposals);
+  $("cmp-sub").textContent = [
+    `${proposals.length} firm${proposals.length === 1 ? "" : "s"}`,
+    `compared ${new Date(current.savedAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`,
+  ].join(" · ");
+  $("glance").innerHTML = glanceHtml(proposals, cmp);
   $("briefing").innerHTML = briefingHtml(proposals, cmp);
   results.style.setProperty("--min-table", `${160 + 130 * proposals.length}px`);
   $("fees").innerHTML = feeTable(proposals, cmp);
   scopeEl.innerHTML = scopeTable(proposals, cmp);
-  // With one proposal there is nothing to differ from, so the filter would hide every row.
-  const single = proposals.length < 2;
-  (document.querySelector(".toolbar .toggle") as HTMLElement).hidden = single;
-  scopeEl.classList.toggle("diff-only", diffOnly.checked && !single);
   $("notes").innerHTML = notesHtml(proposals);
-  fillProjectSelect();
+  setBackLink();
   $("print-meta").textContent = [projectName, new Date().toLocaleDateString()].filter(Boolean).join(" — ");
   results.hidden = false;
   if (scroll) results.scrollIntoView({ behavior: "smooth" });
@@ -974,7 +956,8 @@ function showTab() {
 function needsProject(tab: string): boolean {
   if (tab === "fee") return true;
   if (tab === "rfp") return !pendingProject() && !rfpBusy() && !getCurrentRfp();
-  if (tab === "proposals") return !pendingProject() && !busy && !current;
+  // Comparisons are made from a project's proposal list; this page only shows one.
+  if (tab === "proposals") return !busy && !current;
   return false;
 }
 

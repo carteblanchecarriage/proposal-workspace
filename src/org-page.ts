@@ -4,6 +4,7 @@ import { setOrgName } from "./org";
 import { signOut } from "./auth";
 import { isDemo } from "./store";
 import { esc } from "./table";
+import { renderStyleSettings } from "./style-settings";
 
 // The organization page: name, who's signed in to it, this month's AI use, export, and delete. Kept simple on
 // purpose: no roles to manage or invites (a firm may well share one login). The owner renames and deletes.
@@ -37,7 +38,9 @@ export async function showOrg() {
   if (isDemo()) {
     page.innerHTML = `
       <h1 class="headline">Demo Architects</h1>
-      <p class="wv-intro">In your own account, this page is where you rename your organization, see who's in it and this month's AI use, download all your data, or delete the organization.</p>`;
+      <p class="wv-intro">In your own account, this page is where you rename your organization, see who's in it and this month's AI use, download all your data, or delete the organization.</p>
+      <div class="block" id="org-style"></div>`;
+    void renderStyleSettings($("org-style"));
     return;
   }
   page.innerHTML = `<h1 class="headline">Organization</h1><span class="status">Loading…</span>`;
@@ -113,10 +116,7 @@ function render() {
       <span class="status" id="org-billing-status"></span>
     </div>
 
-    <div class="block">
-      <h2 class="label">Schedules</h2>
-      <p>Colors, font and other settings for every schedule in your organization: <a class="link" href="#schedule">Colors and style</a>.</p>
-    </div>
+    <div class="block" id="org-style"></div>
 
     <div class="block">
       <h2 class="label">AI use</h2>
@@ -139,6 +139,8 @@ function render() {
     </div>`
         : ""
     }`;
+
+  void renderStyleSettings($("org-style"));
 
   // The name reads as text; Edit opens a box with Save and Cancel (Escape cancels too), so nothing changes by accident.
   $("org-rename-edit")?.addEventListener("click", () => {

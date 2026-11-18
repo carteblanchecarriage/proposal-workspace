@@ -268,11 +268,6 @@
       </div>
 
       <div id="tab-fee" class="tab" hidden>
-        <div class="wip" role="note" aria-label="Work in progress: fees here are drafts and may change">
-          <div class="wip-track" aria-hidden="true">
-            <span>Work in progress · Fees here are drafts and may change</span><span>Work in progress · Fees here are drafts and may change</span><span>Work in progress · Fees here are drafts and may change</span><span>Work in progress · Fees here are drafts and may change</span>
-          </div>
-        </div>
         <section id="fee-page"></section>
       </div>
 
@@ -297,7 +292,8 @@
       </div>
 
       <div id="tab-proposals" class="tab" hidden>
-      <section id="intake">
+      <!-- Proposals are added on the project page now (src/project-proposals.ts); this upload stays hidden. -->
+      <section id="intake" hidden>
         <p class="lede">
           Drop in one consultant proposal to get its key facts, or several to
           compare them. Works for any architecture or engineering discipline. Scopes
@@ -338,11 +334,7 @@
         </div>
 
         <div class="toolbar">
-          <select id="project" class="project" aria-label="Project"></select>
-          <label class="toggle"
-            ><input id="diff-only" type="checkbox" /> Show differences
-            only</label
-          >
+          <a id="cmp-back" class="link" href="#project">← Projects</a>
           <span class="tools">
             <button id="chat-open" class="btn">Ask / correct</button>
             <button id="share" class="btn">Share</button>
@@ -350,6 +342,12 @@
             <button id="delete-comparison" class="btn">Delete</button>
           </span>
         </div>
+
+        <header class="cmp-head">
+          <h1 id="cmp-title" class="cmp-title"></h1>
+          <p id="cmp-sub" class="cmp-sub"></p>
+        </header>
+        <div id="glance" class="glance" aria-label="Each firm at a glance"></div>
 
         <div class="block briefing">
           <h2 class="label">Briefing</h2>
@@ -364,10 +362,11 @@
         <div class="block">
           <h2 class="label">Scope</h2>
           <p class="legend">
-            <span><b class="st-included">Included</b> in the proposal's scope</span>
-            <span><b class="st-optional">Optional</b> offered as an add-on at extra cost</span>
-            <span><b class="st-excluded">Excluded</b> the proposal says it is not included</span>
-            <span><b class="st-not_mentioned">Not mentioned</b> the proposal doesn't say; ask before assuming</span>
+            <span><b class="st-included">✓ Included</b> in the proposal's scope</span>
+            <span><b class="st-optional">+ Optional</b> offered as an add-on at extra cost</span>
+            <span><b class="st-excluded">✕ Excluded</b> the proposal says it is not included</span>
+            <span><b class="st-not_mentioned">? Not mentioned</b> the proposal doesn't say; ask before assuming</span>
+            <span><b class="diff-dot">•</b> the firms differ on this item</span>
           </p>
           <div class="scroll"><table id="scope" class="grid"></table></div>
         </div>

@@ -415,6 +415,20 @@ const project: SavedProject = {
     { name: "Northfield Geotechnical", disciplines: ["Geotechnical"], statuses: { Geotechnical: "candidate" } },
     { name: "Clearview Environmental", disciplines: ["Hazardous Materials"], statuses: { "Hazardous Materials": "asked" } },
   ],
+  // A sample proposal check, so the demo shows what one looks like (the demo can't run AI).
+  qaqc: {
+    fileName: "Maple Hollow Library - Proposal DRAFT.pdf",
+    checkedAt: now - DAY / 2,
+    summary: "Close to ready. Two things must be fixed before it goes out: a missing required form and a fee total that doesn't add up.",
+    flags: [
+      { kind: "brief", severity: "fix", issue: "The RFP requires a signed Non-Collusion Affidavit (Form B), and it isn't included.", page: 0, fix: "Add the signed Form B behind the cover letter." },
+      { kind: "mistake", severity: "fix", issue: "The fee table's phases add up to $664,270, but the total reads “$670,270”.", page: 18, fix: "Correct the total or the phase that's off by $6,000." },
+      { kind: "mistake", severity: "check", issue: "The cover letter is addressed to “Township of Maple Grove”; the rest of the proposal says Maple Hollow.", page: 1, fix: "Change it to Township of Maple Hollow." },
+      { kind: "brief", severity: "check", issue: "The RFP limits the response to 20 pages excluding resumes; this one runs 22.", page: 0, fix: "Trim two pages or move project sheets to an appendix." },
+      { kind: "mistake", severity: "check", issue: "“Schematic Desgin” in the schedule heading.", page: 15, fix: "Spell it “Schematic Design”." },
+    ],
+    costUsd: null,
+  },
 };
 
 /**

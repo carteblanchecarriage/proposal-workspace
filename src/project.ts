@@ -7,16 +7,19 @@ import { SCHEDULE_TEMPLATES } from "./schedule/lib/data/templates.js";
 import { post } from "./api";
 import { type Usage } from "../lib/cost";
 import type { ScheduleDraft } from "../lib/claude";
-import { proposalTable, totals } from "./fee-calc";
+import { consultantTotal, proposalTable, totals } from "./fee-calc";
+import { feeStatusHtml, setFeeStatus } from "./fee-status";
 import { CONSULTANT_STATUS, type ConsultantStatus, deleteProject, listFees, saveFee, type SavedFee, projectLabel, listComparisons, listProjects, listSchedules, getScheduleStyle, type ScheduleStyle, savesShared, listRfps, saveComparison, saveProject, saveRfp, saveSchedule, listConsultants, type SavedConsultant, type SavedComparison, type SavedProject, type SavedRfp, type SavedSchedule } from "./store";
 import { addAddendum, formatWhen, parseDay, projectDisciplines, proposalDue, verdictPill } from "./rfp";
 import { setPendingProject } from "./pending";
+import { adoptFromComparisons, onProposalsChange, onProposalsClick, proposalsHtml, qaqcHtml, type ProposalsContext } from "./project-proposals";
 import { copyShareLink } from "./share";
 import { esc, firmName } from "./table";
 import { contactsHtml, copyEmail, keyOf, siteLink } from "./consultants";
 import { parseContacts } from "./contacts";
 
-// A project page: its RFP review, the comparisons linked to it, and its consultants by discipline.
+// A project page: its RFP review, consultant proposals (and their comparisons), the proposal check, consultants by
+// discipline, schedule and fee.
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 
@@ -77,6 +80,8 @@ async function load() {
   scheduleStyle = style;
   rfp = rfps.find((r) => r.id === project!.rfpId) ?? rfps.find((r) => r.projectId === id);
   comparisons = cmps.filter((c) => c.projectId === id);
+  // Proposals inside the project's comparisons join its proposal list (once), to compare with later ones.
+  if (adoptFromComparisons(project, comparisons)) await saveProject(project).catch(console.error);
   schedules = scheds.filter((s) => s.workspaceProjectId === id);
   fees = fs.filter((f) => f.workspaceProjectId === id);
 }
@@ -122,15 +127,6 @@ export async function showProjectList() {
 function render() {
   if (!project) return;
   const p = project;
-  const cmpList = comparisons
-    .map(
-      (c) => `<li>
-        <a class="link open" href="#proposals/${encodeURIComponent(c.id)}"><b>${esc(c.proposals.map((x) => firmName(x.firm)).join(", "))}</b></a>
-        <span></span>
-        <button class="link" data-unlink="${esc(c.id)}">Remove</button>
-      </li>`,
-    )
-    .join("");
 
 
   const due = rfp ? proposalDue(rfp.rfp) : undefined;
@@ -171,11 +167,8 @@ function render() {
       </div>
 
       <div class="proj-card proj-proposals saved">
-        <div class="proj-card-head"><h2 class="label">Proposals</h2></div>
-        <div class="proj-card-body">
-          ${cmpList ? `<ol>${cmpList}</ol>` : `<p class="none">None yet.</p>`}
-          <div class="actions"><button class="btn" data-compare>Compare proposals</button></div>
-        </div>
+        <div class="proj-card-head"><h2 class="label">Consultant proposals</h2></div>
+        <div class="proj-card-body">${proposalsHtml(p, comparisons)}</div>
       </div>
 
       <div class="proj-card proj-consultants">
@@ -203,7 +196,12 @@ function render() {
           <h2 class="label">Fee</h2>
           ${fee ? `<span class="proj-card-links"><a class="link" href="#fee/${encodeURIComponent(fee.id)}">Open</a></span>` : ""}
         </div>
-        <div class="proj-card-body">${feeSummaryHtml(fee)}</div>
+        <div class="proj-card-body">${fee ? feeStatusHtml(fee, true) : ""}${feeSummaryHtml(fee)}</div>
+      </div>
+
+      <div class="proj-card proj-qaqc">
+        <div class="proj-card-head"><h2 class="label">Proposal check</h2></div>
+        <div class="proj-card-body">${qaqcHtml(p, rfp)}</div>
       </div>
     </div>`;
   fitDashboard();
@@ -214,14 +212,27 @@ const money = (n: number) => `$${Math.round(n).toLocaleString("en-US")}`;
 /** The fee in brief: each phase's total, the fee, and how it compares with the construction budget. Opens the fee. */
 function feeSummaryHtml(f: SavedFee | undefined): string {
   if (!f) return `<p class="none">None yet.</p><div class="actions"><button class="btn" data-make-fee>Make fee</button></div>`;
+  // The firm's own fee only: the proposal table's Architecture column (its labor, markup on consultants and
+  // expenses). Consultant fees are worked on in the fee itself.
   const table = proposalTable(f);
   const t = totals(f);
-  if (!table.total) return `<p class="none">${esc(f.title || "Untitled fee")} has no amounts yet. <a class="link" href="#fee/${encodeURIComponent(f.id)}">Open it</a>.</p>`;
-  return `<a class="proj-fee-link" href="#fee/${encodeURIComponent(f.id)}" aria-label="Open the fee">
-      <p class="proj-fee-total">${money(table.total)}</p>
-      <p class="proj-fee-pct">Total fee${t.percentOfBudget != null && t.budget ? ` · ${t.percentOfBudget.toFixed(1)}% of a ${money(t.budget)} construction budget` : ""}</p>
+  const arch = table.totals[0] ?? 0;
+  const href = `#fee/${encodeURIComponent(f.id)}`;
+  const firms = f.consultants.filter((c) => consultantTotal(c, f.phases) > 0).length;
+  const consultantsNote = `<p class="proj-fee-note">${
+    firms
+      ? `Plus ${firms} consultant fee${firms === 1 ? "" : "s"}, in the <a class="link" href="${href}">fee workspace</a>.`
+      : `Consultant fees are added and worked on in the <a class="link" href="${href}">fee workspace</a>.`
+  }</p>`;
+  if (!arch) return `<p class="none">${esc(f.title || "Untitled fee")} has no amounts yet. <a class="link" href="${href}">Open it</a>.</p>${consultantsNote}`;
+  return `<a class="proj-fee-link" href="${href}" aria-label="Open the fee">
+      <p class="proj-fee-total">${money(arch)}</p>
+      <p class="proj-fee-pct">Architecture fee${t.budget ? ` · ${((arch / t.budget) * 100).toFixed(1)}% of a ${money(t.budget)} construction budget` : ""}</p>
+    </a>
+    ${consultantsNote}
+    <a class="proj-fee-link" href="${href}" tabindex="-1" aria-hidden="true">
       <table class="proj-fee-table">
-        <tbody>${table.rows.map((r) => `<tr><th scope="row">${esc(r.label)}</th><td class="num">${money(r.total)}</td></tr>`).join("")}</tbody>
+        <tbody>${table.rows.map((r) => `<tr><th scope="row">${esc(r.label)}</th><td class="num">${money(r.amounts[0] ?? 0)}</td></tr>`).join("")}</tbody>
       </table>
     </a>`;
 }
@@ -417,67 +428,139 @@ function legendFromDraft(d: ScheduleDraft) {
 }
 
 /**
- * The project's disciplines in governing-list order: those needed (see neededDisciplines), plus any a consultant on
- * the project covers. Each lists the firms covering it: from linked proposals, and added by hand (removable).
+ * Rows of the project's consultant list. Mechanical, electrical, plumbing and fire protection are almost always one
+ * firm's proposal, so they're one row (MEP/FP); every other discipline is its own row.
+ */
+type Group = { key: string; label: string; members: string[] };
+const MEP_FP = ["Mechanical", "Electrical", "Plumbing", "Fire Protection"];
+const GROUPS: Group[] = (() => {
+  const out: Group[] = [];
+  for (const d of DISCIPLINES) {
+    if (MEP_FP.includes(d)) {
+      if (!out.some((g) => g.key === "MEP/FP")) out.push({ key: "MEP/FP", label: "MEP/FP", members: MEP_FP });
+    } else out.push({ key: d, label: d, members: [d] });
+  }
+  return out;
+})();
+const groupOf = (key: string) => GROUPS.find((g) => g.key === key);
+
+/**
+ * The project's consultant list: a row for each discipline it needs (requested in the RFP review or added by the
+ * team, less any removed), plus any a consultant on the project covers. Each lists the firms covering it: from the
+ * project's proposals, and added by hand (removable). Whole rows can be added and removed.
  */
 function consultantsHtml(p: SavedProject): string {
-  const requested = new Set(neededDisciplines(p));
-  const rows = DISCIPLINES.map((d) => {
-    const fromProposals = new Map<string, string>(); // firm → comparison id
+  const needed = new Set<string>(neededDisciplines(p));
+  const removed = new Set(p.disciplinesRemoved ?? []);
+  const rows = GROUPS.map((g) => {
+    const covers = (ds: string[]) => toDisciplines(ds).some((d) => g.members.includes(d));
+    const fromProposals = new Map<string, string>(); // firm → comparison id ("" when it's only in the proposal list)
+    for (const r of p.proposals ?? []) if (covers(r.proposal.disciplines ?? [])) fromProposals.set(firmName(r.proposal.firm), "");
     for (const c of comparisons)
-      for (const x of c.proposals) if (x.firm && toDisciplines(x.disciplines ?? []).includes(d)) fromProposals.set(firmName(x.firm), c.id);
-    const added = (p.consultants ?? []).map((c, i) => ({ ...c, i })).filter((c) => c.disciplines.includes(d));
-    return { d, fromProposals, added, needed: requested.has(d) };
-  }).filter((r) => r.needed || r.fromProposals.size || r.added.length);
-  if (!rows.length) return `<p class="none">None yet.</p>`;
+      for (const x of c.proposals) if (x.firm && covers(x.disciplines ?? [])) fromProposals.set(firmName(x.firm), c.id);
+    const added = (p.consultants ?? []).map((c, i) => ({ ...c, i })).filter((c) => c.disciplines.some((d) => g.members.includes(d)));
+    const isRemoved = g.members.every((d) => removed.has(d));
+    const isNeeded = g.members.some((d) => needed.has(d));
+    return { g, fromProposals, added, show: !isRemoved && (isNeeded || fromProposals.size > 0 || added.length > 0) };
+  }).filter((r) => r.show);
+  const hidden = GROUPS.filter((g) => !rows.some((r) => r.g === g));
+  const addRow = hidden.length ? `<div class="actions"><button class="link" data-add-discipline>+ Add discipline</button></div>` : "";
+  if (!rows.length) return `<p class="none">None yet. Add the disciplines this project needs.</p>${addRow}`;
   return `<table class="grid facts team">${rows
     .map((r) => {
+      const key = r.g.key;
       const firms = [
-        ...[...r.fromProposals].map(([firm, id]) => `${contactButton(firm)} <a class="link note" href="#proposals/${encodeURIComponent(id)}">proposal</a>`),
+        ...[...r.fromProposals].map(
+          ([firm, id]) => `${contactButton(firm)} ${id ? `<a class="link note" href="#proposals/${encodeURIComponent(id)}">proposal</a>` : `<span class="note">proposal</span>`}`,
+        ),
         // Firms the team is reaching out to (added here), as removable pills; one whose proposal is in shows as the proposal.
         ...r.added
           .filter((c) => !r.fromProposals.has(firmName(c.name)))
           .map((c) => {
-            const status = c.statuses?.[r.d] ?? "asked";
-            const pick = `<select class="reach-status" data-consultant-status="${c.i}" data-discipline="${esc(r.d)}" aria-label="Where ${esc(c.name)} stands for ${esc(r.d)}" title="Candidate, asked, or teaming with us">${(Object.keys(CONSULTANT_STATUS) as ConsultantStatus[])
+            const first = r.g.members.find((d) => c.disciplines.includes(d)) ?? key;
+            const status = c.statuses?.[first] ?? "asked";
+            const pick = `<select class="reach-status" data-consultant-status="${c.i}" data-discipline="${esc(key)}" aria-label="Where ${esc(c.name)} stands for ${esc(r.g.label)}" title="Candidate, asked, or teaming with us">${(Object.keys(CONSULTANT_STATUS) as ConsultantStatus[])
               .map((s) => `<option value="${s}" ${s === status ? "selected" : ""}>${CONSULTANT_STATUS[s]}</option>`)
               .join("")}</select>`;
-            return `<span class="reach reach-${status}">${contactButton(c.name)}${pick}<button class="reach-x" data-remove-consultant="${c.i}" data-discipline="${esc(r.d)}" aria-label="Remove ${esc(c.name)}" title="Remove">×</button></span>`;
+            return `<span class="reach reach-${status}">${contactButton(c.name)}${pick}<button class="reach-x" data-remove-consultant="${c.i}" data-discipline="${esc(key)}" aria-label="Remove ${esc(c.name)}" title="Remove">×</button></span>`;
           }),
       ];
+      const inHouse = IN_HOUSE.includes(key);
       // Architecture (and interiors and FF&E) are the firm's own work, so they don't get consultants.
-      const add = IN_HOUSE.includes(r.d) ? "" : `<button class="link reach-add" data-add-consultant="${esc(r.d)}" aria-label="Add a consultant for ${esc(r.d)}">+ Add</button>`;
-      return `<tr><th scope="row">${esc(r.d)}</th><td>${
-        firms.length
-          ? `${firms.join(" ")} ${add}`
-          : IN_HOUSE.includes(r.d)
-            ? `In house`
-            : `<span class="needed">Needed</span> ${add} <button class="link" data-remove-discipline="${esc(r.d)}" aria-label="Remove ${esc(r.d)}">Remove</button>`
+      const add = inHouse ? "" : `<button class="link reach-add" data-add-consultant="${esc(key)}" aria-label="Add a consultant for ${esc(r.g.label)}">+ Add</button>`;
+      const drop = `<button class="link team-remove" data-remove-discipline="${esc(key)}" aria-label="Remove ${esc(r.g.label)} from this project" title="Remove ${esc(r.g.label)} from this project">Remove</button>`;
+      return `<tr><th scope="row">${esc(r.g.label)}${drop}</th><td>${
+        firms.length ? `${firms.join(" ")} ${add}` : inHouse ? `In house` : `<span class="needed">Needed</span> ${add}`
       }</td></tr>`;
     })
-    .join("")}</table>`;
+    .join("")}</table>${addRow}`;
 }
 
-const neededDisciplines = (p: SavedProject) => projectDisciplines(rfp?.rfp, p.disciplinesRemoved);
+const neededDisciplines = (p: SavedProject) => projectDisciplines(rfp?.rfp, p.disciplinesRemoved, p.disciplinesAdded);
 
-/** Takes a discipline the RFP review requests off this project's needed list (the review itself is unchanged). */
-async function removeDiscipline(d: string) {
+/** Takes a whole discipline (or MEP/FP) off this project's list; the RFP review itself is unchanged. */
+async function removeDiscipline(key: string) {
+  const g = groupOf(key);
+  if (!project || !g) return;
+  const p = project;
+  const firms = (p.consultants ?? []).filter((c) => c.disciplines.some((d) => g.members.includes(d)));
+  const ok = await confirmModal({
+    title: `Remove ${g.label}?`,
+    body: `${g.label} comes off this project's consultant list${
+      firms.length ? `, along with ${firms.map((c) => c.name).join(", ")} for it` : ""
+    }. You can add it back with Add discipline. The RFP review isn't changed.`,
+    confirm: "Remove",
+  });
+  if (!ok || project !== p) return;
+  p.disciplinesRemoved = [...new Set([...(p.disciplinesRemoved ?? []), ...g.members])];
+  p.disciplinesAdded = (p.disciplinesAdded ?? []).filter((d) => !g.members.includes(d));
+  for (const c of firms) {
+    c.disciplines = c.disciplines.filter((d) => !g.members.includes(d));
+    for (const d of g.members) if (c.statuses) delete c.statuses[d];
+  }
+  p.consultants = (p.consultants ?? []).filter((c) => c.disciplines.length);
+  await saveProject(p).catch((err) => noticeModal("Not saved", (err as Error).message));
+  render();
+}
+
+/** Adds whole disciplines (or MEP/FP) to this project's list, from those not on it. */
+async function addDiscipline() {
   if (!project) return;
   const p = project;
-  p.disciplinesRemoved = toDisciplines([...(p.disciplinesRemoved ?? []), d]);
+  const shown = new Set<string>(neededDisciplines(p));
+  const removed = new Set(p.disciplinesRemoved ?? []);
+  const options = GROUPS.filter((g) => !g.members.some((d) => shown.has(d)) || g.members.every((d) => removed.has(d))).map((g) => g.label);
+  if (!options.length) return;
+  const values = await formModal({
+    title: "Add disciplines",
+    fields: [{ label: "Disciplines this project needs", value: "", options }],
+    confirm: "Add",
+    validate: (v) => !!v[0],
+  });
+  if (!values || project !== p) return;
+  const members = values[0]
+    .split("\n")
+    .map((label) => GROUPS.find((g) => g.label === label))
+    .flatMap((g) => g?.members ?? []);
+  if (!members.length) return;
+  p.disciplinesAdded = [...new Set([...(p.disciplinesAdded ?? []), ...members])];
+  p.disciplinesRemoved = (p.disciplinesRemoved ?? []).filter((d) => !members.includes(d));
   await saveProject(p).catch((err) => noticeModal("Not saved", (err as Error).message));
   render();
 }
 
 const IN_HOUSE: string[] = ["Architecture", "Interiors", "FF&E"];
 
-/** Adds firms to reach out to for a discipline: from the Consultants directory (those covering it), or typed in. */
-async function addConsultant(discipline: string) {
-  if (!project) return;
+/** Adds firms to reach out to for a row (a discipline, or all of MEP/FP): from the Consultants directory, or typed in. */
+async function addConsultant(key: string) {
+  const g = groupOf(key);
+  if (!project || !g) return;
   const p = project;
-  const taken = new Set((p.consultants ?? []).filter((c) => c.disciplines.includes(discipline)).map((c) => c.name.toLowerCase()));
+  const discipline = g.label;
+  const members = g.members;
+  const taken = new Set((p.consultants ?? []).filter((c) => c.disciplines.some((d) => members.includes(d))).map((c) => c.name.toLowerCase()));
   const directory = (await listConsultants().catch(() => [] as SavedConsultant[]))
-    .filter((c) => firmDisciplines(c).includes(discipline as (typeof DISCIPLINES)[number]) && !taken.has(c.name.toLowerCase()))
+    .filter((c) => firmDisciplines(c).some((d) => members.includes(d)) && !taken.has(c.name.toLowerCase()))
     .sort((a, b) => a.name.localeCompare(b.name));
   const names = directory.map((c) => c.name);
   const values = await formModal({
@@ -497,22 +580,24 @@ async function addConsultant(discipline: string) {
   const list = p.consultants ?? [];
   for (const name of add) {
     const same = list.find((c) => c.name.toLowerCase() === name.toLowerCase());
+    const statuses = Object.fromEntries(members.map((d) => [d, "candidate" as ConsultantStatus]));
     if (same) {
-      same.disciplines = [...new Set([...same.disciplines, discipline])];
-      same.statuses = { ...same.statuses, [discipline]: "candidate" };
-    } else list.push({ name, disciplines: [discipline], statuses: { [discipline]: "candidate" } });
+      same.disciplines = [...new Set([...same.disciplines, ...members])];
+      same.statuses = { ...same.statuses, ...statuses };
+    } else list.push({ name, disciplines: [...members], statuses });
   }
   p.consultants = list;
   await saveProject(p).catch((err) => noticeModal("Not saved", (err as Error).message));
   render();
 }
 
-/** Takes a firm off one discipline (and off the project when it's left with none). */
-async function removeConsultant(i: number, discipline?: string) {
+/** Takes a firm off one row (a discipline, or all of MEP/FP), and off the project when it's left with none. */
+async function removeConsultant(i: number, key?: string) {
   const c = project?.consultants?.[i];
   if (!project || !c) return;
-  c.disciplines = discipline ? c.disciplines.filter((d) => d !== discipline) : [];
-  if (discipline && c.statuses) delete c.statuses[discipline];
+  const members = key ? (groupOf(key)?.members ?? [key]) : [];
+  c.disciplines = key ? c.disciplines.filter((d) => !members.includes(d)) : [];
+  if (c.statuses) for (const d of members) delete c.statuses[d];
   if (!c.disciplines.length) project.consultants!.splice(i, 1);
   await saveProject(project).catch((err) => noticeModal("Not saved", (err as Error).message));
   render();
@@ -585,8 +670,18 @@ async function remove(id: string) {
   else location.hash = "#project";
 }
 
+/** What the Proposals and Proposal check cards need from the page. */
+const proposalsContext = (): ProposalsContext => ({
+  project: project!,
+  rfp,
+  comparisons,
+  save: () => saveProject(project!),
+  rerender: () => project && render(),
+});
+
 async function onClick(e: Event) {
   const t = e.target as HTMLElement;
+  if (project && (await onProposalsClick(t, proposalsContext()))) return;
   const contact = t.closest<HTMLElement>("[data-contact]");
   if (contact) return openContactCard(contact);
   const del = t.closest("[data-delete-project]")?.getAttribute("data-delete-project");
@@ -595,6 +690,19 @@ async function onClick(e: Event) {
   else if (t.closest("[data-remove-discipline]")) await removeDiscipline(t.closest("[data-remove-discipline]")!.getAttribute("data-remove-discipline")!);
   else if (t.closest("[data-make-schedule]")) await makeSchedule();
   else if (t.closest("[data-make-fee]") && project) await makeFee(project);
+  else if (t.closest("[data-add-discipline]")) await addDiscipline();
+  else if (t.closest("[data-fee-final]") || t.closest("[data-fee-draft]")) {
+    const f = fees.find((x) => x.id === (t.closest("[data-fee-final]") ?? t.closest("[data-fee-draft]"))!.getAttribute(t.closest("[data-fee-final]") ? "data-fee-final" : "data-fee-draft"));
+    const next = f && (await setFeeStatus(f, t.closest("[data-fee-final]") ? "final" : "draft"));
+    if (!next) return;
+    try {
+      await saveFee({ ...next, savedAt: Date.now() });
+      fees = fees.map((x) => (x.id === next.id ? next : x));
+    } catch (err) {
+      return noticeModal("Not saved", (err as Error).message);
+    }
+    render();
+  }
   else if (t.closest("[data-add-consultant]")) await addConsultant(t.closest("[data-add-consultant]")!.getAttribute("data-add-consultant")!);
   else if (t.closest("[data-remove-consultant]")) {
     const el = t.closest("[data-remove-consultant]")!;
@@ -609,9 +717,6 @@ async function onClick(e: Event) {
     // The review is read on the RFP page and links itself to this project when it's done.
     setPendingProject({ id: project.id, name: projectLabel(project) });
     location.hash = "#rfp";
-  } else if (t.closest("[data-compare]") && project) {
-    setPendingProject({ id: project.id, name: projectLabel(project) });
-    location.hash = "#proposals";
   }
 }
 
@@ -669,10 +774,18 @@ document.addEventListener("change", async (e) => {
   if (!el.matches?.("#project-page [data-consultant-status]") || !project) return;
   const c = project.consultants?.[Number(el.dataset.consultantStatus)];
   const d = el.dataset.discipline ?? "";
-  if (!c || !c.disciplines.includes(d) || !(el.value in CONSULTANT_STATUS)) return;
-  c.statuses = { ...c.statuses, [d]: el.value as ConsultantStatus };
+  const members = (groupOf(d)?.members ?? [d]).filter((x) => c?.disciplines.includes(x));
+  if (!c || !members.length || !(el.value in CONSULTANT_STATUS)) return;
+  c.statuses = { ...c.statuses, ...Object.fromEntries(members.map((x) => [x, el.value as ConsultantStatus])) };
   await saveProject(project).catch((err) => noticeModal("Not saved", (err as Error).message));
   render();
+});
+
+// Consultant proposals (added, ticked) and the proposal check's PDF.
+document.addEventListener("change", (e) => {
+  const el = e.target as HTMLInputElement;
+  if (!project || !el.closest?.("#project-page")) return;
+  onProposalsChange(el, proposalsContext());
 });
 
 // ---------- Addenda ----------

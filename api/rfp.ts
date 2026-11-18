@@ -1,5 +1,5 @@
 import { assertOwnFiles, route } from "../lib/auth.js";
-import { applyAddendum, cleanupOldFiles, draftWorldViewFromSite, errorResponse, firmSiteUrl, fitCheck, reviewRfp, suggestWorldView, UserFacingError } from "../lib/claude.js";
+import { applyAddendum, checkOwnProposal, cleanupOldFiles, draftWorldViewFromSite, errorResponse, firmSiteUrl, fitCheck, reviewRfp, suggestWorldView, UserFacingError } from "../lib/claude.js";
 import { firmContext, sectionsText } from "../lib/worldview.js";
 import { z } from "zod";
 
@@ -8,7 +8,8 @@ import { z } from "zod";
 //  - none: review uploaded PDFs (uploaded first, one request each, via /api/upload, to stay under Vercel's body limit);
 //  - "addendum": updates a saved review for a new addendum PDF, and lists what changed;
 //  - "fit-check": the pursue / consider / pass verdict for a saved review's JSON;
-//  - "suggest": suggested world view edits from how verdicts compared with outcomes.
+//  - "suggest": suggested world view edits from how verdicts compared with outcomes;
+//  - "qaqc": a final check of the firm's own finished proposal (uploaded first), against the RFP review if any.
 // The firm's world view and past pursuits come from the browser as text, and are added after the built-in
 // instructions exactly as the World view page shows them.
 const Context = {
@@ -29,6 +30,10 @@ const Addendum = z.object({
   sections: z.array(z.string().max(200)).max(30).default([]),
 });
 const FitCheck = z.object({ rfp: z.object({}).passthrough(), ...Context });
+const Qaqc = z.object({
+  files: z.array(z.object({ file_id: z.string(), filename: z.string() })).min(1).max(3),
+  rfp: z.object({}).passthrough().nullable().default(null),
+});
 const Suggest = z.object({ worldView: z.string().max(20_000), results: z.array(z.object({}).passthrough()).min(1).max(60) });
 
 async function handle(request: Request): Promise<Response> {
@@ -53,6 +58,12 @@ async function handle(request: Request): Promise<Response> {
       const site = typeof (body as { url?: unknown })?.url === "string" ? (body as { url: string }).url : "";
       if (!site || site.length > 300) throw new UserFacingError("Enter your firm's website.");
       return Response.json(await draftWorldViewFromSite(firmSiteUrl(site)));
+    }
+    if (action === "qaqc") {
+      const p = Qaqc.safeParse(body);
+      if (!p.success) throw new UserFacingError("Invalid check request.");
+      await assertOwnFiles(p.data.files.map((f) => f.file_id));
+      return Response.json(await checkOwnProposal(p.data.files, p.data.rfp));
     }
     if (action === "suggest") {
       const p = Suggest.safeParse(body);

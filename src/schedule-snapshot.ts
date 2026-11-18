@@ -25,7 +25,7 @@ const NAME_CHARS = 32;
 
 /**
  * The snapshot, linked to the schedule; "" when the schedule has no dated tasks yet. Drawn in the organization's
- * schedule style (Colors and style, on the Schedule page): its colors, font and Today-line default.
+ * schedule style (Style and formatting, on the Organization page): its colors, font and Today-line default.
  */
 export function scheduleSnapshotHtml(s: SavedSchedule, style: ScheduleStyle = { colors: {} }): string {
   const map = buildColorMap(style.colors);

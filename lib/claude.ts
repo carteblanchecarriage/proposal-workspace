@@ -4,7 +4,7 @@ import { z } from "zod";
 import { costOf, type Usage } from "./cost.js";
 import { recordFile, recordUsage } from "./usage-hook.js";
 import { DISCIPLINES, toDisciplines } from "./disciplines.js";
-import { ADDENDUM_SYSTEM, CHAT_SYSTEM, CHECK_SYSTEM, COMPARE_SYSTEM, EXTRACT_SYSTEM, FEE_CHAT_SYSTEM, FEE_DRAFT_SYSTEM, FIT_CHECK_SYSTEM, OWN_PROPOSAL_SYSTEM, RFP_SYSTEM, SCHEDULE_DRAFT_SYSTEM, SUGGEST_SYSTEM, US_ENGLISH, WEBSITE_SYSTEM } from "./prompts.js";
+import { ADDENDUM_SYSTEM, CHAT_SYSTEM, CHECK_SYSTEM, COMPARE_SYSTEM, EXTRACT_SYSTEM, FEE_CHAT_SYSTEM, FEE_DRAFT_SYSTEM, FIT_CHECK_SYSTEM, OWN_PROPOSAL_SYSTEM, RFP_SYSTEM, SCHEDULE_DRAFT_SYSTEM, SUGGEST_SYSTEM, US_ENGLISH, WEBSITE_SYSTEM, QAQC_SYSTEM } from "./prompts.js";
 
 export const MODEL = "claude-opus-5-5";
 
@@ -615,6 +615,53 @@ export async function draftWorldViewFromSite(site: URL): Promise<{ draft: SiteDr
     { model: MODEL, input_tokens: 0, output_tokens: 0, cache_write_tokens: 0, cache_read_tokens: 0, cost_usd: 0 } as Usage,
   );
   return { draft: draft.data, usage: total };
+}
+
+// ---------- Proposal check (QA/QC) ----------
+
+export const QaSchema = z.object({
+  summary: z.string(),
+  flags: z.array(
+    z.object({
+      kind: z.enum(["mistake", "brief"]),
+      severity: z.enum(["fix", "check"]),
+      issue: z.string(),
+      page: z.number(),
+      fix: z.string(),
+    }),
+  ),
+});
+export type QaResult = z.infer<typeof QaSchema>;
+
+/** A final read of the firm's own proposal: simple mistakes, and fit to the RFP review when there is one. */
+export async function checkOwnProposal(
+  files: { file_id: string; filename: string }[],
+  rfp: unknown | null,
+): Promise<{ qa: QaResult; usage: Usage }> {
+  const msg = await getClient()
+    .beta.messages.stream({
+      ...BASE,
+      system: withContext(QAQC_SYSTEM),
+      output_config: { effort: "medium", format: betaZodOutputFormat(QaSchema) },
+      messages: [
+        {
+          role: "user",
+          content: [
+            ...files.map((f) => ({ type: "document" as const, title: f.filename, source: { type: "file" as const, file_id: f.file_id } })),
+            {
+              type: "text" as const,
+              text: rfp
+                ? `The RFP review (JSON):\n${JSON.stringify(toWire(rfp))}\n\nCheck the proposal above.`
+                : "There's no RFP review for this project, so check for simple mistakes only.",
+            },
+          ],
+        },
+      ],
+    })
+    .finalMessage();
+  checkStop(msg);
+  if (!msg.parsed_output) throw new UserFacingError("Couldn't read the AI's proposal check. Try again.", 502);
+  return { qa: msg.parsed_output, usage: usageOf(msg) };
 }
 
 /** About 150 words on what a proposal the firm submitted emphasized. */

@@ -1,5 +1,6 @@
+import { cleanFeeStyle, type FeeStyle } from "./fee-style";
 import { emptyWorldView, type Pursuit, type WorldView } from "../lib/worldview";
-import type { Comparison, ProjectCheck, Proposal, Rfp } from "../lib/claude";
+import type { Comparison, ProjectCheck, Proposal, QaResult, Rfp } from "../lib/claude";
 import type { Contact } from "./contacts";
 import type { Sourced } from "./table";
 import { authHeaders, authHeadersNow, refreshAuth } from "./auth";
@@ -86,6 +87,21 @@ export type SavedConsultant = {
   source: "manual" | "list";
 };
 
+/** A consultant's proposal on a project: what was read from its PDF, and when it came in. */
+export type ReceivedProposal = {
+  id: string;
+  /** the PDF's file name */
+  fileName: string;
+  receivedAt: number;
+  /** content hash of the PDF (the same file isn't read twice) */
+  hash?: string | null;
+  /** the PDF's copy at the AI provider, for the comparison's chat; deleted there after a day */
+  file_id?: string;
+  uploadedAt?: number;
+  pdf_tokens?: number;
+  proposal: Proposal;
+};
+
 /** A project ties an RFP review and its comparisons together (they store its id as projectId). */
 export type ConsultantStatus = "candidate" | "asked" | "teaming";
 export const CONSULTANT_STATUS: Record<ConsultantStatus, string> = { candidate: "Candidate", asked: "Asked", teaming: "Teaming" };
@@ -106,6 +122,12 @@ export type SavedProject = {
   consultants?: { name: string; disciplines: string[]; statuses?: Record<string, ConsultantStatus> }[];
   /** Disciplines the RFP review requests that this project doesn't need a consultant for. */
   disciplinesRemoved?: string[];
+  /** Disciplines the team added to this project's consultant list (beyond what the RFP review requests). */
+  disciplinesAdded?: string[];
+  /** Consultant proposals received for the project, each read on its own when it arrived (compared later, any mix). */
+  proposals?: ReceivedProposal[];
+  /** The last QA/QC check of the firm's own finished proposal. */
+  qaqc?: { fileName: string; checkedAt: number; summary: string; flags: QaResult["flags"]; costUsd: number | null };
   /** The last check of its proposals against the RFP. firms[i] names firm_index i; comparisonIds are what was checked. */
   check?: ProjectCheck & { firms: string[]; comparisonIds: string[]; checkedAt: number; costUsd: number | null };
 };
@@ -246,6 +268,28 @@ export const deleteSchedule = (id: string) => deleteRecord("schedules", id);
 export type FeeRole = { id: string; name: string; rate: number | null; short?: string };
 export type FeeTask = { id: string; name: string; /** hours by role id */ hours: Record<string, number> };
 export type FeePhase = { id: string; name: string; /** typical share of labor, in percent */ targetShare: number; tasks: FeeTask[] };
+/**
+ * A "below the line" item: a service the firm can offer at a stated price but that isn't in the fee (not asked for,
+ * or optional). Never counted in any total; listed under the proposal table.
+ */
+export type BelowLineItem = {
+  id: string;
+  label: string;
+  basis: BelowLineBasis;
+  amount: number | null;
+  note: string;
+  /** who provides it: "architecture", or the id of a consultant with a fee on this fee; unset until chosen */
+  by?: string;
+};
+export type BelowLineBasis = "lump" | "hourly" | "nte" | "allowance" | "request";
+export const BELOW_LINE_BASIS: Record<BelowLineBasis, string> = {
+  lump: "Lump sum",
+  hourly: "Hourly",
+  nte: "Not to exceed",
+  allowance: "Allowance",
+  request: "Upon request",
+};
+
 export type FeeConsultant = { id: string; discipline: string; firm: string; /** quoted fee by phase id */ byPhase: Record<string, number> };
 
 /** A fee being built for a project: labor by phase and role, consultants with a management markup, and a budget. */
@@ -254,6 +298,10 @@ export type SavedFee = {
   savedAt: number;
   title: string;
   workspaceProjectId?: string;
+  /** Draft until the team marks it final (editing a final fee makes it a draft again). */
+  status?: "draft" | "final";
+  /** when it was marked final */
+  finalAt?: number;
   /** the template it started from */
   template: string;
   /** construction budget: typed as an amount, or worked out as area × cost per square foot */
@@ -273,6 +321,8 @@ export type SavedFee = {
   markupPercent: number;
   /** reimbursable expenses */
   expenses: number | null;
+  /** services offered outside the fee (see BelowLineItem) */
+  belowLine?: BelowLineItem[];
   /** how long the project runs, in months, for the hours-over-time chart */
   durationMonths?: number | null;
   /** the world view an AI draft was made with, and when that world view was saved */
@@ -341,6 +391,13 @@ export async function getScheduleStyle(): Promise<ScheduleStyle> {
 }
 export const saveScheduleStyle = (style: ScheduleStyle) =>
   saveRecord("settings", { id: "schedule-style", savedAt: Date.now(), ...style } satisfies ScheduleStyleRecord);
+
+/** The proposal fee table's look (one settings record per organization); the standard look until it's changed. */
+type FeeStyleRecord = Partial<FeeStyle> & { id: "fee-style"; savedAt: number };
+export async function getFeeStyle(): Promise<FeeStyle> {
+  return cleanFeeStyle((await listRecords<FeeStyleRecord>("settings")).find((r) => r.id === "fee-style"));
+}
+export const saveFeeStyle = (style: FeeStyle) => saveRecord("settings", { id: "fee-style", savedAt: Date.now(), ...cleanFeeStyle(style) } satisfies FeeStyleRecord);
 
 // ---------- Open Calls sources ----------
 

@@ -152,7 +152,7 @@ export async function uploadRfpPdf(file: File, keep?: { reviewId: string; index:
  * Uploads one PDF. Kept files (an RFP review's) always go through storage and stay there for 30 days, so the review's
  * page references can open them; others go straight through when small, or through storage (then deleted) when large.
  */
-async function uploadPdfVia(file: File, keep?: { reviewId: string; index: number }): Promise<{ fileId: string; path?: string }> {
+export async function uploadPdfVia(file: File, keep?: { reviewId: string; index: number }): Promise<{ fileId: string; path?: string }> {
   if (!keep && file.size <= MAX_BYTES) return { fileId: (await postPdf<{ file_id: string }>("/api/upload", file)).file_id };
   const json = { "content-type": "application/json" };
   const { url, path } = await post<{ url: string; path: string }>("/api/upload", JSON.stringify(keep ?? {}), { ...json, "x-action": "sign" });
@@ -298,11 +298,13 @@ function showResults() {
   const { rfp } = current;
   const due = proposalDue(rfp);
 
+  const next = rfp.dates.find((d) => parseDay(d.date) && !isPast(d));
   const dates = rfp.dates
     .map((d) => {
-      return `<tr class="${d === due ? `due${isPast(d) ? " past" : ""}` : ""}">
-        <td class="when">${esc(formatWhen(d))}</td>
-        <td>${esc(d.label)}${d.mandatory ? ' <span class="must">Mandatory</span>' : ""}</td>
+      const cls = [d === due ? "due" : "", isPast(d) ? "past" : "", d === next ? "next" : ""].filter(Boolean).join(" ");
+      return `<tr class="${cls}">
+        <td class="when">${esc(formatWhen(d))}<span class="rel">${esc(relDay(d))}</span></td>
+        <td>${esc(d.label)}${d.mandatory ? ' <span class="must">Mandatory</span>' : ""}${d === next ? ' <span class="next-tag">Next</span>' : ""}</td>
       </tr>`;
     })
     .join("");
@@ -313,11 +315,8 @@ function showResults() {
     <div class="rfp-top">
       ${current.projectId ? `<a class="link" href="#project/${encodeURIComponent(current.projectId)}">← ${esc(current.project || "Project")}</a>` : `<a class="link" href="#project">← Projects</a>`}
       <span class="project-name">${
-        current.projectId
-          ? `Project: <a class="link" href="#project/${encodeURIComponent(current.projectId)}"><b>${esc(current.project ?? "")}</b></a>`
-          : current.project
-            ? `Project: <b>${esc(current.project)}</b>`
-            : ""
+        // A linked review's project is the back link; an older one named a project without linking it.
+        !current.projectId && current.project ? `Project: <b>${esc(current.project)}</b>` : ""
       }</span>
       <span class="tools">${current.projectId ? "" : '<button class="btn" data-start-project>Start project</button>'}${
         // The original RFP (the first file), while it's kept; opens the whole PDF in a new tab.
@@ -333,8 +332,11 @@ function showResults() {
              ${field("Summary", `<textarea name="summary" rows="5">${esc(rfp.summary)}</textarea>`)}`,
           )
         : `${fitPill()}<h1 class="headline">${esc(rfp.project_name)} ${editLink("header")}</h1>
-    <p class="rfp-sub">${esc(rfp.client)}${due ? ` · <mark${isPast(due) ? ' class="past" title="This date has passed"' : ""}>Due ${esc(formatWhen(due))}</mark>` : ""}</p>
-    <p class="overview">${esc(rfp.summary)}</p>`
+    <p class="rfp-sub">${esc(rfp.client)}${
+      due ? ` · <span class="due-line${isPast(due) ? " past" : ""}">Proposals due ${esc(formatWhen(due))} <b>${esc(relDay(due))}</b></span>` : ""
+    }</p>
+    <p class="overview">${esc(rfp.summary)}</p>
+    ${glanceTiles(rfp, due, next)}`
     }
     ${
       editing === "notes"
@@ -376,7 +378,7 @@ function showResults() {
           `Questions to ask <button class="link" data-copy>Copy</button> ${editLink("questions")}`,
           (rfp.questions.length
             ? `<ol class="qs">${rfp.questions
-                .map((q, i) => `<li><button class="q-remove" data-remove-q="${i}" title="Remove this question" aria-label="Remove this question">×</button><span>${i + 1}. ${esc(q)}</span></li>`)
+                .map((q, i) => `<li><span class="q-num">${i + 1}.</span><span class="q-text">${esc(q)}</span><button class="link q-remove" data-remove-q="${i}" aria-label="Remove question ${i + 1}">Remove</button></li>`)
                 .join("")}</ol>`
             : `<p class="none">None.</p>`) +
             `<form class="q-add" data-add-q><input type="text" aria-label="New question" placeholder="Add a question" autocomplete="off" /><button class="btn" type="submit">Add</button></form>`,
@@ -397,6 +399,14 @@ function showResults() {
             : section(`Key facts ${canEditFacts ? editLink("facts") : ""}`, `<table class="grid facts">${factsRows(rfp.facts)}</table>`, 1)
         }
         ${
+          editing === "scoring"
+            ? editSection("Scoring", "scoring", rowsHtml("scoring", rfp.scoring))
+            : section(`Scoring ${editLink("scoring")}`, scoringHtml(rfp.scoring), rfp.scoring.length)
+        }
+      </div>
+    </div>
+    <div class="rfp-wide">
+        ${
           editing === "services"
             ? editSection(
                 "Disciplines requested",
@@ -413,16 +423,6 @@ function showResults() {
               )
             : servicesBlock(rfp)
         }
-        ${
-          editing === "scoring"
-            ? editSection("Scoring", "scoring", rowsHtml("scoring", rfp.scoring))
-            : section(
-                `Scoring ${editLink("scoring")}`,
-                `<table class="grid facts">${rfp.scoring.map((s) => `<tr><th scope="row">${esc(s.criterion)}</th><td class="num">${esc(s.weight)}</td></tr>`).join("")}</table>`,
-                rfp.scoring.length,
-              )
-        }
-      </div>
     </div>
     ${outlineBlock()}
     <p class="estimate">${filesLine()}</p>
@@ -446,11 +446,10 @@ export type ServiceRow = { discipline: Discipline; requested: "yes" | "needed" |
  * the rest unknown). Anything that isn't a governing discipline is left out.
  */
 /** Disciplines a project needs: those its RFP review requests, minus any removed on the project page. */
-export function projectDisciplines(rfp: Rfp | undefined, removed: string[] = []): Discipline[] {
-  if (!rfp) return [];
-  return servicesMatrix(rfp)
-    .filter((x) => (x.requested === "yes" || x.requested === "needed") && !removed.includes(x.discipline))
-    .map((x) => x.discipline);
+export function projectDisciplines(rfp: Rfp | undefined, removed: string[] = [], added: string[] = []): Discipline[] {
+  const requested = rfp ? servicesMatrix(rfp).filter((x) => x.requested === "yes" || x.requested === "needed").map((x) => x.discipline) : [];
+  const wanted = new Set<string>([...requested, ...added]);
+  return DISCIPLINES.filter((d) => wanted.has(d) && !removed.includes(d));
 }
 
 export function servicesMatrix(rfp: Rfp): ServiceRow[] {
@@ -474,13 +473,62 @@ const REQUESTED = { yes: "Requested", needed: "Not requested, but needed", no: "
 
 /** Disciplines requested: every governing discipline, marked requested or not. */
 function servicesBlock(rfp: Rfp): string {
-  const rows = servicesMatrix(rfp)
+  const all = servicesMatrix(rfp);
+  const order: ServiceRow["requested"][] = ["yes", "needed", "unclear", "unknown"];
+  const shown = all.filter((r) => r.requested !== "no").sort((a, b) => order.indexOf(a.requested) - order.indexOf(b.requested));
+  const rows = shown
     .map(
       (r) =>
-        `<tr class="req-${r.requested}"><th scope="row">${esc(r.discipline)}</th><td class="req">${REQUESTED[r.requested]}</td><td>${esc(r.detail)}${pg(r.page)}</td></tr>`,
+        `<tr class="req-${r.requested}"><th scope="row">${esc(r.discipline)}</th><td class="req"><span class="req-tag">${REQUESTED[r.requested]}</span></td><td>${esc(r.detail)}${pg(r.page)}</td></tr>`,
     )
     .join("");
-  return section(`Disciplines requested ${editLink("services")}`, `<table class="grid services">${rows}</table>`, 1);
+  const not = all.filter((r) => r.requested === "no").map((r) => r.discipline);
+  const notLine = not.length ? `<p class="req-not"><b>Not requested:</b> ${not.map(esc).join(", ")}</p>` : "";
+  return section(`Disciplines requested ${editLink("services")}`, `${rows ? `<table class="grid services">${rows}</table>` : ""}${notLine}`, 1);
+}
+
+/** Scoring criteria with a bar for each weight, so the ones that matter most stand out. */
+function scoringHtml(scoring: Rfp["scoring"]): string {
+  const pct = (w: string) => {
+    const m = String(w).match(/(\d+(?:\.\d+)?)\s*%/);
+    return m ? Math.min(100, Number(m[1])) : null;
+  };
+  const max = Math.max(0, ...scoring.map((s) => pct(s.weight) ?? 0));
+  return `<ul class="scoring">${scoring
+    .map((s) => {
+      const p = pct(s.weight);
+      return `<li><span class="sc-name">${esc(s.criterion)}</span><span class="sc-weight">${esc(s.weight)}</span>${
+        p != null && max ? `<span class="sc-bar" aria-hidden="true"><span style="width:${(p / max) * 100}%"></span></span>` : ""
+      }</li>`;
+    })
+    .join("")}</ul>`;
+}
+
+/** "today", "in 6 days", "tomorrow", "3 days ago"; "" when the date can't be read (e.g. "Summer, two years out"). */
+function relDay(d: { date: string }): string {
+  const day = parseDay(d.date);
+  if (!day) return "";
+  const n = Math.round((day.getTime() - new Date().setHours(0, 0, 0, 0)) / 864e5);
+  if (n === 0) return "today";
+  if (n === 1) return "tomorrow";
+  if (n === -1) return "yesterday";
+  if (n > 0) return n < 60 ? `in ${n} days` : `in ${Math.round(n / 30)} months`;
+  return n > -60 ? `${-n} days ago` : "passed";
+}
+
+/** The essentials in four tiles: when proposals are due, the next mandatory date, the budget and the page limit. */
+function glanceTiles(rfp: Rfp, due: Rfp["dates"][number] | undefined, next: Rfp["dates"][number] | undefined): string {
+  const fact = (k: RfpFactKey) => (Array.isArray(rfp.facts) ? undefined : rfp.facts[k]?.value);
+  const mandatory = rfp.dates.find((d) => d.mandatory && d !== due && parseDay(d.date) && !isPast(d));
+  const tile = (label: string, value: string | undefined, sub = "", cls = "") =>
+    value ? `<div class="glance-tile ${cls}"><span class="gt-label">${esc(label)}</span><span class="gt-value">${esc(value)}</span>${sub ? `<span class="gt-sub">${esc(sub)}</span>` : ""}</div>` : "";
+  const tiles = [
+    due ? tile("Proposals due", formatWhen(due), relDay(due), isPast(due) ? "past" : "due") : "",
+    mandatory ? tile("Next mandatory", mandatory.label, `${formatWhen(mandatory)} · ${relDay(mandatory)}`) : next && next !== due ? tile("Next date", next.label, `${formatWhen(next)} · ${relDay(next)}`) : "",
+    tile("Construction budget", fact("construction_budget")),
+    tile("Page limit", fact("page_limit")),
+  ].filter(Boolean);
+  return tiles.length ? `<div class="rfp-glance">${tiles.join("")}</div>` : "";
 }
 
 /** Key facts in a fixed order. Reviews saved before the fixed list keep their own label/value pairs. */

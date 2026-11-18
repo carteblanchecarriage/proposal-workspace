@@ -1,4 +1,4 @@
-import type { FeeConsultant, FeePhase, FeeRole, FeeTask, SavedFee } from "./store";
+import { type BelowLineBasis, type FeeConsultant, type FeePhase, type FeeRole, type FeeTask, type SavedFee } from "./store";
 
 // Fee arithmetic, kept apart from the page so it's easy to check. All amounts are dollars; percents are 0–100.
 
@@ -113,6 +113,14 @@ export type ProposalTable = {
   rows: { label: string; amounts: number[]; total: number }[];
   totals: number[];
   total: number;
+  /**
+   * Additional scope items, offered outside the fee: rows under the table's total. The amount is in the Total Fee
+   * column, and also in the provider's column once one is chosen (column: index into columns; null when not
+   * assigned). Their own totals add lump sums, allowances and not-to-exceed amounts; never the fee's total.
+   */
+  belowLine?: { label: string; basis: BelowLineBasis; amount: number | null; note: string; column: number | null }[];
+  belowLineTotals?: number[];
+  belowLineTotal?: number;
 };
 
 export function proposalTable(f: SavedFee): ProposalTable {
@@ -136,7 +144,27 @@ export function proposalTable(f: SavedFee): ProposalTable {
     rows,
     totals,
     total: totals.reduce((s, x) => s + x, 0),
+    ...belowLineOf(f, consultants),
   };
+}
+
+/** Amounts that add up in the below-the-line total (not hourly rates, and not "upon request"). */
+export const summable = (b: { basis: BelowLineBasis; amount: number | null }) => b.amount != null && b.basis !== "hourly" && b.basis !== "request";
+
+function belowLineOf(f: SavedFee, consultants: SavedFee["consultants"]) {
+  const columnOf = (by?: string) => {
+    if (by === "architecture") return 0;
+    const i = by ? consultants.findIndex((c) => c.id === by) : -1;
+    return i >= 0 ? i + 1 : null; // not assigned, or that consultant no longer has a fee
+  };
+  const items = (f.belowLine ?? [])
+    .filter((b) => b.label.trim())
+    .map((b) => ({ label: b.label.trim(), basis: b.basis, amount: b.amount, note: b.note.trim(), column: columnOf(b.by) }));
+  if (!items.length) return {};
+  const belowLineTotals = [0, ...consultants.map(() => 0)].map((_, col) =>
+    items.filter((b) => b.column === col && summable(b)).reduce((s, b) => s + (b.amount ?? 0), 0),
+  );
+  return { belowLine: items, belowLineTotals, belowLineTotal: items.filter(summable).reduce((s, b) => s + (b.amount ?? 0), 0) };
 }
 
 /** A single dollar amount ("$4.5 million", "$4,500,000", "4.5M"); ranges and anything unclear give null. */

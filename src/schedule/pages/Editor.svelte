@@ -376,7 +376,7 @@
 
   // Phones get readable month columns (scroll sideways) instead of squeezing everything to fit
   let zoom            = $state(window.innerWidth < MOBILE_W ? 'month' : 'fit');
-  // Starts as the organization's default (Colors and style, on the Schedule page).
+  // Starts as the organization's default (Style and formatting, on the Organization page).
   let showTodayLine   = $state($options.showToday);
   let printPanelOpen  = $state(false);
   let hideLegendPrint = $state(false);
