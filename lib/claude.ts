@@ -452,12 +452,17 @@ export const AddendumSchema = z.object({
 export type AddendumResult = z.infer<typeof AddendumSchema>;
 
 /** Updates a review for a new addendum: the revised review, and what changed (with the addendum's pages). */
+const DOC_KIND = { addendum: "an addendum", answers: "answers to bidders' questions", meeting: "pre-proposal meeting minutes or notes", other: "another document about the RFP" } as const;
+
+/** Updates a review for a document added after the RFP: an addendum, answers to questions, meeting minutes, other. */
 export async function applyAddendum(
   files: { file_id: string; filename: string }[],
   rfp: unknown,
   number: number,
   context = "",
+  doc: { kind: keyof typeof DOC_KIND; title: string } = { kind: "addendum", title: "" },
 ): Promise<AddendumResult & { usage: Usage }> {
+  const name = doc.title || (doc.kind === "addendum" ? `Addendum ${number}` : `Document ${number}`);
   const stream = getClient().beta.messages.stream({
     ...BASE,
     system: withContext(`${RFP_SYSTEM}\n\n${ADDENDUM_SYSTEM}`, context),
@@ -466,15 +471,18 @@ export async function applyAddendum(
       {
         role: "user",
         content: [
-          ...files.map((f) => ({ type: "document" as const, title: `Addendum ${number}: ${f.filename}`, source: { type: "file" as const, file_id: f.file_id } })),
-          { type: "text", text: `Current review (JSON):\n${JSON.stringify(toWire(rfp))}\n\nUpdate it for Addendum ${number}.` },
+          ...files.map((f) => ({ type: "document" as const, title: `${name}: ${f.filename}`, source: { type: "file" as const, file_id: f.file_id } })),
+          {
+            type: "text",
+            text: `Current review (JSON):\n${JSON.stringify(toWire(rfp))}\n\nThe new document is ${DOC_KIND[doc.kind]}, titled by the team "${name}". Update the review for it.`,
+          },
         ],
       },
     ],
   });
   const msg = await stream.finalMessage();
   checkStop(msg);
-  if (!msg.parsed_output) throw new UserFacingError("Couldn't read the AI's addendum update. Try again.", 502);
+  if (!msg.parsed_output) throw new UserFacingError("Couldn't read the AI's update for this document. Try again.", 502);
   return { rfp: fromWire(msg.parsed_output.rfp), changes: msg.parsed_output.changes, usage: usageOf(msg) };
 }
 

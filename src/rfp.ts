@@ -4,9 +4,9 @@ import { reviewContext } from "./worldview";
 import { DISCIPLINES, toDisciplines, type Discipline } from "../lib/disciplines";
 import { type Usage } from "../lib/cost";
 import { post, postPdf } from "./api";
-import { deleteRfp, listProjects, listRfps, projectLabel, saveProject, saveRfp, savesShared, type SavedProject, type SavedRfp } from "./store";
+import { deleteRfp, listProjects, listRfps, projectLabel, saveProject, saveRfp, savesShared, type SavedProject, type SavedRfp, RFP_DOC_KINDS, type RfpDocKind } from "./store";
 import { clearPendingProject, pendingProject } from "./pending";
-import { askProjectName, confirmDelete, confirmModal, noticeModal } from "./modal";
+import { askProjectName, confirmDelete, confirmModal, formModal, noticeModal } from "./modal";
 import { copyShareLink } from "./share";
 import { esc } from "./table";
 
@@ -961,22 +961,31 @@ async function openOriginal(index: number, page?: number) {
 
 const dateText = (ms: number) => new Date(ms).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 
-/** What each addendum changed, newest first; a change's page opens that addendum while it's kept. */
+/** What each added document updated, newest first; an update's page opens that document while it's kept. */
+type AddedDoc = NonNullable<SavedRfp["addenda"]>[number];
+/** An added document's title: the team's, or "Addendum 2" for older ones. */
+export const docTitle = (a: AddedDoc) => a.title?.trim() || `${RFP_DOC_KINDS[a.kind ?? "addendum"]}${(a.kind ?? "addendum") === "addendum" ? ` ${a.number}` : ""}`;
+/** Its kind, when the title doesn't already say it. */
+export const docKindLabel = (a: AddedDoc) => {
+  const label = RFP_DOC_KINDS[a.kind ?? "addendum"];
+  return docTitle(a).toLowerCase().includes(label.toLowerCase()) ? "" : label;
+};
+
 function addendaBlock(): string {
   const addenda = current?.addenda ?? [];
   if (!addenda.length) return "";
-  return `<div class="block rfp-addenda"><h2 class="label">Addenda</h2>${[...addenda]
+  return `<div class="block rfp-addenda" id="rfp-addenda"><h2 class="label">Added documents</h2>${[...addenda]
     .sort((a, b) => b.number - a.number)
     .map((a) => {
       const kept = a.storedIndex != null && isKept(current!.stored?.[a.storedIndex]);
       const page = (n: number) =>
         n > 0
           ? kept
-            ? ` <button class="pg pg-link" data-open-file-page="${a.storedIndex}:${n}" title="Open Addendum ${a.number} at page ${n}">page ${n}</button>`
+            ? ` <button class="pg pg-link" data-open-file-page="${a.storedIndex}:${n}" title="Open ${esc(docTitle(a))} at page ${n}">page ${n}</button>`
             : ` <span class="pg">page ${n}</span>`
           : "";
       return `<div class="addendum">
-        <h3>Addendum ${a.number} <span class="note">${esc(a.files.join(", "))} · ${esc(dateText(a.at))}</span></h3>
+        <h3>${esc(docTitle(a))} <span class="note">${esc([docKindLabel(a), a.files.join(", "), dateText(a.at)].filter(Boolean).join(" · "))}</span></h3>
         <ul>${a.changes.map((c) => `<li><b>${esc(c.section)}:</b> ${esc(c.change)}${page(c.page)}</li>`).join("")}</ul>
       </div>`;
     })
@@ -989,12 +998,20 @@ function addendaBlock(): string {
  */
 export async function addAddendum(review: SavedRfp, files: File[]): Promise<SavedRfp | null> {
   const number = (review.addenda?.length ?? 0) + 1;
-  const ok = await confirmModal({
-    title: `Add Addendum ${number}?`,
-    body: `AI reads ${files.map((f) => f.name).join(", ")} and updates the RFP review with what it changes, keeping the team's edits and notes.`,
-    confirm: "Add",
+  // Say what it is and name it, rather than guess from the file name.
+  const kinds = Object.entries(RFP_DOC_KINDS) as [RfpDocKind, string][];
+  const values = await formModal({
+    title: `Add to the RFP review`,
+    fields: [
+      { label: "What is it?", value: RFP_DOC_KINDS.addendum, options: kinds.map(([, label]) => label), single: true },
+      { label: "Title", value: "", placeholder: "e.g. Addendum 2, or Answers to RFI questions", required: true },
+    ],
+    confirm: "Add and update the review",
+    validate: (v) => !!v[0] && !!v[1].trim(),
   });
-  if (!ok) return null;
+  if (!values) return null;
+  const kind = kinds.find(([, label]) => label === values[0])?.[0] ?? "addendum";
+  const title = values[1].trim();
   const start = review.stored?.length ?? 0;
   const uploads = await Promise.all(files.map((f, i) => uploadKept(f, review.id, start + i)));
   const context = await reviewContext();
@@ -1004,6 +1021,8 @@ export async function addAddendum(review: SavedRfp, files: File[]): Promise<Save
       files: uploads.map((u, i) => ({ file_id: u.fileId, filename: files[i].name })),
       rfp: review.rfp,
       number,
+      kind,
+      title,
       worldView: context.worldView,
       pursuits: context.pursuits,
       sections: context.sections,
@@ -1025,7 +1044,7 @@ export async function addAddendum(review: SavedRfp, files: File[]): Promise<Save
     stored: kept.length ? [...(review.stored ?? []), ...kept] : review.stored,
     addenda: [
       ...(review.addenda ?? []),
-      { number, files: files.map((f) => f.name), at: now, changes: res.changes, costUsd: res.usage.cost_usd ?? null, storedIndex: kept.length ? start : undefined },
+      { number, kind, title, files: files.map((f) => f.name), at: now, changes: res.changes, costUsd: res.usage.cost_usd ?? null, storedIndex: kept.length ? start : undefined },
     ],
   };
   await saveRfp(updated);

@@ -20,6 +20,11 @@ export type SavedComparison = {
   /** Total API spend on this comparison (reading, comparing, chat); costPartial if any step's cost was unknown. */
   costUsd?: number;
   costPartial?: boolean;
+  /**
+   * A section of the project's Consultants page: the discipline row it compares, and which proposals it compared
+   * (each one's file hash or name, sorted), so the page can tell when it's out of date.
+   */
+  group?: { key: string; label: string; signature: string[] };
 };
 
 /** A PDF's reading, saved by a hash of the file's contents so the same PDF is never paid for twice. */
@@ -30,6 +35,14 @@ export type SavedReading = {
   /** when file_id was uploaded; Anthropic copies are deleted after a day */
   uploadedAt: number;
   pdf_tokens?: number;
+};
+
+export type RfpDocKind = "addendum" | "answers" | "meeting" | "other";
+export const RFP_DOC_KINDS: Record<RfpDocKind, string> = {
+  addendum: "Addendum",
+  answers: "Answers to questions",
+  meeting: "Pre-proposal meeting minutes",
+  other: "Other document",
 };
 
 export type SavedRfp = {
@@ -44,8 +57,13 @@ export type SavedRfp = {
   stored?: { name: string; path: string; /** when this file was kept (addenda come later); else storedAt */ at?: number }[];
   storedAt?: number;
   /** addenda read into the review after it was made, with what each changed (pages are the addendum's) */
+  /** Documents added after the RFP (addenda, answers to questions, meeting minutes...), each read into the review. */
   addenda?: {
     number: number;
+    /** what it is (older entries are addenda) */
+    kind?: RfpDocKind;
+    /** the team's title for it, e.g. "Addendum 2" or "Answers to RFI questions" */
+    title?: string;
     files: string[];
     at: number;
     changes: { section: string; change: string; page: number }[];
@@ -90,6 +108,8 @@ export type SavedConsultant = {
 /** A consultant's proposal on a project: what was read from its PDF, and when it came in. */
 export type ReceivedProposal = {
   id: string;
+  /** the project firm (consultant matrix column) it's from: set when it's added, or when the project opens */
+  firmId?: string;
   /** the PDF's file name */
   fileName: string;
   receivedAt: number;
@@ -106,6 +126,21 @@ export type ReceivedProposal = {
 export type ConsultantStatus = "candidate" | "asked" | "teaming";
 export const CONSULTANT_STATUS: Record<ConsultantStatus, string> = { candidate: "Candidate", asked: "Asked", teaming: "Teaming" };
 
+/** A firm column in the project's consultant matrix. */
+export type ProjectFirm = {
+  /** stable id for the column (older entries get one when the project opens) */
+  id?: string;
+  name: string;
+  /** the firm's record in the Consultants directory, when there is one */
+  consultantId?: string;
+  /** what it covers on this project: governing disciplines, or "row:<id>" for the team's own rows */
+  disciplines: string[];
+  /** using them on this proposal, or getting a fee from them (the default) */
+  decision?: "using" | "fee";
+  /** older entries: where the firm stood per discipline */
+  statuses?: Record<string, ConsultantStatus>;
+};
+
 export type SavedProject = {
   id: string;
   savedAt: number;
@@ -119,7 +154,9 @@ export type SavedProject = {
    * candidate we're considering, asked (we've reached out), or teaming (willing to propose with us). A discipline with
    * no status counts as asked (entries saved before statuses existed).
    */
-  consultants?: { name: string; disciplines: string[]; statuses?: Record<string, ConsultantStatus> }[];
+  consultants?: ProjectFirm[];
+  /** The team's own rows in the consultant matrix (e.g. "Energy and LCA"); cells use "row:<id>" as the discipline. */
+  customRows?: { id: string; label: string }[];
   /** Disciplines the RFP review requests that this project doesn't need a consultant for. */
   disciplinesRemoved?: string[];
   /** Disciplines the team added to this project's consultant list (beyond what the RFP review requests). */

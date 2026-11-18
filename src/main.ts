@@ -304,8 +304,9 @@ runBtn.addEventListener("click", async () => {
 function setBackLink() {
   const back = $<HTMLAnchorElement>("cmp-back");
   const c = current;
-  back.href = c?.projectId ? `#project/${encodeURIComponent(c.projectId)}` : "#project";
-  back.textContent = `← ${c?.projectId && c.projectName ? c.projectName : "Projects"}`;
+  // A section of a project's Consultants page goes back there; other comparisons go back to the project.
+  back.href = c?.projectId ? `#project/${encodeURIComponent(c.projectId)}${c.group ? "/consultants" : ""}` : "#project";
+  back.textContent = `← ${c?.group ? `Consultants: ${c.group.label}` : c?.projectId && c.projectName ? c.projectName : "Projects"}`;
 }
 
 const scopeEl = $<HTMLTableElement>("scope");
@@ -921,6 +922,8 @@ function showTab() {
   schedule?.hideSchedule();
   const { tab: t, id } = parseHash();
   // Opening the site (no page in the address, or the name in the header) shows the projects list.
+  // Open Calls is hidden for now: its address goes to Projects.
+  if (t === "calls") return void location.replace("#project");
   const tab = TABS.includes(t) ? t : "project";
   // RFP reviews, proposal comparisons and fees live inside projects: their start pages only open from a project (which
   // says what they'll belong to), so anything made there is linked to it. Without one, go to Projects.

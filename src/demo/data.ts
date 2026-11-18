@@ -525,7 +525,30 @@ const scheduleStyle = {
 // ---------- Everything, by table ----------
 
 export function demoSeed() {
-  const savedRfp: SavedRfp = { id: RFP_ID, savedAt: now - 4 * DAY, files: ["Maple Hollow Library RFP.pdf"], rfp, project: PROJECT_NAME, projectId: PROJECT_ID, costUsd: null };
+  const savedRfp: SavedRfp = {
+    id: RFP_ID,
+    savedAt: now - 4 * DAY,
+    files: ["Maple Hollow Library RFP.pdf", "Walkthrough sign-in and minutes.pdf"],
+    rfp,
+    project: PROJECT_NAME,
+    projectId: PROJECT_ID,
+    costUsd: null,
+    // A document added after the RFP, as the project page lists it.
+    addenda: [
+      {
+        number: 1,
+        kind: "meeting",
+        title: "Walkthrough minutes",
+        files: ["Walkthrough sign-in and minutes.pdf"],
+        at: now - DAY,
+        changes: [
+          { section: "Critical components", change: "Clarified: the children's wing must stay open until the addition is finished, so it's the last phase.", page: 2 },
+          { section: "Key facts", change: "Clarified: the Township will provide the 1968 drawings to shortlisted firms only.", page: 3 },
+        ],
+        costUsd: null,
+      },
+    ],
+  };
   const comparison: SavedComparison = {
     id: CMP_ID,
     savedAt: now - DAY,
@@ -533,6 +556,8 @@ export function demoSeed() {
     projectId: PROJECT_ID,
     proposals,
     cmp,
+    // The MEP/FP section of the project's Consultants page (the proposals it compared, by file name).
+    group: { key: "MEP/FP", label: "MEP/FP", signature: proposals.map((x) => x.source_file ?? "").sort() },
     messages: [
       { role: "user", text: "Which firm is the best value once fire protection is included?" },
       {

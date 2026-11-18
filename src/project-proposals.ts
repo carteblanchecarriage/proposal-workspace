@@ -14,6 +14,7 @@ import {
   projectLabel,
   saveComparison,
   saveReading,
+  type ProjectFirm,
   type ReceivedProposal,
   type SavedComparison,
   type SavedProject,
@@ -29,6 +30,10 @@ export type ProposalsContext = {
   save: () => Promise<void>;
   /** redraws the project page */
   rerender: () => void;
+  /** links a proposal to its project firm (making the firm when it's new); returns the firm */
+  linkFirm: (r: ReceivedProposal) => ProjectFirm | undefined;
+  /** a project firm by id */
+  firmOf: (r: ReceivedProposal) => ProjectFirm | undefined;
 };
 
 // Vercel's request limit for a PDF sent straight to the reader (local development has none).
@@ -56,9 +61,6 @@ function disciplinesBrief(raw: string[]): string {
   return ds.join(", ");
 }
 
-/** The Compare button and hint, for the number of proposals ticked. */
-const compareLabel = (n: number) => (n === 1 ? "Analyze 1" : n ? `Compare ${n}` : "Compare");
-const pickHint = (n: number) => (n ? "" : "Tick two or more proposals to compare them.");
 const money = (n: number) => `$${Math.round(n).toLocaleString("en-US")}`;
 
 /**
@@ -80,27 +82,49 @@ export function adoptFromComparisons(p: SavedProject, comparisons: SavedComparis
   return changed;
 }
 
-// ---------- Proposals card ----------
+// ---------- Consultants and their proposals ----------
+// The project's firms (the same ones as the consultant matrix): add the ones you're waiting on, then upload each
+// proposal on its firm's row, so nothing is matched by name. Tick firms with proposals to compare them.
 
-export function proposalsHtml(p: SavedProject, comparisons: SavedComparison[]): string {
+/** Firms whose proposal is being read right now. */
+const readingFirms = new Set<string>();
+
+/** A firm's proposals on this project, oldest first, and the latest. */
+function proposalsOf(p: SavedProject, firmId: string) {
+  const list = (p.proposals ?? []).filter((r) => r.firmId === firmId).sort((a, b) => a.receivedAt - b.receivedAt);
+  return { list, latest: list.at(-1) };
+}
+
+export function proposalsHtml(p: SavedProject, comparisons: SavedComparison[], ctx: ProposalsContext): string {
   if (selectedFor !== p.id) (selected = new Set()), (selectedFor = p.id), (readingStatus = "");
-  const list = [...(p.proposals ?? [])].sort((a, b) => b.receivedAt - a.receivedAt);
-  for (const id of selected) if (!list.some((x) => x.id === id)) selected.delete(id);
-  const rows = list
-    .map((r) => {
-      const total = statedTotal(r.proposal);
-      return `<li class="received">
-        <label class="received-pick"><input type="checkbox" data-pick-proposal="${esc(r.id)}" ${selected.has(r.id) ? "checked" : ""} aria-label="Select ${esc(firmName(r.proposal.firm))}" /></label>
-        <span class="received-main"><b>${esc(firmName(r.proposal.firm))}</b><span class="received-meta">${esc(
-          [disciplinesBrief(r.proposal.disciplines), `Received ${shortDay(r.receivedAt)}`].filter(Boolean).join(" · "),
-        )}</span></span>
+  const firms = p.consultants ?? [];
+  for (const id of selected) if (!proposalsOf(p, id).latest) selected.delete(id);
+  const rows = firms
+    .map((c) => {
+      const { list, latest } = proposalsOf(p, c.id!);
+      const total = latest ? statedTotal(latest.proposal) : null;
+      const reading = readingFirms.has(c.id!);
+      const state = reading
+        ? "Reading the proposal…"
+        : latest
+          ? `Received ${shortDay(latest.receivedAt)}${list.length > 1 ? ` · ${list.length} versions` : ""}`
+          : "Waiting for proposal";
+      const disciplines = disciplinesBrief(c.disciplines.length ? c.disciplines : (latest?.proposal.disciplines ?? []));
+      return `<li class="received${latest ? "" : " waiting"}">
+        <span class="received-main"><b>${esc(c.name)}</b><span class="received-meta">${esc([disciplines, state].filter(Boolean).join(" · "))}</span></span>
         <span class="received-total">${total != null ? `${money(total)}${AI_MARK}` : ""}</span>
-        <button class="link" data-remove-proposal="${esc(r.id)}">Remove</button>
+        <span class="received-actions">
+          <label class="link${reading ? " disabled" : ""}">${latest ? "Upload new version" : "Upload proposal"}<input type="file" accept="application/pdf,.pdf" hidden data-upload-for="${esc(c.id!)}" ${reading ? "disabled" : ""} /></label>
+          <button class="link" data-remove-firm="${esc(c.id!)}">Remove</button>
+        </span>
       </li>`;
     })
     .join("");
   const n = selected.size;
+  const withProposals = firms.filter((c) => proposalsOf(p, c.id!).latest).length;
+  // Sections of the Consultants page aren't listed here; earlier comparisons are.
   const cmpList = comparisons
+    .filter((c) => !c.group)
     .map(
       (c) => `<li>
         <a class="link open" href="#proposals/${encodeURIComponent(c.id)}"><b>${esc(c.proposals.map((x) => firmName(x.firm)).join(", "))}</b></a>
@@ -110,17 +134,21 @@ export function proposalsHtml(p: SavedProject, comparisons: SavedComparison[]): 
     )
     .join("");
   return `
-    ${rows ? `<ol class="received-list">${rows}</ol>` : `<p class="none">None yet. Add each consultant's proposal as it comes in.</p>`}
+    ${rows ? `<ol class="received-list">${rows}</ol>` : `<p class="none">None yet. Add the consultants you're waiting on, then upload each proposal when it comes in.</p>`}
     <div class="actions">
-      <label class="btn">Add proposals<input type="file" accept="application/pdf,.pdf" multiple hidden data-add-proposals /></label>
-      ${rows ? `<button class="btn primary" data-compare-selected ${n < 1 || readingStatus ? "disabled" : ""}>${compareLabel(n)}</button>` : ""}
+      <button class="btn" data-add-firm>+ Add consultant</button>
+      ${withProposals ? `<a class="btn" href="#project/${encodeURIComponent(p.id)}/consultants">Compare all</a>` : ""}
+      <label class="link received-new">Or upload from a new firm<input type="file" accept="application/pdf,.pdf" multiple hidden data-add-proposals /></label>
     </div>
-    <p class="status" id="received-status">${esc(readingStatus || (rows ? pickHint(n) : ""))}</p>
-    ${cmpList ? `<h3 class="proj-subhead">Comparisons</h3><ol>${cmpList}</ol>` : ""}`;
+    <p class="status" id="received-status">${esc(readingStatus)}</p>
+    ${cmpList ? `<h3 class="proj-subhead">Earlier comparisons</h3><ol>${cmpList}</ol>` : ""}`;
 }
 
-/** Reads newly added PDFs one at a time as they're added (two at once), each saved to the project when it's read. */
-async function addProposals(files: File[], ctx: ProposalsContext) {
+/**
+ * Reads newly added PDFs, two at once, each saved to the project when it's read. With a firm (uploaded on its row),
+ * each belongs to that firm; otherwise each is matched to a firm by name, or makes a new one.
+ */
+async function addProposals(files: File[], ctx: ProposalsContext, firmId?: string) {
   if (!files.length || blockedInDemo()) return;
   const problems: string[] = [];
   const ok = files.filter((f) => {
@@ -128,6 +156,7 @@ async function addProposals(files: File[], ctx: ProposalsContext) {
     if (f.size > MAX_BYTES) return void problems.push(`${f.name}: over 4.4 MB. Compress the PDF and add it again.`);
     return true;
   });
+  if (firmId) readingFirms.add(firmId);
   const started = Date.now();
   let left = ok.length;
   const show = () => {
@@ -146,6 +175,12 @@ async function addProposals(files: File[], ctx: ProposalsContext) {
           const entry = await readOne(file, ctx.project);
           if (entry) {
             (ctx.project.proposals ??= []).push(entry);
+            const firm = firmId ? ctx.project.consultants?.find((c) => c.id === firmId) : undefined;
+            if (firm) {
+              entry.firmId = firm.id;
+              // A firm added before its proposal came in takes the proposal's disciplines.
+              if (!firm.disciplines.length) firm.disciplines = toDisciplines(entry.proposal.disciplines ?? []);
+            } else ctx.linkFirm(entry); // matched by name, or a new firm ("Getting a fee")
             await ctx.save();
           } else problems.push(`${file.name}: already on this project.`);
         } catch (err) {
@@ -159,6 +194,7 @@ async function addProposals(files: File[], ctx: ProposalsContext) {
   );
   clearInterval(tick);
   readingStatus = "";
+  if (firmId) readingFirms.delete(firmId);
   ctx.rerender();
   if (problems.length) await noticeModal("Some proposals weren't added", problems.join("\n"));
 }
@@ -177,64 +213,6 @@ async function readOne(file: File, project: SavedProject): Promise<ReceivedPropo
   const uploadedAt = Date.now();
   if (hash) await saveReading({ hash, proposal: res.proposal, file_id: res.file_id, uploadedAt, pdf_tokens: res.usage.input_tokens });
   return { ...base, proposal: res.proposal, file_id: res.file_id, uploadedAt, pdf_tokens: res.usage.input_tokens };
-}
-
-/** Compares the ticked proposals (or analyzes one), saves the comparison to the project and opens it. */
-async function compareSelected(ctx: ProposalsContext) {
-  const picked = (ctx.project.proposals ?? []).filter((x) => selected.has(x.id));
-  if (!picked.length || blockedInDemo()) return;
-  const status = document.getElementById("received-status");
-  const button = document.querySelector<HTMLButtonElement>("[data-compare-selected]");
-  if (button) button.disabled = true;
-  const started = Date.now();
-  const label = picked.length === 1 ? "Analyzing" : "Comparing";
-  const tick = setInterval(() => status && (status.textContent = `${label}… ${Math.round((Date.now() - started) / 1000)}s`), 1000);
-  if (status) status.textContent = `${label}…`;
-  try {
-    const proposals: Sourced[] = picked.map((x) => ({ ...x.proposal, source_file: x.fileName, file_id: x.file_id, pdf_tokens: x.pdf_tokens, source_hash: x.hash ?? undefined }));
-    const projectName = projectLabel(ctx.project);
-    const { comparison: cmp, usage } = await post<{ comparison: Comparison; usage: Usage }>("/api/compare", JSON.stringify({ projectName, proposals }), {
-      "content-type": "application/json",
-    });
-    const saved: SavedComparison = {
-      id: crypto.randomUUID(),
-      savedAt: Date.now(),
-      projectName,
-      projectId: ctx.project.id,
-      proposals,
-      cmp,
-      messages: [],
-      costUsd: usage.cost_usd ?? undefined,
-      costPartial: usage.cost_usd == null,
-    };
-    await saveComparison(saved);
-    selected.clear();
-    location.hash = `#proposals/${encodeURIComponent(saved.id)}`;
-  } catch (err) {
-    await noticeModal(`Couldn't ${picked.length === 1 ? "analyze" : "compare"}`, (err as Error).message);
-    ctx.rerender();
-  } finally {
-    clearInterval(tick);
-  }
-}
-
-async function removeProposal(id: string, ctx: ProposalsContext) {
-  const r = ctx.project.proposals?.find((x) => x.id === id);
-  if (!r) return;
-  const ok = await confirmModal({
-    title: "Remove this proposal?",
-    body: `${firmName(r.proposal.firm)}'s proposal comes off this project. Comparisons that include it are kept.`,
-    confirm: "Remove",
-  });
-  if (!ok) return;
-  ctx.project.proposals = ctx.project.proposals!.filter((x) => x.id !== id);
-  selected.delete(id);
-  try {
-    await ctx.save();
-  } catch (err) {
-    await noticeModal("Not saved", (err as Error).message);
-  }
-  ctx.rerender();
 }
 
 // ---------- Proposal check (QA/QC) ----------
@@ -318,31 +296,16 @@ async function runQaqc(files: File[], ctx: ProposalsContext) {
 
 /** Handles a click in the Proposals or Proposal check card; true when it was one of theirs. */
 export async function onProposalsClick(t: HTMLElement, ctx: ProposalsContext): Promise<boolean> {
-  if (t.closest("[data-compare-selected]")) return void (await compareSelected(ctx)), true;
-  const remove = t.closest("[data-remove-proposal]")?.getAttribute("data-remove-proposal");
-  if (remove) return void (await removeProposal(remove, ctx)), true;
   return false;
 }
 
 /** Handles a change (file picked, proposal ticked) in those cards; true when it was one of theirs. */
 export function onProposalsChange(el: HTMLInputElement, ctx: ProposalsContext): boolean {
-  if (el.matches("[data-pick-proposal]")) {
-    const id = el.getAttribute("data-pick-proposal")!;
-    el.checked ? selected.add(id) : selected.delete(id);
-    // Only the button and hint change, so the list keeps its place.
-    const button = document.querySelector<HTMLButtonElement>("[data-compare-selected]");
-    if (button) {
-      button.textContent = compareLabel(selected.size);
-      button.disabled = selected.size < 1 || !!readingStatus;
-    }
-    const hint = document.getElementById("received-status");
-    if (hint && !readingStatus) hint.textContent = pickHint(selected.size);
-    return true;
-  }
-  if (el.matches("[data-add-proposals]") || el.matches("[data-qaqc-file]")) {
+  if (el.matches("[data-add-proposals], [data-upload-for], [data-qaqc-file]")) {
     const files = [...(el.files ?? [])];
     el.value = "";
-    void (el.matches("[data-add-proposals]") ? addProposals(files, ctx) : runQaqc(files, ctx));
+    if (el.matches("[data-qaqc-file]")) void runQaqc(files, ctx);
+    else void addProposals(files, ctx, el.getAttribute("data-upload-for") ?? undefined);
     return true;
   }
   return false;

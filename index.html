@@ -73,8 +73,13 @@
         <h1 class="splash-line" id="landing-line">Really<br />Fast<br />Proposals.</h1>
         <p class="landing-tagline">You don't get paid to make proposals. Spend less time making them.</p>
         <p class="landing-lede">
-          Level your consultants' fees side by side in minutes, read the owner's RFP, and build your fee and schedule from them, all in one project your whole studio shares.
+          Level your consultants' fees side by side in minutes, read the owner's RFP, and build your fee and schedule from them, all in one project. A simple, lightweight tool: start on your own, or share it with your studio.
         </p>
+        <ul class="landing-easy" aria-label="Why it's easy to start">
+          <li>Works for one person</li>
+          <li>No setup or training</li>
+          <li>No firm-wide commitment</li>
+        </ul>
         <div class="splash-actions">
           <button class="btn primary" type="button" data-landing="demo">Try the demo</button>
           <button class="btn" type="button" data-landing="signup">Create an account</button>
@@ -214,7 +219,8 @@
       </section>
 
       <section class="landing-end">
-        <h2>See it with mock data.</h2>
+        <h2>Just start. On your next RFP.</h2>
+        <p class="landing-end-sub">No rollout, no budget meeting, nothing to install. One person can use it today; the rest of the studio can join when they see it work.</p>
         <div class="splash-actions">
           <button class="btn primary" type="button" data-landing="demo">Try the demo</button>
           <button class="btn" type="button" data-landing="signup">Create an account</button>
@@ -234,7 +240,8 @@
       <a class="mark" href="#project">Proposal Workspace</a>
       <nav class="tabs">
         <a href="#project" data-tab="project">Projects</a>
-        <a href="#calls" data-tab="calls">Open Calls</a>
+        <!-- Open Calls is hidden for now (its page and saved sources are kept; see showTab in src/main.ts). -->
+        <a href="#calls" data-tab="calls" hidden>Open Calls</a>
         <a href="#consultants" data-tab="consultants">Consultants</a>
       </nav>
       <a class="worldview-link" href="#worldview" data-tab="worldview">World view</a>

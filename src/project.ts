@@ -4,17 +4,17 @@ import { askProjectName, confirmModal, confirmTyped, formModal, noticeModal } fr
 import { makeFee, proposalHtml, withWaiting } from "./fee";
 import { scheduleSnapshotHtml } from "./schedule-snapshot";
 import { SCHEDULE_TEMPLATES } from "./schedule/lib/data/templates.js";
-import { post } from "./api";
+import { blockedInDemo, post } from "./api";
 import { type Usage } from "../lib/cost";
-import type { ScheduleDraft } from "../lib/claude";
+import type { Comparison, Proposal, ScheduleDraft } from "../lib/claude";
 import { consultantTotal, proposalTable, totals } from "./fee-calc";
 import { feeStatusHtml, setFeeStatus } from "./fee-status";
-import { CONSULTANT_STATUS, type ConsultantStatus, deleteProject, listFees, saveFee, type SavedFee, projectLabel, listComparisons, listProjects, listSchedules, getScheduleStyle, type ScheduleStyle, savesShared, listRfps, saveComparison, saveProject, saveRfp, saveSchedule, listConsultants, type SavedConsultant, type SavedComparison, type SavedProject, type SavedRfp, type SavedSchedule } from "./store";
-import { addAddendum, formatWhen, parseDay, projectDisciplines, proposalDue, verdictPill } from "./rfp";
+import { deleteProject, listFees, saveFee, type SavedFee, projectLabel, listComparisons, listProjects, listSchedules, getScheduleStyle, type ScheduleStyle, savesShared, listRfps, saveComparison, saveProject, saveRfp, saveSchedule, listConsultants, type SavedConsultant, type SavedComparison, type SavedProject, type SavedRfp, type SavedSchedule, type ProjectFirm, type ReceivedProposal } from "./store";
+import { addAddendum, docKindLabel, docTitle, formatWhen, parseDay, projectDisciplines, proposalDue, verdictPill } from "./rfp";
 import { setPendingProject } from "./pending";
 import { adoptFromComparisons, onProposalsChange, onProposalsClick, proposalsHtml, qaqcHtml, type ProposalsContext } from "./project-proposals";
 import { copyShareLink } from "./share";
-import { esc, firmName } from "./table";
+import { AI_MARK, briefingHtml, esc, feeTable, firmName, glanceHtml, scopeTable, statedTotal, type Sourced } from "./table";
 import { contactsHtml, copyEmail, keyOf, siteLink } from "./consultants";
 import { parseContacts } from "./contacts";
 
@@ -56,6 +56,8 @@ export async function openProject(id: string) {
   const found = (await listProjects()).find((p) => p.id === id);
   if (!found) return noticeModal("Project not found", "It may have been deleted.");
   project = found;
+  matrixEditing = false;
+  view = location.hash.split("/")[2] === "consultants" ? "consultants" : "dash";
   await load();
   render();
   scrollTo(0, 0);
@@ -81,7 +83,10 @@ async function load() {
   rfp = rfps.find((r) => r.id === project!.rfpId) ?? rfps.find((r) => r.projectId === id);
   comparisons = cmps.filter((c) => c.projectId === id);
   // Proposals inside the project's comparisons join its proposal list (once), to compare with later ones.
-  if (adoptFromComparisons(project, comparisons)) await saveProject(project).catch(console.error);
+  // Firms whose proposals are on the project get matrix columns; every firm gets an id and its directory link.
+  const adopted = adoptFromComparisons(project, comparisons);
+  const synced = syncFirms(project);
+  if (adopted || synced) await saveProject(project).catch(console.error);
   schedules = scheds.filter((s) => s.workspaceProjectId === id);
   fees = fs.filter((f) => f.workspaceProjectId === id);
 }
@@ -124,8 +129,12 @@ export async function showProjectList() {
     </div>`;
 }
 
+/** The project page shows its dashboard, or its Consultants page (#project/<id>/consultants). */
+let view: "dash" | "consultants" = "dash";
+
 function render() {
   if (!project) return;
+  if (view === "consultants") return renderConsultantsPage();
   const p = project;
 
 
@@ -159,8 +168,8 @@ function render() {
                  <p>${esc(rfp.rfp.client)}</p>
                  ${rfp.rfp.fit ? `<p>${verdictPill(rfp.rfp.fit, `#rfp/${encodeURIComponent(rfp.id)}`)}</p>` : ""}
                  ${due ? `<p>Proposals due ${esc(formatWhen(due))}</p>` : ""}
-                 ${rfp.addenda?.length ? `<p>${rfp.addenda.length} addend${rfp.addenda.length === 1 ? "um" : "a"} read in</p>` : ""}
-                 <div class="actions"><label class="btn">Add addendum<input type="file" accept="application/pdf,.pdf" multiple hidden data-addendum /></label><span class="status" id="addendum-status"></span></div>`
+                 ${rfpSourcesHtml(rfp)}
+                 <div class="actions"><label class="btn" title="An addendum, answers to questions, meeting minutes or another document">Add document<input type="file" accept="application/pdf,.pdf" multiple hidden data-addendum /></label><span class="status" id="addendum-status"></span></div>`
               : `<p class="none">None yet.</p><div class="actions"><button class="btn" data-review-rfp>Review the RFP</button></div>`
           }
         </div>
@@ -168,11 +177,13 @@ function render() {
 
       <div class="proj-card proj-proposals saved">
         <div class="proj-card-head"><h2 class="label">Consultant proposals</h2></div>
-        <div class="proj-card-body">${proposalsHtml(p, comparisons)}</div>
+        <div class="proj-card-body">${proposalsHtml(p, comparisons, proposalsContext())}</div>
       </div>
 
       <div class="proj-card proj-consultants">
-        <div class="proj-card-head"><h2 class="label">Consultants</h2></div>
+        <div class="proj-card-head"><h2 class="label">Consultants</h2><span class="proj-card-links"><span class="m-key" title="Green columns are firms you're using; the rest are firms you're getting a fee from"><i></i>Using</span>${
+          `<a class="link" href="#project/${encodeURIComponent(p.id)}/consultants">Open</a>`
+        }<button class="link" data-matrix-edit>${matrixEditing ? "Done" : "Edit"}</button></span></div>
         <div class="proj-card-body">${consultantsHtml(p)}</div>
       </div>
 
@@ -208,6 +219,25 @@ function render() {
 }
 
 const money = (n: number) => `$${Math.round(n).toLocaleString("en-US")}`;
+
+/** What the RFP review is built from: the RFP itself, then each document added since (newest last). */
+function rfpSourcesHtml(r: SavedRfp): string {
+  const day = (ms: number) => new Date(ms).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  const href = `#rfp/${encodeURIComponent(r.id)}`;
+  const original = r.files.slice(0, r.files.length - (r.addenda ?? []).reduce((n, a) => n + a.files.length, 0));
+  const rows = [
+    `<li><b>RFP</b><span class="src-meta">${esc(original.join(", ") || "Original documents")}</span></li>`,
+    ...[...(r.addenda ?? [])]
+      .sort((a, b) => a.number - b.number)
+      .map(
+        (a) =>
+          `<li><a class="link" href="${href}"><b>${esc(docTitle(a))}</b></a><span class="src-meta">${esc(
+            [docKindLabel(a), day(a.at), `${a.changes.length} update${a.changes.length === 1 ? "" : "s"}`].filter(Boolean).join(" · "),
+          )}</span></li>`,
+      ),
+  ];
+  return `<h3 class="proj-subhead">Read into the review</h3><ul class="rfp-sources">${rows.join("")}</ul>`;
+}
 
 /** The fee in brief: each phase's total, the fee, and how it compares with the construction budget. Opens the fee. */
 function feeSummaryHtml(f: SavedFee | undefined): string {
@@ -444,163 +474,412 @@ const GROUPS: Group[] = (() => {
 })();
 const groupOf = (key: string) => GROUPS.find((g) => g.key === key);
 
-/**
- * The project's consultant list: a row for each discipline it needs (requested in the RFP review or added by the
- * team, less any removed), plus any a consultant on the project covers. Each lists the firms covering it: from the
- * project's proposals, and added by hand (removable). Whole rows can be added and removed.
- */
-function consultantsHtml(p: SavedProject): string {
-  const needed = new Set<string>(neededDisciplines(p));
-  const removed = new Set(p.disciplinesRemoved ?? []);
-  const rows = GROUPS.map((g) => {
-    const covers = (ds: string[]) => toDisciplines(ds).some((d) => g.members.includes(d));
-    const fromProposals = new Map<string, string>(); // firm → comparison id ("" when it's only in the proposal list)
-    for (const r of p.proposals ?? []) if (covers(r.proposal.disciplines ?? [])) fromProposals.set(firmName(r.proposal.firm), "");
-    for (const c of comparisons)
-      for (const x of c.proposals) if (x.firm && covers(x.disciplines ?? [])) fromProposals.set(firmName(x.firm), c.id);
-    const added = (p.consultants ?? []).map((c, i) => ({ ...c, i })).filter((c) => c.disciplines.some((d) => g.members.includes(d)));
-    const isRemoved = g.members.every((d) => removed.has(d));
-    const isNeeded = g.members.some((d) => needed.has(d));
-    return { g, fromProposals, added, show: !isRemoved && (isNeeded || fromProposals.size > 0 || added.length > 0) };
-  }).filter((r) => r.show);
-  const hidden = GROUPS.filter((g) => !rows.some((r) => r.g === g));
-  const addRow = hidden.length ? `<div class="actions"><button class="link" data-add-discipline>+ Add discipline</button></div>` : "";
-  if (!rows.length) return `<p class="none">None yet. Add the disciplines this project needs.</p>${addRow}`;
-  return `<table class="grid facts team">${rows
-    .map((r) => {
-      const key = r.g.key;
-      const firms = [
-        ...[...r.fromProposals].map(
-          ([firm, id]) => `${contactButton(firm)} ${id ? `<a class="link note" href="#proposals/${encodeURIComponent(id)}">proposal</a>` : `<span class="note">proposal</span>`}`,
-        ),
-        // Firms the team is reaching out to (added here), as removable pills; one whose proposal is in shows as the proposal.
-        ...r.added
-          .filter((c) => !r.fromProposals.has(firmName(c.name)))
-          .map((c) => {
-            const first = r.g.members.find((d) => c.disciplines.includes(d)) ?? key;
-            const status = c.statuses?.[first] ?? "asked";
-            const pick = `<select class="reach-status" data-consultant-status="${c.i}" data-discipline="${esc(key)}" aria-label="Where ${esc(c.name)} stands for ${esc(r.g.label)}" title="Candidate, asked, or teaming with us">${(Object.keys(CONSULTANT_STATUS) as ConsultantStatus[])
-              .map((s) => `<option value="${s}" ${s === status ? "selected" : ""}>${CONSULTANT_STATUS[s]}</option>`)
-              .join("")}</select>`;
-            return `<span class="reach reach-${status}">${contactButton(c.name)}${pick}<button class="reach-x" data-remove-consultant="${c.i}" data-discipline="${esc(key)}" aria-label="Remove ${esc(c.name)}" title="Remove">×</button></span>`;
-          }),
-      ];
-      const inHouse = IN_HOUSE.includes(key);
-      // Architecture (and interiors and FF&E) are the firm's own work, so they don't get consultants.
-      const add = inHouse ? "" : `<button class="link reach-add" data-add-consultant="${esc(key)}" aria-label="Add a consultant for ${esc(r.g.label)}">+ Add</button>`;
-      const drop = `<button class="link team-remove" data-remove-discipline="${esc(key)}" aria-label="Remove ${esc(r.g.label)} from this project" title="Remove ${esc(r.g.label)} from this project">Remove</button>`;
-      return `<tr><th scope="row">${esc(r.g.label)}${drop}</th><td>${
-        firms.length ? `${firms.join(" ")} ${add}` : inHouse ? `In house` : `<span class="needed">Needed</span> ${add}`
-      }</td></tr>`;
-    })
-    .join("")}</table>${addRow}`;
-}
-
+const IN_HOUSE: string[] = ["Architecture", "Interiors", "FF&E"];
 const neededDisciplines = (p: SavedProject) => projectDisciplines(rfp?.rfp, p.disciplinesRemoved, p.disciplinesAdded);
 
-/** Takes a whole discipline (or MEP/FP) off this project's list; the RFP review itself is unchanged. */
-async function removeDiscipline(key: string) {
-  const g = groupOf(key);
-  if (!project || !g) return;
+// ---------- Consultant matrix ----------
+// Firms across the top, disciplines down the side, an X where a firm covers a discipline; then whether its fee is in,
+// and a note. Proposals fill it in (a firm whose proposal is on the project gets a column with its disciplines); the
+// team corrects anything by clicking. Each firm is selected (green), passed (gray) or still being decided.
+
+type Row = { key: string; label: string; members: string[]; custom?: boolean };
+
+/** The matrix rows: the project's consultant disciplines (MEP/FP as one), any a firm covers, then the team's own. */
+function matrixRows(p: SavedProject): Row[] {
+  const needed = new Set<string>(neededDisciplines(p));
+  const removed = new Set(p.disciplinesRemoved ?? []);
+  const covered = new Set((p.consultants ?? []).flatMap((c) => c.disciplines));
+  const rows: Row[] = GROUPS.filter((g) => !IN_HOUSE.includes(g.key))
+    .filter((g) => !g.members.every((d) => removed.has(d)) && g.members.some((d) => needed.has(d) || covered.has(d)))
+    .map((g) => ({ ...g }));
+  for (const r of p.customRows ?? []) rows.push({ key: `row:${r.id}`, label: r.label, members: [`row:${r.id}`], custom: true });
+  return rows;
+}
+const rowOf = (p: SavedProject, key: string): Row | undefined =>
+  groupOf(key) ?? (p.customRows ?? []).filter((r) => `row:${r.id}` === key).map((r) => ({ key, label: r.label, members: [key], custom: true }))[0];
+
+/** Using the firm on this proposal, or getting a fee from it (the default; older "teaming" entries count as using). */
+const decisionOf = (c: ProjectFirm): "using" | "fee" => c.decision ?? (Object.values(c.statuses ?? {}).includes("teaming") ? "using" : "fee");
+
+/**
+ * A proposal's project firm: the column it already points to, else the firm with the same directory record or name,
+ * else a new column ("Getting a fee", with the disciplines read from the proposal). Links the proposal to it.
+ */
+function linkFirm(p: SavedProject, r: ReceivedProposal): ProjectFirm | undefined {
+  const list = (p.consultants ??= []);
+  const found = list.find((c) => c.id === r.firmId);
+  if (found) return found;
+  const k = keyOf(r.proposal.firm || "");
+  if (!k) return undefined;
+  const d = directory.find((x) => keyOf(x.name) === k);
+  let firm = list.find((c) => (d && c.consultantId === d.id) || keyOf(c.name) === k);
+  if (!firm) {
+    firm = { id: crypto.randomUUID(), name: d?.name ?? firmName(r.proposal.firm), consultantId: d?.id, disciplines: toDisciplines(r.proposal.disciplines ?? []), decision: "fee" };
+    list.push(firm);
+  }
+  r.firmId = firm.id;
+  return firm;
+}
+
+/**
+ * Keeps firms and proposals on one source when the project opens: every firm has an id and its directory link (by
+ * name, once), and every proposal points to its firm. Returns true when the project changed and should be saved.
+ */
+function syncFirms(p: SavedProject): boolean {
+  let changed = false;
+  for (const c of p.consultants ?? []) {
+    if (!c.id) (c.id = crypto.randomUUID()), (changed = true);
+    if (!c.consultantId) {
+      const d = directory.find((x) => keyOf(x.name) === keyOf(c.name));
+      if (d) (c.consultantId = d.id), (changed = true);
+    }
+  }
+  for (const r of p.proposals ?? []) {
+    const before = r.firmId;
+    if (!(p.consultants ?? []).some((c) => c.id === before)) {
+      linkFirm(p, r);
+      if (r.firmId !== before) changed = true;
+    }
+  }
+  return changed;
+}
+
+/** A firm's proposals on this project, and their stated total (the latest proposal's). */
+function firmProposals(p: SavedProject, c: ProjectFirm) {
+  const list = (p.proposals ?? []).filter((r) => r.firmId === c.id).sort((a, b) => a.receivedAt - b.receivedAt);
+  const latest = list.at(-1);
+  return { list, total: latest ? statedTotal(latest.proposal) : null };
+}
+
+/**
+ * The consultant matrix reads as a table until Edit, so a stray click can't change it; Edit turns on the X toggles,
+ * each firm's Using / Getting a fee, removing, and adding firms and disciplines, until Done.
+ */
+let matrixEditing = false;
+
+function consultantsHtml(p: SavedProject): string {
+  const firms = p.consultants ?? [];
+  const rows = matrixRows(p);
+  const editing = matrixEditing;
+  // Adding firms and disciplines only while editing (Edit / Done is in the card's header).
+  const actions = editing
+    ? `<div class="actions matrix-actions"><button class="link" data-add-discipline>+ Add discipline</button></div>`
+    : "";
+  if (!firms.length)
+    return `<p class="none">${rows.length ? `${rows.length} discipline${rows.length === 1 ? "" : "s"} to cover. ` : ""}${
+      editing ? "Add the firms you're using or getting fees from." : "Choose Edit to add the firms you're using or getting fees from."
+    }</p>${actions}`;
+  const dec = (c: ProjectFirm) => decisionOf(c);
+  const STATUS = { using: "Using", fee: "Getting a fee" } as const;
+  const head = firms
+    .map(
+      (c) => `<th scope="col" class="m-firm dec-${dec(c)}">
+        <span class="m-firm-name">${contactButton(c.name)}</span>
+        ${
+          editing
+            ? `<select class="m-decision" data-firm-decision="${esc(c.id!)}" aria-label="Where ${esc(c.name)} stands">
+          ${(Object.keys(STATUS) as (keyof typeof STATUS)[])
+            .map((v) => `<option value="${v}" ${v === dec(c) ? "selected" : ""}>${STATUS[v]}</option>`)
+            .join("")}
+        </select><button class="link m-remove" data-remove-firm="${esc(c.id!)}" aria-label="Remove ${esc(c.name)}" title="Remove ${esc(c.name)}">×</button>`
+            : `<span class="visually-hidden">${STATUS[dec(c)]}</span>`
+        }${(() => {
+          const f = firmProposals(p, c);
+          return f.total != null ? `<span class="m-fee">${money(f.total)}${AI_MARK}</span>` : f.list.length ? `<span class="m-fee">Proposal in</span>` : "";
+        })()}
+      </th>`,
+    )
+    .join("");
+  const body = rows
+    .map((r) => {
+      const cells = firms
+        .map((c) => {
+          const on = c.disciplines.some((d) => r.members.includes(d));
+          return `<td class="dec-${dec(c)}">${
+            editing
+              ? `<button class="m-cell" data-toggle-cell="${esc(c.id!)}" data-row="${esc(r.key)}" aria-pressed="${on}" aria-label="${esc(c.name)} covers ${esc(r.label)}">${on ? "X" : ""}</button>`
+              : `<span class="m-mark">${on ? "X" : ""}</span>`
+          }</td>`;
+        })
+        .join("");
+      const covered = firms.some((c) => decisionOf(c) === "using" && c.disciplines.some((d) => r.members.includes(d)));
+      return `<tr><th scope="row">${esc(r.label)}${covered ? ' <span class="m-ok" title="A firm you are using covers this">✓</span>' : ""}${
+        editing ? `<button class="link team-remove" data-remove-discipline="${esc(r.key)}" aria-label="Remove ${esc(r.label)}" title="Remove ${esc(r.label)} from this project">Remove</button>` : ""
+      }</th>${cells}</tr>`;
+    })
+    .join("");
+  return `<div class="matrix-wrap"><table class="matrix${editing ? " editing" : ""}">
+      <thead><tr><th class="m-corner"></th>${head}</tr></thead>
+      <tbody>${body}</tbody>
+    </table></div>${actions}`;
+}
+
+// ---------- The project's Consultants page ----------
+// One page for every consultant on the project: the matrix (who covers what), then one comparison per discipline
+// row of the latest proposal from every firm marked for it. A firm covering several rows is compared in each. Each
+// section remembers which proposals it compared; when they change it's out of date until Update comparison runs it.
+
+const proposalKey = (r: ReceivedProposal) => r.hash || r.fileName;
+
+type ReviewGroup = {
+  row: Row;
+  firms: ProjectFirm[];
+  proposals: ReceivedProposal[];
+  waiting: ProjectFirm[];
+  signature: string[];
+  saved?: SavedComparison;
+  stale: boolean;
+};
+
+function reviewGroups(p: SavedProject): ReviewGroup[] {
+  const firms = p.consultants ?? [];
+  return matrixRows(p).map((row) => {
+    const covering = firms.filter((c) => c.disciplines.some((d) => row.members.includes(d)));
+    const latest = covering.map((c) => firmProposals(p, c).list.at(-1)).filter((r): r is ReceivedProposal => !!r);
+    const signature = latest.map(proposalKey).sort();
+    const saved = comparisons.filter((c) => c.group?.key === row.key).sort((a, b) => b.savedAt - a.savedAt)[0];
+    const stale = latest.length > 0 && (!saved || saved.group!.signature.join("|") !== signature.join("|"));
+    return { row, firms: covering, proposals: latest, waiting: covering.filter((c) => !firmProposals(p, c).list.length), signature, saved, stale };
+  });
+}
+
+function renderConsultantsPage() {
+  const p = project!;
+  document.documentElement.classList.remove("project-dash");
+  $("project-page").classList.add("is-dash");
+  const groups = reviewGroups(p);
+  const stale = groups.filter((g) => g.stale);
+  const received = (p.proposals ?? []).length;
+  const day = (ms: number) => new Date(ms).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  const section = (g: ReviewGroup) => {
+    const status = !g.proposals.length
+      ? "No proposals yet"
+      : !g.saved
+        ? `${g.proposals.length} proposal${g.proposals.length === 1 ? "" : "s"} · not compared yet`
+        : g.stale
+          ? `Out of date · compared ${day(g.saved.savedAt)}`
+          : `${g.proposals.length} proposal${g.proposals.length === 1 ? "" : "s"} · compared ${day(g.saved.savedAt)}`;
+    const c = g.saved;
+    return `<section class="block cgroup${g.stale ? " stale" : ""}" id="cg-${esc(g.row.key)}">
+      <div class="cgroup-head">
+        <h2 class="cgroup-title">${esc(g.row.label)}</h2>
+        <span class="cgroup-status">${esc(status)}</span>
+        ${c ? `<a class="link" href="#proposals/${encodeURIComponent(c.id)}">Open with Ask / correct</a>` : ""}
+      </div>
+      ${g.waiting.length ? `<p class="cgroup-waiting">Waiting for: ${g.waiting.map((w) => esc(w.name)).join(", ")}</p>` : ""}
+      ${
+        !g.firms.length
+          ? `<p class="none">No firm is marked for ${esc(g.row.label)} yet.</p>`
+          : c
+            ? `<div class="glance">${glanceHtml(c.proposals, c.cmp)}</div>
+               <div class="briefing">${briefingHtml(c.proposals, c.cmp)}</div>
+               <h3 class="cgroup-sub">Fees</h3><div class="scroll"><table class="grid">${feeTable(c.proposals, c.cmp)}</table></div>
+               <h3 class="cgroup-sub">Scope</h3><div class="scroll"><table class="grid">${scopeTable(c.proposals, c.cmp)}</table></div>`
+            : g.proposals.length
+              ? `<p class="none">Choose Update comparison to compare ${g.proposals.length === 1 ? "this proposal" : `these ${g.proposals.length} proposals`}.</p>`
+              : ""
+      }
+    </section>`;
+  };
+  $("project-page").innerHTML = `
+    <div class="proj-head">
+      <div class="proj-title">
+        <a class="link" href="#project/${encodeURIComponent(p.id)}">← ${esc(projectLabel(p))}</a>
+        <h1 class="headline">Consultants</h1>
+        <p class="proj-sub">${(p.consultants ?? []).length} firm${(p.consultants ?? []).length === 1 ? "" : "s"} · ${received} proposal${received === 1 ? "" : "s"} received</p>
+      </div>
+      <span class="tools">${
+        stale.length
+          ? `<button class="btn primary" data-update-review>Update comparison (${stale.length} section${stale.length === 1 ? "" : "s"})</button>`
+          : received
+            ? `<span class="cgroup-status">Up to date</span>`
+            : ""
+      }</span>
+    </div>
+    <section class="block cpage-matrix">
+      <div class="cgroup-head"><h2 class="cgroup-title">Who covers what</h2><span class="proj-card-links"><span class="m-key"><i></i>Using</span><button class="link" data-matrix-edit>${matrixEditing ? "Done" : "Edit"}</button></span></div>
+      ${consultantsHtml(p)}
+    </section>
+    ${groups.map(section).join("")}`;
+}
+
+/** Compares, for each out-of-date section, the latest proposal from every firm marked for it, and saves each. */
+async function updateReview() {
   const p = project;
-  const firms = (p.consultants ?? []).filter((c) => c.disciplines.some((d) => g.members.includes(d)));
+  if (!p || blockedInDemo()) return;
+  const todo = reviewGroups(p).filter((g) => g.stale);
+  if (!todo.length) return;
   const ok = await confirmModal({
-    title: `Remove ${g.label}?`,
-    body: `${g.label} comes off this project's consultant list${
-      firms.length ? `, along with ${firms.map((c) => c.name).join(", ")} for it` : ""
-    }. You can add it back with Add discipline. The RFP review isn't changed.`,
+    title: "Update the comparison?",
+    body: `AI compares the proposals in ${todo.map((g) => g.row.label).join(", ")}. Check what it finds against the proposals themselves.`,
+    confirm: "Update",
+  });
+  if (!ok || project !== p) return;
+  const button = document.querySelector<HTMLButtonElement>("[data-update-review]");
+  const projectName = projectLabel(p);
+  const failed: string[] = [];
+  for (const [n, g] of todo.entries()) {
+    if (button) (button.disabled = true), (button.textContent = `Comparing ${g.row.label} (${n + 1} of ${todo.length})…`);
+    try {
+      const proposals: Sourced[] = g.proposals.map((r) => ({ ...r.proposal, firm: firmById(r.firmId ?? "")?.name ?? r.proposal.firm, source_file: r.fileName, file_id: r.file_id, pdf_tokens: r.pdf_tokens, source_hash: r.hash ?? undefined }));
+      const { comparison: cmp, usage } = await post<{ comparison: Comparison; usage: Usage }>("/api/compare", JSON.stringify({ projectName, proposals }), {
+        "content-type": "application/json",
+      });
+      // Replaces the section's earlier comparison (its chat starts over, since the proposals changed).
+      await saveComparison({
+        id: g.saved?.id ?? crypto.randomUUID(),
+        savedAt: Date.now(),
+        projectName,
+        projectId: p.id,
+        proposals,
+        cmp,
+        messages: [],
+        costUsd: usage.cost_usd ?? undefined,
+        costPartial: usage.cost_usd == null,
+        group: { key: g.row.key, label: g.row.label, signature: g.signature },
+      });
+    } catch (err) {
+      failed.push(`${g.row.label}: ${(err as Error).message}`);
+    }
+  }
+  if (project !== p) return;
+  await load();
+  render();
+  if (failed.length) await noticeModal("Some sections weren't updated", failed.join("\n"));
+}
+
+const firmById = (id: string) => project?.consultants?.find((c) => c.id === id);
+
+async function saveAndRender() {
+  if (!project) return;
+  await saveProject(project).catch((err) => noticeModal("Not saved", (err as Error).message));
+  render();
+}
+
+/** Toggles a firm's X for a row (all of MEP/FP at once). */
+async function toggleCell(firmId: string, rowKey: string) {
+  const c = firmById(firmId);
+  const r = project && rowOf(project, rowKey);
+  if (!c || !r) return;
+  const on = c.disciplines.some((d) => r.members.includes(d));
+  c.disciplines = on ? c.disciplines.filter((d) => !r.members.includes(d)) : [...new Set([...c.disciplines, ...r.members])];
+  await saveAndRender();
+}
+
+/** Takes a firm off the project's consultants. */
+async function removeFirm(firmId: string) {
+  const p = project;
+  const c = firmById(firmId);
+  if (!p || !c) return;
+  const theirs = (p.proposals ?? []).filter((r) => r.firmId === firmId);
+  const ok = await confirmModal({
+    title: `Remove ${c.name}?`,
+    body: `Its column comes off this project's consultants${
+      theirs.length ? `, and its proposal${theirs.length === 1 ? "" : "s"} come${theirs.length === 1 ? "s" : ""} off Consultant proposals` : ""
+    }. The directory and any comparisons are kept.`,
     confirm: "Remove",
   });
   if (!ok || project !== p) return;
-  p.disciplinesRemoved = [...new Set([...(p.disciplinesRemoved ?? []), ...g.members])];
-  p.disciplinesAdded = (p.disciplinesAdded ?? []).filter((d) => !g.members.includes(d));
-  for (const c of firms) {
-    c.disciplines = c.disciplines.filter((d) => !g.members.includes(d));
-    for (const d of g.members) if (c.statuses) delete c.statuses[d];
-  }
-  p.consultants = (p.consultants ?? []).filter((c) => c.disciplines.length);
-  await saveProject(p).catch((err) => noticeModal("Not saved", (err as Error).message));
-  render();
+  p.consultants = (p.consultants ?? []).filter((x) => x.id !== firmId);
+  if (theirs.length) p.proposals = (p.proposals ?? []).filter((r) => r.firmId !== firmId);
+  await saveAndRender();
 }
 
-/** Adds whole disciplines (or MEP/FP) to this project's list, from those not on it. */
-async function addDiscipline() {
-  if (!project) return;
+/**
+ * Adds the firms the team is using or getting fees from: from this project's proposals, the Consultants directory, or
+ * typed in. Each starts as "Getting a fee", with an X for the project's rows it covers.
+ */
+async function addFirm() {
   const p = project;
-  const shown = new Set<string>(neededDisciplines(p));
-  const removed = new Set(p.disciplinesRemoved ?? []);
-  const options = GROUPS.filter((g) => !g.members.some((d) => shown.has(d)) || g.members.every((d) => removed.has(d))).map((g) => g.label);
-  if (!options.length) return;
+  if (!p) return;
+  const taken = new Set((p.consultants ?? []).map((c) => keyOf(c.name)));
+  const proposalFirms = new Map<string, Proposal>();
+  for (const pr of [...(p.proposals ?? []).map((r) => r.proposal), ...comparisons.flatMap((x) => x.proposals)])
+    if (pr.firm && !taken.has(keyOf(pr.firm)) && !proposalFirms.has(keyOf(pr.firm))) proposalFirms.set(keyOf(pr.firm), pr);
+  const fromProposals = [...proposalFirms.values()].map((pr) => firmName(pr.firm)).sort((a, b) => a.localeCompare(b));
+  const names = directory
+    .filter((c) => !taken.has(keyOf(c.name)) && !proposalFirms.has(keyOf(c.name)))
+    .map((c) => c.name)
+    .sort((a, b) => a.localeCompare(b));
   const values = await formModal({
-    title: "Add disciplines",
-    fields: [{ label: "Disciplines this project needs", value: "", options }],
-    confirm: "Add",
-    validate: (v) => !!v[0],
-  });
-  if (!values || project !== p) return;
-  const members = values[0]
-    .split("\n")
-    .map((label) => GROUPS.find((g) => g.label === label))
-    .flatMap((g) => g?.members ?? []);
-  if (!members.length) return;
-  p.disciplinesAdded = [...new Set([...(p.disciplinesAdded ?? []), ...members])];
-  p.disciplinesRemoved = (p.disciplinesRemoved ?? []).filter((d) => !members.includes(d));
-  await saveProject(p).catch((err) => noticeModal("Not saved", (err as Error).message));
-  render();
-}
-
-const IN_HOUSE: string[] = ["Architecture", "Interiors", "FF&E"];
-
-/** Adds firms to reach out to for a row (a discipline, or all of MEP/FP): from the Consultants directory, or typed in. */
-async function addConsultant(key: string) {
-  const g = groupOf(key);
-  if (!project || !g) return;
-  const p = project;
-  const discipline = g.label;
-  const members = g.members;
-  const taken = new Set((p.consultants ?? []).filter((c) => c.disciplines.some((d) => members.includes(d))).map((c) => c.name.toLowerCase()));
-  const directory = (await listConsultants().catch(() => [] as SavedConsultant[]))
-    .filter((c) => firmDisciplines(c).some((d) => members.includes(d)) && !taken.has(c.name.toLowerCase()))
-    .sort((a, b) => a.name.localeCompare(b.name));
-  const names = directory.map((c) => c.name);
-  const values = await formModal({
-    title: `Consultants for ${discipline}`,
+    title: "Add firms",
     fields: [
+      ...(fromProposals.length ? [{ label: "Sent a proposal for this project", value: "", options: fromProposals }] : []),
       ...(names.length ? [{ label: "From the directory", value: "", options: names }] : []),
-      { label: names.length ? "Or another firm" : "Firm", value: "", placeholder: "Firm name" },
+      { label: fromProposals.length || names.length ? "Or another firm" : "Firm", value: "", placeholder: "Firm name" },
     ],
     confirm: "Add",
     validate: (v) => v.some((x) => x.trim()),
   });
   if (!values || project !== p) return;
-  const picked = names.length ? values[0].split("\n").filter(Boolean) : [];
+  const picked = values.slice(0, -1).flatMap((v) => v.split("\n").filter(Boolean));
   const typed = values[values.length - 1].trim();
-  const add = [...picked, ...(typed && !picked.some((n) => n.toLowerCase() === typed.toLowerCase()) ? [typed] : [])].filter((n) => !taken.has(n.toLowerCase()));
-  if (!add.length) return;
-  const list = p.consultants ?? [];
-  for (const name of add) {
-    const same = list.find((c) => c.name.toLowerCase() === name.toLowerCase());
-    const statuses = Object.fromEntries(members.map((d) => [d, "candidate" as ConsultantStatus]));
-    if (same) {
-      same.disciplines = [...new Set([...same.disciplines, ...members])];
-      same.statuses = { ...same.statuses, ...statuses };
-    } else list.push({ name, disciplines: [...members], statuses });
+  const rows = matrixRows(p);
+  for (const name of [...picked, ...(typed ? [typed] : [])]) {
+    if ((p.consultants ?? []).some((c) => keyOf(c.name) === keyOf(name))) continue;
+    const d = directory.find((x) => keyOf(x.name) === keyOf(name));
+    // It starts with an X for each of the project's rows its proposal (or its directory entry) covers.
+    const covers: string[] = proposalFirms.has(keyOf(name)) ? toDisciplines(proposalFirms.get(keyOf(name))!.disciplines ?? []) : d ? firmDisciplines(d) : [];
+    const disciplines = rows.filter((r) => !r.custom && r.members.some((m) => covers.includes(m))).flatMap((r) => r.members);
+    (p.consultants ??= []).push({ id: crypto.randomUUID(), name: d?.name ?? name, consultantId: d?.id, disciplines, decision: "fee" });
   }
-  p.consultants = list;
-  await saveProject(p).catch((err) => noticeModal("Not saved", (err as Error).message));
-  render();
+  await saveAndRender();
 }
 
-/** Takes a firm off one row (a discipline, or all of MEP/FP), and off the project when it's left with none. */
-async function removeConsultant(i: number, key?: string) {
-  const c = project?.consultants?.[i];
-  if (!project || !c) return;
-  const members = key ? (groupOf(key)?.members ?? [key]) : [];
-  c.disciplines = key ? c.disciplines.filter((d) => !members.includes(d)) : [];
-  if (c.statuses) for (const d of members) delete c.statuses[d];
-  if (!c.disciplines.length) project.consultants!.splice(i, 1);
-  await saveProject(project).catch((err) => noticeModal("Not saved", (err as Error).message));
-  render();
+/** Takes a whole row off the matrix: a discipline (or MEP/FP), or one of the team's own rows. */
+async function removeDiscipline(key: string) {
+  const p = project;
+  const r = p && rowOf(p, key);
+  if (!p || !r) return;
+  const firms = (p.consultants ?? []).filter((c) => c.disciplines.some((d) => r.members.includes(d)));
+  const ok = await confirmModal({
+    title: `Remove ${r.label}?`,
+    body: `${r.label} comes off this project's consultants${firms.length ? `, along with the X's for ${firms.map((c) => c.name).join(", ")}` : ""}. You can add it back with Add discipline. The RFP review isn't changed.`,
+    confirm: "Remove",
+  });
+  if (!ok || project !== p) return;
+  if (r.custom) p.customRows = (p.customRows ?? []).filter((x) => `row:${x.id}` !== key);
+  else {
+    p.disciplinesRemoved = [...new Set([...(p.disciplinesRemoved ?? []), ...r.members])];
+    p.disciplinesAdded = (p.disciplinesAdded ?? []).filter((d) => !r.members.includes(d));
+  }
+  for (const c of firms) c.disciplines = c.disciplines.filter((d) => !r.members.includes(d));
+  await saveAndRender();
+}
+
+/** Adds rows: disciplines not on the matrix (MEP/FP as one), or the team's own (e.g. "Energy and LCA"). */
+async function addDiscipline() {
+  const p = project;
+  if (!p) return;
+  const shown = new Set(matrixRows(p).map((r) => r.key));
+  const options = GROUPS.filter((g) => !IN_HOUSE.includes(g.key) && !shown.has(g.key)).map((g) => g.label);
+  const values = await formModal({
+    title: "Add disciplines",
+    fields: [
+      ...(options.length ? [{ label: "Disciplines this project needs", value: "", options }] : []),
+      { label: options.length ? "Or your own" : "Discipline", value: "", placeholder: "e.g. Energy and LCA" },
+    ],
+    confirm: "Add",
+    validate: (v) => v.some((x) => x.trim()),
+  });
+  if (!values || project !== p) return;
+  const picked = options.length ? values[0].split("\n").filter(Boolean) : [];
+  const members = picked.map((label) => GROUPS.find((g) => g.label === label)).flatMap((g) => g?.members ?? []);
+  const typed = values[values.length - 1].trim();
+  if (typed) {
+    // A typed name that's one of the governing disciplines joins that row instead of making a duplicate.
+    const known = toDisciplines([typed]);
+    const exact = GROUPS.find((g) => g.label.toLowerCase() === typed.toLowerCase());
+    if (exact) members.push(...exact.members);
+    else if (known.length === 1 && known[0].toLowerCase() === typed.toLowerCase()) members.push(known[0]);
+    else if (!(p.customRows ?? []).some((r) => r.label.toLowerCase() === typed.toLowerCase()))
+      (p.customRows ??= []).push({ id: crypto.randomUUID(), label: typed });
+  }
+  if (members.length) {
+    p.disciplinesAdded = [...new Set([...(p.disciplinesAdded ?? []), ...members])];
+    p.disciplinesRemoved = (p.disciplinesRemoved ?? []).filter((d) => !members.includes(d));
+  }
+  await saveAndRender();
 }
 
 async function rename() {
@@ -677,6 +956,8 @@ const proposalsContext = (): ProposalsContext => ({
   comparisons,
   save: () => saveProject(project!),
   rerender: () => project && render(),
+  linkFirm: (r) => (project ? linkFirm(project, r) : undefined),
+  firmOf: (r) => project?.consultants?.find((c) => c.id === r.firmId),
 });
 
 async function onClick(e: Event) {
@@ -703,10 +984,15 @@ async function onClick(e: Event) {
     }
     render();
   }
-  else if (t.closest("[data-add-consultant]")) await addConsultant(t.closest("[data-add-consultant]")!.getAttribute("data-add-consultant")!);
-  else if (t.closest("[data-remove-consultant]")) {
-    const el = t.closest("[data-remove-consultant]")!;
-    await removeConsultant(Number(el.getAttribute("data-remove-consultant")), el.getAttribute("data-discipline") ?? undefined);
+  else if (t.closest("[data-toggle-cell]")) {
+    const el = t.closest("[data-toggle-cell]")!;
+    await toggleCell(el.getAttribute("data-toggle-cell")!, el.getAttribute("data-row")!);
+  } else if (t.closest("[data-remove-firm]")) await removeFirm(t.closest("[data-remove-firm]")!.getAttribute("data-remove-firm")!);
+  else if (t.closest("[data-add-firm]")) await addFirm();
+  else if (t.closest("[data-update-review]")) await updateReview();
+  else if (t.closest("[data-matrix-edit]")) {
+    matrixEditing = !matrixEditing;
+    render();
   }
   else if (t.closest("[data-rename]")) await rename();
   else if (t.closest("[data-unlink]")) await unlink(t.closest("[data-unlink]")!.getAttribute("data-unlink")!);
@@ -770,15 +1056,12 @@ addEventListener("hashchange", closeContactCard);
 
 // A firm's status for one discipline: candidate, asked, or teaming (an MEP firm can be teaming for one and asked for another).
 document.addEventListener("change", async (e) => {
-  const el = e.target as HTMLSelectElement;
-  if (!el.matches?.("#project-page [data-consultant-status]") || !project) return;
-  const c = project.consultants?.[Number(el.dataset.consultantStatus)];
-  const d = el.dataset.discipline ?? "";
-  const members = (groupOf(d)?.members ?? [d]).filter((x) => c?.disciplines.includes(x));
-  if (!c || !members.length || !(el.value in CONSULTANT_STATUS)) return;
-  c.statuses = { ...c.statuses, ...Object.fromEntries(members.map((x) => [x, el.value as ConsultantStatus])) };
-  await saveProject(project).catch((err) => noticeModal("Not saved", (err as Error).message));
-  render();
+  const el = e.target as HTMLInputElement;
+  if (!project || !el.closest?.("#project-page .matrix")) return;
+  const c = firmById(el.dataset.firmDecision ?? "");
+  if (!c) return;
+  c.decision = el.value === "using" ? "using" : "fee";
+  await saveAndRender();
 });
 
 // Consultant proposals (added, ticked) and the proposal check's PDF.
@@ -807,13 +1090,13 @@ document.addEventListener("change", async (e) => {
     render();
     const last = updated.addenda!.at(-1)!;
     const go = await confirmModal({
-      title: `Addendum ${last.number} added`,
-      body: `${last.changes.length} change${last.changes.length === 1 ? "" : "s"} to the RFP review. The review lists each one.`,
-      confirm: "See what changed",
+      title: `${docTitle(last)} added`,
+      body: `${last.changes.length} update${last.changes.length === 1 ? "" : "s"} to the RFP review. The review lists each one.`,
+      confirm: "See the updates",
     });
     if (go) location.hash = `#rfp/${encodeURIComponent(updated.id)}`;
   } catch (err) {
-    await noticeModal("Couldn't read the addendum", (err as Error).message);
+    await noticeModal("Couldn't read the document", (err as Error).message);
   } finally {
     clearInterval(tick);
     if (status) status.textContent = "";

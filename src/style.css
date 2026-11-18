@@ -909,7 +909,7 @@ a.fee-on-project:hover table, a.fee-on-project:focus-visible table { outline: 2p
 .proj-grid {
   display: grid; gap: 16px;
   grid-template-columns: repeat(12, minmax(0, 1fr));
-  grid-template-rows: minmax(0, 1fr) minmax(0, 1.35fr);
+  grid-template-rows: minmax(0, 1.2fr) minmax(0, 1fr);
 }
 .proj-schedule { grid-column: span 6; }
 .proj-fee { grid-column: span 3; }
@@ -1093,3 +1093,103 @@ select.fee-basis:focus { border-color: var(--ink); outline: none; }
 .sc-bar { grid-column: 1 / -1; height: 6px; background: var(--soft); }
 .sc-bar span { display: block; height: 100%; background: var(--ink); }
 @media print { .rfp-glance { break-inside: avoid; } .sc-bar span, .services .req-yes .req-tag, .next-tag { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
+
+/* Landing: pricing (one published price, self-serve). */
+.landing-pricing { padding: 64px 0; border-top: 1px solid var(--rule); }
+.landing-pricing h2 { font-size: clamp(28px, 3.6vw, 44px); font-weight: 800; letter-spacing: -0.02em; line-height: 1.05; margin: 0 0 18px; }
+.landing-price { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 14px; margin: 0 0 28px; }
+.landing-price b { font-size: clamp(44px, 6vw, 72px); font-weight: 800; letter-spacing: -0.03em; line-height: 1; }
+.landing-price span { font-size: 18px; }
+.landing-points-four { grid-template-columns: repeat(4, minmax(0, 1fr)); margin-bottom: 28px; }
+@media (max-width: 1000px) { .landing-points-four { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 760px) { .landing-points-four { grid-template-columns: minmax(0, 1fr); } .landing-pricing { padding: 48px 0; } }
+/* Landing: how easy it is to start, under the hero. */
+.landing-easy { list-style: none; padding: 0; margin: 4px 0 28px; display: flex; flex-wrap: wrap; gap: 8px 10px; }
+.landing-easy li { border: 1px solid var(--ink); padding: 5px 12px; font-size: 14px; font-weight: 600; }
+.landing-easy li::before { content: "✓"; margin-right: 7px; font-weight: 800; }
+.landing-end-sub { font-size: 18px; line-height: 1.45; max-width: 640px; margin: -8px 0 24px; }
+
+/* Project page: what the RFP review is built from. */
+.rfp-sources { list-style: none; margin: 0 0 4px; padding: 0; font-size: 13px; }
+.rfp-sources li { display: flex; flex-direction: column; padding: 5px 0; border-bottom: 1px solid var(--rule); }
+.rfp-sources .src-meta { font-size: 12px; }
+
+/* Project page: the consultant matrix (firms across, disciplines down). */
+.matrix-wrap { overflow-x: auto; }
+table.matrix { border-collapse: collapse; font-size: 13px; min-width: 100%; }
+.matrix th, .matrix td { border: 1px solid var(--rule); padding: 0; text-align: center; vertical-align: middle; }
+.matrix thead th { padding: 6px 6px 4px; min-width: 112px; vertical-align: bottom; font-weight: 700; }
+.matrix th.m-corner { border-top: 0; border-left: 0; min-width: 0; }
+.matrix th[scope="row"] { text-align: left; padding: 6px 10px 6px 0; white-space: nowrap; font-weight: 600; border-left: 0; }
+.matrix .m-ok { color: #2e7d32; font-weight: 800; }
+.m-firm-name { display: block; }
+.m-firm-name .contact-name { font-weight: 700; white-space: normal; }
+.m-decision { font: inherit; font-size: 11px; margin-top: 4px; padding: 1px 2px; border: 1px solid var(--rule); background: transparent; color: var(--ink); max-width: 100%; }
+.m-remove { font-size: 13px; margin-left: 4px; opacity: 0; }
+.matrix thead th:hover .m-remove, .m-remove:focus-visible { opacity: 1; }
+@media (hover: none) { .m-remove { opacity: 1; } }
+.m-cell { width: 100%; min-height: 30px; border: 0; background: transparent; font: 700 14px var(--sans); color: var(--ink); cursor: pointer; }
+.m-cell:hover { background: rgba(0, 0, 0, .05); }
+.m-cell:focus-visible { outline: 2px solid var(--ink); outline-offset: -2px; }
+.matrix .m-fee td { padding: 6px; }
+.matrix .m-fee input { width: 16px; height: 16px; accent-color: var(--ink); margin: 0; }
+.m-note { width: 100%; min-width: 108px; border: 0; background: transparent; font: inherit; font-size: 12px; padding: 6px; resize: vertical; color: var(--ink); }
+.m-note:focus { outline: 2px solid var(--ink); outline-offset: -2px; }
+/* Firms you're using: green; getting a fee from: plain. */
+.matrix .dec-using { background: #dff0d8; }
+.matrix-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin-top: 10px; }
+/* Full screen. */
+html.matrix-full .proj-consultants { position: fixed; inset: 16px; z-index: 900; background: var(--bg); box-shadow: 0 0 0 100vmax rgba(17,17,17,.35); }
+html.matrix-full .proj-consultants .proj-card-body { overflow: auto; }
+@media print { .m-remove, .m-decision, .matrix-actions, .team-remove { display: none !important; } }
+/* A matrix row's Remove sits under its name, shown on hover (always on touch screens). */
+.matrix th[scope="row"] .team-remove { display: block; margin-top: 1px; font-size: 11px; font-weight: 400; opacity: 0; }
+.matrix tr:hover th[scope="row"] .team-remove, .matrix .team-remove:focus-visible { opacity: 1; }
+@media (hover: none) { .matrix th[scope="row"] .team-remove { opacity: 1; } }
+
+/* Consultant matrix, read-only: compact, so it fits the card without scrolling. */
+.matrix:not(.editing) thead th { padding: 4px 6px 3px; min-width: 84px; }
+.matrix:not(.editing) td { height: 24px; }
+.m-mark { font-weight: 700; font-size: 13px; }
+.m-status { display: block; font-size: 11px; font-weight: 400; }
+.matrix th[scope="row"] { padding-top: 3px; padding-bottom: 3px; }
+.matrix.editing .m-cell { min-height: 28px; }
+.matrix-actions .btn { padding: 4px 12px; font-size: 13px; }
+
+/* Consultant matrix, compact so the read-only table fits its card: two-line firm names, short rows. */
+.proj-card-links .link { font-size: 13px; }
+.matrix { font-size: 12px; }
+.matrix:not(.editing) thead th { padding: 3px 5px 2px; min-width: 76px; max-width: 120px; }
+.matrix .m-firm-name .contact-name { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; font-size: 12px; line-height: 1.25; }
+.matrix:not(.editing) td { height: 21px; }
+.matrix th[scope="row"] { padding-top: 2px; padding-bottom: 2px; font-size: 12px; }
+.m-mark { font-size: 12px; }
+.m-status { font-size: 10px; text-transform: uppercase; letter-spacing: .04em; margin-top: 1px; }
+.proj-consultants .proj-card-body { padding-top: 8px; padding-bottom: 8px; }
+.m-fee { display: block; font-size: 11px; font-weight: 600; margin-top: 1px; font-variant-numeric: tabular-nums; }
+/* The matrix's key: green columns are firms you're using. */
+.m-key { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; }
+.m-key i { display: inline-block; width: 11px; height: 11px; background: #dff0d8; border: 1px solid #9fc79a; }
+.visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+/* Consultants and their proposals: a row per firm, waiting or received. */
+.proj-card ol.received-list > li.received { grid-template-columns: minmax(0, 1fr) auto auto; }
+li.received.waiting .received-main b { font-weight: 600; }
+.received-actions { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; font-size: 12px; white-space: nowrap; }
+.received-actions .link { font-size: 12px; cursor: pointer; }
+.received-actions label.link { text-decoration: underline; text-underline-offset: 2px; }
+.received-actions .disabled { opacity: .4; pointer-events: none; }
+.received-new { font-size: 13px; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+.received-pick input:disabled { opacity: .3; }
+
+/* The project's Consultants page: the matrix, then one comparison per discipline. */
+.cpage-matrix { max-width: none; }
+.cgroup { border-top: 2px solid var(--ink); padding-top: 18px; }
+.cgroup-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 18px; margin-bottom: 12px; }
+.cgroup-title { font-size: 24px; font-weight: 800; margin: 0; letter-spacing: -0.01em; }
+.cgroup-status { font-size: 13px; }
+.cgroup.stale .cgroup-status { color: var(--bad); font-weight: 700; }
+.cgroup-waiting { font-size: 14px; margin: -4px 0 14px; }
+.cgroup-sub { font-size: 16px; font-weight: 700; margin: 26px 0 8px; }
+.cgroup .glance { margin-bottom: 24px; }
+.cpage-matrix .matrix-wrap { max-width: 100%; }
