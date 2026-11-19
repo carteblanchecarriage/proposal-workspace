@@ -459,7 +459,7 @@ function render() {
     <div class="rfp-top">
       ${project ? `<a class="link" href="#project/${encodeURIComponent(project.id)}">← ${esc(projectLabel(project))}</a>` : `<a class="link" href="#project">← Projects</a>`}
       <span class="status error" id="fee-save-error"></span>
-      <div class="actions">${assistantButton()}<button class="btn" data-undo title="Undo (Ctrl+Z)" ${undoStack.length ? "" : "disabled"}>Undo</button><button class="btn" data-delete-fee>Delete</button></div>
+      <div class="actions">${assistantButton()}<button class="btn" data-undo title="Undo (Ctrl+Z)" ${undoStack.length ? "" : "disabled"}>Undo</button><button class="btn" data-export-excel>Export to Excel</button><button class="btn" data-delete-fee>Delete</button></div>
     </div>
     ${input('data-k="title" aria-label="Fee title"', f.title, "fee-title")}
     <p class="fee-project">${
@@ -825,6 +825,23 @@ function proposalText(t: ProposalTable): string {
   return [table, "Additional scope items (not included in the total fee)", ...below, ...total].join("\n");
 }
 
+/** Downloads the open fee as an Excel workbook (fee-excel.ts). */
+async function exportExcel(button: HTMLButtonElement) {
+  if (!fee) return;
+  const project = projects.find((p) => p.id === fee!.workspaceProjectId);
+  button.disabled = true;
+  button.textContent = "Exporting…";
+  try {
+    const { exportFeeExcel } = await import("./fee-excel");
+    await exportFeeExcel(fee, { project: project ? projectLabel(project) : "", style: feeStyle });
+  } catch (err) {
+    await noticeModal("Couldn't export the fee", (err as Error).message);
+  } finally {
+    button.disabled = false;
+    button.textContent = "Export to Excel";
+  }
+}
+
 async function copyProposalTable() {
   if (!fee) return;
   const t = proposalTable(fee);
@@ -999,6 +1016,7 @@ async function onClick(e: Event) {
   const attr = (name: string) => t.closest(`[${name}]`)?.getAttribute(name) ?? null;
   if (t.closest("[data-new-fee]")) return makeFee();
   if (t.closest("[data-copy-table]")) return copyProposalTable();
+  if (t.closest("[data-export-excel]")) return exportExcel(t.closest<HTMLButtonElement>("[data-export-excel]")!);
   if (t.closest("[data-undo]")) return undo();
   if (!fee) return;
   if (t.closest("[data-fee-final]") || t.closest("[data-fee-draft]")) {

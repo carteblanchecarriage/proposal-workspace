@@ -441,6 +441,17 @@ export async function getFeeStyle(): Promise<FeeStyle> {
 }
 export const saveFeeStyle = (style: FeeStyle) => saveRecord("settings", { id: "fee-style", savedAt: Date.now(), ...cleanFeeStyle(style) } satisfies FeeStyleRecord);
 
+// ---------- Qualifications and exclusions ----------
+
+/** The organization's standard qualifications and exclusions, one item each (one settings record per organization). */
+type QualificationsRecord = { id: "qualifications"; savedAt: number; items: string[] };
+/** The list; empty until the organization writes its own. */
+export async function getQualifications(): Promise<string[]> {
+  const saved = (await listRecords<QualificationsRecord>("settings")).find((r) => r.id === "qualifications");
+  return Array.isArray(saved?.items) ? saved.items.filter((i) => typeof i === "string" && i.trim()) : [];
+}
+export const saveQualifications = (items: string[]) => saveRecord("settings", { id: "qualifications", savedAt: Date.now(), items } satisfies QualificationsRecord);
+
 // ---------- Open Calls sources ----------
 
 /** A website where the organization watches for RFPs (an agency's bids page, a procurement portal). */

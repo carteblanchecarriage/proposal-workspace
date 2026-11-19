@@ -4,6 +4,7 @@ import { setOrgName } from "./org";
 import { signOut } from "./auth";
 import { isDemo } from "./store";
 import { esc } from "./table";
+import { renderQualifications } from "./qualifications";
 import { renderStyleSettings } from "./style-settings";
 
 // The organization page: name, who's signed in to it, this month's AI use, export, and delete. Kept simple on
@@ -39,8 +40,10 @@ export async function showOrg() {
     page.innerHTML = `
       <h1 class="headline">Demo Architects</h1>
       <p class="wv-intro">In your own account, this page is where you rename your organization, see who's in it and this month's AI use, download all your data, or delete the organization.</p>
-      <div class="block" id="org-style"></div>`;
+      <div class="block" id="org-style"></div>
+      <div class="block settings-group" id="org-qualifications"></div>`;
     void renderStyleSettings($("org-style"));
+    void renderQualifications($("org-qualifications"));
     return;
   }
   page.innerHTML = `<h1 class="headline">Organization</h1><span class="status">Loading…</span>`;
@@ -118,6 +121,8 @@ function render() {
 
     <div class="block" id="org-style"></div>
 
+    <div class="block settings-group" id="org-qualifications"></div>
+
     <div class="block">
       <h2 class="label">AI use</h2>
       <p>${usage}</p>
@@ -141,6 +146,7 @@ function render() {
     }`;
 
   void renderStyleSettings($("org-style"));
+  void renderQualifications($("org-qualifications"));
 
   // The name reads as text; Edit opens a box with Save and Cancel (Escape cancels too), so nothing changes by accident.
   $("org-rename-edit")?.addEventListener("click", () => {

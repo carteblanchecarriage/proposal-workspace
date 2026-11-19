@@ -998,6 +998,9 @@ dialog.modal .csv-issues li { margin: 0 0 4px; }
 .settings-head .style-head { margin: 0; }
 .settings-editing { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; background: var(--ink); color: var(--bg); padding: 4px 8px; white-space: nowrap; }
 .settings-group .style-colors li:last-child { border-bottom: 0; }
+.settings-group .settings-head .label { margin: 0; }
+.qual-list { margin: 0; padding-left: 26px; max-width: 760px; font-size: 14px; line-height: 1.5; }
+.qual-list li { margin: 4px 0; }
 .settings-sub { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; margin: 18px 0 6px; padding-top: 12px; border-top: 1px solid var(--rule); }
 .style-head { font-size: 15px; font-weight: 700; margin: 0 0 4px; }
 .style-head .edit-link { margin-left: 8px; font-size: 13px; font-weight: 400; }
