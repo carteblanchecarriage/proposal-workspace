@@ -3,6 +3,7 @@
 // World view page) and the server (prompt assembly). No dependencies.
 
 import type { Rfp } from "./claude.js";
+import { shortMoney } from "./format.js";
 
 export type FeePoint = { budget: number; percent: number };
 /** One phase of the standard split of the architectural fee, in percent; the phases add up to 100. */
@@ -151,8 +152,6 @@ export function feeCurveAt(points: FeePoint[], budget: number | null | undefined
   return a.percent + t * (b.percent - a.percent);
 }
 
-const money = (n: number) =>
-  n >= 1e6 ? `$${(n / 1e6).toLocaleString("en-US", { maximumFractionDigits: 1 })}M` : `$${Math.round(n).toLocaleString("en-US")}`;
 
 /** The team's world view as it's given to the AI. Empty parts are left out; "" when there's nothing at all. */
 export function worldViewText(w: WorldView | null | undefined): string {
@@ -161,7 +160,7 @@ export function worldViewText(w: WorldView | null | undefined): string {
   const curve = [...w.feeCurve]
     .filter((p) => p.budget > 0)
     .sort((a, b) => a.budget - b.budget)
-    .map((p) => `${money(p.budget)}: ${p.percent}%`)
+    .map((p) => `${shortMoney(p.budget)}: ${p.percent}%`)
     .join(", ");
   return [
     part("Who we are", w.whoWeAre),
@@ -183,7 +182,7 @@ export type PursuitRfp = { name: string; client: string; summary: string; budget
 
 /** One line per past pursuit, as the AI sees it. */
 export function pursuitLine(p: Pursuit, r: PursuitRfp): string {
-  const fee = p.ourFee != null && p.budget ? ` Our fee ${money(p.ourFee)} (${((p.ourFee / p.budget) * 100).toFixed(1)}% of ${money(p.budget)}).` : "";
+  const fee = p.ourFee != null && p.budget ? ` Our fee ${shortMoney(p.ourFee)} (${((p.ourFee / p.budget) * 100).toFixed(1)}% of ${shortMoney(p.budget)}).` : "";
   return [
     `- ${r.name} for ${r.client}: ${p.outcome.toUpperCase()}.`,
     r.summary,

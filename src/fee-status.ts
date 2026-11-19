@@ -3,15 +3,15 @@
 
 import { confirmModal } from "./modal";
 import type { SavedFee } from "./store";
+import { dateText } from "../lib/format";
 
-const day = (ms: number) => new Date(ms).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 export const isFinal = (f: SavedFee) => f.status === "final";
 
 /** The banner: Draft with "Mark as final", or Final (and when) with "Back to draft". compact for the project card. */
 export function feeStatusHtml(f: SavedFee, compact = false): string {
   return isFinal(f)
     ? `<div class="fee-state final${compact ? " compact" : ""}" role="status">
-        <span><b>Final</b>${f.finalAt ? ` · marked final ${day(f.finalAt)}` : ""}</span>
+        <span><b>Final</b>${f.finalAt ? ` · marked final ${dateText(f.finalAt)}` : ""}</span>
         <button class="link" data-fee-draft="${f.id}">Back to draft</button>
       </div>`
     : `<div class="fee-state draft${compact ? " compact" : ""}" role="status">

@@ -2,10 +2,10 @@ import { DISCIPLINES, firmDisciplines, toDisciplines } from "../lib/disciplines"
 import { removeFirms } from "../lib/comparison-edit";
 import { defaultScheduleNotes } from "./org";
 import { askProjectName, confirmModal, confirmTyped, formModal, noticeModal } from "./modal";
-import { makeFee, proposalHtml, withWaiting } from "./fee";
+import { makeFee, withWaiting } from "./fee";
 import { scheduleSnapshotHtml } from "./schedule-snapshot";
 import { SCHEDULE_TEMPLATES } from "./schedule/lib/data/templates.js";
-import { blockedInDemo, post } from "./api";
+import { blockedInDemo, post, postJson } from "./api";
 import { type Usage } from "../lib/cost";
 import type { Comparison, Proposal, ScheduleDraft } from "../lib/claude";
 import { consultantTotal, proposalTable, totals } from "./fee-calc";
@@ -13,12 +13,13 @@ import { feeStatusHtml, setFeeStatus } from "./fee-status";
 import { deleteProject, listFees, saveFee, type SavedFee, projectLabel, listComparisons, listProjects, listSchedules, getScheduleStyle, type ScheduleStyle, savesShared, listRfps, saveComparison, saveProject, saveRfp, saveSchedule, listConsultants, type SavedConsultant, type SavedComparison, type SavedProject, type SavedRfp, type SavedSchedule, type ProjectFirm, type ReceivedProposal } from "./store";
 import { addAddendum, docKindLabel, docTitle, formatWhen, physicalSubmission, printBy, parseDay, projectDisciplines, proposalDue, verdictPill } from "./rfp";
 import { setPendingProject } from "./pending";
-import { adoptFromComparisons, onProposalsChange, onProposalsClick, proposalsHeadHtml, proposalsHtml, qaqcHtml, type ProposalsContext } from "./project-proposals";
+import { adoptFromComparisons, onProposalsChange, proposalsHeadHtml, proposalsHtml, qaqcHtml, type ProposalsContext } from "./project-proposals";
 import { copyShareLink } from "./share";
 import { AI_MARK, briefingDetails, esc, feeTable, firmName, glanceHtml, scopeTable, statedTotal, type Sourced } from "./table";
 import { contactsHtml, copyEmail, keyOf, siteLink } from "./consultants";
 import { parseContacts } from "./contacts";
-import { assistantButton, setAssistantPage, type Turn } from "./assistant";
+import { askProjectAssistant, assistantButton, setAssistantPage } from "./assistant";
+import { money, plural, shortDay } from "../lib/format";
 
 // A project page: its RFP review, consultant proposals (and their comparisons), the proposal check, consultants by
 // discipline, schedule and fee.
@@ -189,7 +190,7 @@ function render() {
     hint: 'Ask about anything in this project: the RFP, fee, schedule, consultants and comparisons. For example, "Does the schedule leave time for the DD client review the RFP asks for?" or "Which requested consultant services don\'t have a proposal yet?"',
     projectId: p.id,
     part: "project",
-    ask: (turns, { digest }) => askAssist("project", dashboardContext(p), digest, turns),
+    ask: (turns, { digest }) => askProjectAssistant("project", dashboardContext(p), digest, turns),
   });
   // A dashboard: the RFP review, schedule and fee on top; the consultants (proposals and matrix) and proposal check below. On a large enough screen it fits the window (see fitDashboard); long lists scroll inside their card.
   $("project-page").innerHTML = `
@@ -245,7 +246,7 @@ function render() {
 
       <div class="proj-card proj-proposals saved">
         <div class="proj-card-head"><h2 class="label">${cardTitle("Consultant proposals", `#project/${encodeURIComponent(p.id)}/consultants`)}</h2>${proposalsHeadHtml(p)}</div>
-        <div class="proj-card-body">${proposalsHtml(p, comparisons, proposalsContext())}</div>
+        <div class="proj-card-body">${proposalsHtml(p, comparisons)}</div>
       </div>
 
       <div class="proj-card proj-consultants">
@@ -265,14 +266,12 @@ function render() {
   fitDashboard();
 }
 
-const money = (n: number) => `$${Math.round(n).toLocaleString("en-US")}`;
 
 /** A card's title: a link to that section's page when there is one. */
 const cardTitle = (text: string, href: string) => (href ? `<a class="card-title-link" href="${href}">${esc(text)}</a>` : esc(text));
 
 /** What the RFP review is built from: the RFP itself, then each document added since (newest last). */
 function rfpSourcesHtml(r: SavedRfp): string {
-  const day = (ms: number) => new Date(ms).toLocaleDateString("en-US", { month: "short", day: "numeric" });
   const href = `#rfp/${encodeURIComponent(r.id)}`;
   const original = r.files.slice(0, r.files.length - (r.addenda ?? []).reduce((n, a) => n + a.files.length, 0));
   const rows = [
@@ -282,7 +281,7 @@ function rfpSourcesHtml(r: SavedRfp): string {
       .map(
         (a) =>
           `<li><a class="link" href="${href}"><b>${esc(docTitle(a))}</b></a><span class="src-meta">${esc(
-            [docKindLabel(a), day(a.at), `${a.changes.length} update${a.changes.length === 1 ? "" : "s"}`].filter(Boolean).join(" · "),
+            [docKindLabel(a), shortDay(a.at), `${plural(a.changes.length, "update")}`].filter(Boolean).join(" · "),
           )}</span></li>`,
       ),
   ];
@@ -393,7 +392,7 @@ async function makeSchedule() {
     if (!ok) return;
     const review = rfp;
     const res = await withWaiting("Drafting the schedule from the RFP review…", () =>
-      post<{ draft: ScheduleDraft; usage: Usage }>("/api/schedule-ai", JSON.stringify({ rfp: review.rfp }), { "content-type": "application/json", "x-action": "draft" }),
+      postJson<{ draft: ScheduleDraft; usage: Usage }>("/api/schedule-ai", { rfp: review.rfp }, "draft"),
     ).catch((err: Error) => noticeModal("Couldn't draft the schedule", err.message).then(() => null));
     if (!res) return;
     schedule = scheduleFromDraft(res.draft);
@@ -641,7 +640,7 @@ function consultantsHtml(p: SavedProject): string {
     ? `<div class="actions matrix-actions"><button class="link" data-add-discipline>+ Add discipline</button></div>`
     : "";
   if (!firms.length)
-    return `<p class="none">${rows.length ? `${rows.length} discipline${rows.length === 1 ? "" : "s"} to cover. ` : ""}${
+    return `<p class="none">${rows.length ? `${plural(rows.length, "discipline")} to cover. ` : ""}${
       editing ? "Add the firms you're using or getting fees from." : "Choose Edit to add the firms you're using or getting fees from."
     }</p>${actions}`;
   const dec = (c: ProjectFirm) => decisionOf(c);
@@ -727,20 +726,10 @@ type ReviewGroup = {
 
 // ---------- AI assistant ----------
 
-/** One turn with the project assistant (questions and answers; it changes nothing). */
-async function askAssist(page: "project" | "consultants", pageContext: unknown, digest: string, turns: Turn[]) {
-  const res = await post<{ reply: string; usage: Usage }>("/api/chat", JSON.stringify({ page, pageContext, digest, turns }), {
-    "content-type": "application/json",
-    "x-action": "assist",
-  });
-  return { text: res.reply, source: "data" as const, costUsd: res.usage.cost_usd };
-}
-
 /** The dashboard as the assistant sees it; the RFP, fee, schedule and consultants come in the project digest. */
 function dashboardContext(p: SavedProject) {
   return {
     project: projectLabel(p),
-    proposal_check: p.check ? { summary: p.check.summary, firms: p.check.firms, coverage: p.check.coverage, issues: p.check.issues } : null,
     qaqc: p.qaqc ? { file: p.qaqc.fileName, summary: p.qaqc.summary, flags: p.qaqc.flags } : null,
   };
 }
@@ -816,12 +805,10 @@ function renderConsultantsPage() {
     hint: 'Ask about the consultant proposals on this page. For example, "Who excludes CA site visits?" or "Which disciplines are still waiting on a proposal?" For fee lines and scope detail, open a discipline\'s comparison and ask there.',
     projectId: p.id,
     part: "consultants",
-    ask: (turns, { digest }) => askAssist("consultants", consultantsContext(groups), digest, turns),
+    ask: (turns, { digest }) => askProjectAssistant("consultants", consultantsContext(groups), digest, turns),
   });
   const stale = groups.filter((g) => g.stale);
   const received = (p.proposals ?? []).length;
-  const day = (ms: number) => new Date(ms).toLocaleDateString("en-US", { month: "short", day: "numeric" });
-  const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? "" : "s"}`;
 
   // A discipline in one line: proposals in, the lowest stated fee, who you're using, and whether it's current.
   const summaryLine = (g: ReviewGroup) => {
@@ -829,7 +816,7 @@ function renderConsultantsPage() {
     const known = totals.filter((x): x is { name: string; t: number } => x.t != null);
     const low = known.length > 1 ? known.reduce((a, b) => (b.t < a.t ? b : a)) : known[0];
     const using = g.firms.filter((c) => decisionOf(c) === "using").map((c) => c.name);
-    const status = !g.saved ? "not compared yet" : g.stale ? `out of date (compared ${day(g.saved.savedAt)})` : `compared ${day(g.saved.savedAt)}`;
+    const status = !g.saved ? "not compared yet" : g.stale ? `out of date (compared ${shortDay(g.saved.savedAt)})` : `compared ${shortDay(g.saved.savedAt)}`;
     return [
       plural(g.proposals.length, "proposal"),
       low ? `${known.length > 1 ? "lowest " : ""}${money(low.t)} (${low.name})` : "",
@@ -1187,16 +1174,13 @@ async function remove(id: string) {
 const proposalsContext = (): ProposalsContext => ({
   project: project!,
   rfp,
-  comparisons,
   save: () => saveProject(project!),
   rerender: () => project && render(),
   linkFirm: (r) => (project ? linkFirm(project, r) : undefined),
-  firmOf: (r) => project?.consultants?.find((c) => c.id === r.firmId),
 });
 
 async function onClick(e: Event) {
   const t = e.target as HTMLElement;
-  if (project && (await onProposalsClick(t, proposalsContext()))) return;
   const contact = t.closest<HTMLElement>("[data-contact]");
   if (contact) return openContactCard(contact);
   const del = t.closest("[data-delete-project]")?.getAttribute("data-delete-project");
@@ -1288,7 +1272,7 @@ document.addEventListener("click", (e) => {
 addEventListener("keydown", (e) => e.key === "Escape" && closeContactCard());
 addEventListener("hashchange", closeContactCard);
 
-// A firm's status for one discipline: candidate, asked, or teaming (an MEP firm can be teaming for one and asked for another).
+// The consultant matrix's edits: a firm's decision (using it, or getting a fee) and its note.
 document.addEventListener("change", async (e) => {
   const el = e.target as HTMLInputElement;
   if (!project || !el.closest?.("#project-page .matrix")) return;
@@ -1330,7 +1314,7 @@ document.addEventListener("change", async (e) => {
     const last = updated.addenda!.at(-1)!;
     const go = await confirmModal({
       title: `${docTitle(last)} added`,
-      body: `${last.changes.length} update${last.changes.length === 1 ? "" : "s"} to the RFP review. The review lists each one.`,
+      body: `${plural(last.changes.length, "update")} to the RFP review. The review lists each one.`,
       confirm: "See the updates",
     });
     if (go) location.hash = `#rfp/${encodeURIComponent(updated.id)}`;

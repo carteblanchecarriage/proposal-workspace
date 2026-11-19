@@ -4,6 +4,7 @@ import { COLUMNS, downloadCsv, MAX_BYTES, planImport, templateCsv, type Issue } 
 import { deleteConsultant, listComparisons, listConsultants, saveConsultant, savesShared, type SavedConsultant } from "./store";
 import { contactText, parseContacts, type Contact } from "./contacts";
 import { esc, firmName } from "./table";
+import { plural } from "../lib/format";
 
 // Consultants: a directory kept in the database (add, edit, delete), plus any firm whose proposal has been read.
 // Firms are grouped by governing discipline first, then by any other specialty, A–Z.
@@ -261,11 +262,10 @@ async function importCsv(file: File) {
   const existing = await listConsultants();
   const plan = planImport(await file.text(), existing);
   if ("fatal" in plan) return noticeModal("Couldn't read the file", plan.fatal);
-  const firmsWord = (n: number) => `${n} firm${n === 1 ? "" : "s"}`;
   const summary = plan.records.length
     ? `<p>${[
-        plan.added ? `${firmsWord(plan.added)} to add` : "",
-        plan.updated ? `${firmsWord(plan.updated)} already here to update` : "",
+        plan.added ? `${plural(plan.added, "firm")} to add` : "",
+        plan.updated ? `${plural(plan.updated, "firm")} already here to update` : "",
         plan.contacts ? `${plan.contacts} new contact${plan.contacts === 1 ? "" : "s"}` : "",
       ]
         .filter(Boolean)
@@ -277,7 +277,7 @@ async function importCsv(file: File) {
     title: "Import consultants",
     body: "",
     html,
-    confirm: `Import ${firmsWord(plan.records.length)}`,
+    confirm: `Import ${plural(plan.records.length, "firm")}`,
     wide: true,
   });
   if (!ok) return;
@@ -298,7 +298,7 @@ async function importCsv(file: File) {
   );
   await load();
   render();
-  if (failed.length) await noticeModal("Some firms weren't saved", `Saved ${firmsWord(saved)}. Not saved: ${failed.join(", ")}. Try importing the file again; firms already saved won't be duplicated.`);
+  if (failed.length) await noticeModal("Some firms weren't saved", `Saved ${plural(saved, "firm")}. Not saved: ${failed.join(", ")}. Try importing the file again; firms already saved won't be duplicated.`);
 }
 
 async function onClick(e: Event) {

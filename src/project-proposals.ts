@@ -3,16 +3,14 @@
 //  - Proposal check: the firm's own finished proposal, read once for simple mistakes and fit to the RFP review.
 
 import { toDisciplines } from "../lib/disciplines";
-import type { Comparison, Proposal, QaResult } from "../lib/claude";
+import type { Proposal, QaResult } from "../lib/claude";
 import { type Usage } from "../lib/cost";
-import { blockedInDemo, post } from "./api";
+import { blockedInDemo, post, postJson } from "./api";
 import { confirmModal, noticeModal } from "./modal";
 import { uploadPdfVia } from "./rfp";
 import {
   getReading,
   hashFile,
-  projectLabel,
-  saveComparison,
   saveReading,
   type ProjectFirm,
   type ReceivedProposal,
@@ -21,36 +19,28 @@ import {
   type SavedRfp,
 } from "./store";
 import { AI_MARK, esc, firmName, statedTotal, type Sourced } from "./table";
+import { dateText, money, plural, shortDay } from "../lib/format";
 
 export type ProposalsContext = {
   project: SavedProject;
   rfp: SavedRfp | undefined;
-  comparisons: SavedComparison[];
   /** saves the project record */
   save: () => Promise<void>;
   /** redraws the project page */
   rerender: () => void;
   /** links a proposal to its project firm (making the firm when it's new); returns the firm */
   linkFirm: (r: ReceivedProposal) => ProjectFirm | undefined;
-  /** a project firm by id */
-  firmOf: (r: ReceivedProposal) => ProjectFirm | undefined;
 };
 
 // Vercel's request limit for a PDF sent straight to the reader (local development has none).
 const MAX_BYTES = import.meta.env.PROD ? 4.4 * 1024 * 1024 : Infinity;
 const isPdf = (f: File) => f.type === "application/pdf" || /\.pdf$/i.test(f.name);
 
-/** Proposals ticked for the next comparison (by id), on the project open now. */
-let selected = new Set<string>();
-let selectedFor = "";
-/** What's being read right now, shown under the list. */
+/** What's being read right now, shown under the list, and the project it's for. */
 let readingStatus = "";
+let statusFor = "";
 let checking = false;
 
-const dayText = (ms: number) => new Date(ms).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
-/** "Nov 17" this year, "Nov 17, 2025" otherwise. */
-const shortDay = (ms: number) =>
-  new Date(ms).toLocaleDateString("en-US", { month: "short", day: "numeric", ...(new Date(ms).getFullYear() === new Date().getFullYear() ? {} : { year: "numeric" }) });
 
 /** A firm's disciplines in brief: Mechanical, Electrical and Plumbing together read as "MEP". */
 function disciplinesBrief(raw: string[]): string {
@@ -61,7 +51,6 @@ function disciplinesBrief(raw: string[]): string {
   return ds.join(", ");
 }
 
-const money = (n: number) => `$${Math.round(n).toLocaleString("en-US")}`;
 
 /**
  * Proposals already inside the project's comparisons join its list (once), so they can be compared with ones that
@@ -105,10 +94,9 @@ function proposalsOf(p: SavedProject, firmId: string) {
   return { list, latest: list.at(-1) };
 }
 
-export function proposalsHtml(p: SavedProject, comparisons: SavedComparison[], ctx: ProposalsContext): string {
-  if (selectedFor !== p.id) (selected = new Set()), (selectedFor = p.id), (readingStatus = "");
+export function proposalsHtml(p: SavedProject, comparisons: SavedComparison[]): string {
+  if (statusFor !== p.id) (statusFor = p.id), (readingStatus = "");
   const firms = p.consultants ?? [];
-  for (const id of selected) if (!proposalsOf(p, id).latest) selected.delete(id);
   const rows = firms
     .map((c) => {
       const { list, latest } = proposalsOf(p, c.id!);
@@ -131,8 +119,6 @@ export function proposalsHtml(p: SavedProject, comparisons: SavedComparison[], c
       </li>`;
     })
     .join("");
-  const n = selected.size;
-  const withProposals = firms.filter((c) => proposalsOf(p, c.id!).latest).length;
   // Sections of the Consultants page aren't listed here; earlier comparisons are.
   const cmpList = comparisons
     .filter((c) => !c.group)
@@ -167,7 +153,7 @@ async function addProposals(files: File[], ctx: ProposalsContext, firmId?: strin
   const started = Date.now();
   let left = ok.length;
   const show = () => {
-    readingStatus = left ? `Reading ${left} proposal${left === 1 ? "" : "s"}… ${Math.round((Date.now() - started) / 1000)}s (usually 1–2 minutes each)` : "";
+    readingStatus = left ? `Reading ${plural(left, "proposal")}… ${Math.round((Date.now() - started) / 1000)}s (usually 1–2 minutes each)` : "";
     const el = document.getElementById("received-status");
     if (el) el.textContent = readingStatus;
   };
@@ -233,7 +219,7 @@ export function qaqcHtml(p: SavedProject, rfp: SavedRfp | undefined): string {
   const looks = q.flags.length - fixes;
   const counts = q.flags.length ? [fixes ? `${fixes} to fix` : "", looks ? `${looks} to check` : ""].filter(Boolean).join(", ") : "Nothing flagged";
   return `
-    <p class="qaqc-head"><b>${esc(counts)}</b> <span class="received-meta">${esc(q.fileName)} · ${dayText(q.checkedAt)}</span></p>
+    <p class="qaqc-head"><b>${esc(counts)}</b> <span class="received-meta">${esc(q.fileName)} · ${dateText(q.checkedAt)}</span></p>
     ${q.summary ? `<p>${esc(q.summary)}</p>` : ""}
     ${
       q.flags.length
@@ -276,10 +262,7 @@ async function runQaqc(files: File[], ctx: ProposalsContext) {
   }, 1000);
   try {
     const uploaded = await Promise.all(files.map(async (f) => ({ file_id: (await uploadPdfVia(f)).fileId, filename: f.name })));
-    const res = await post<{ qa: QaResult; usage: Usage }>("/api/rfp", JSON.stringify({ files: uploaded, rfp: ctx.rfp?.rfp ?? null }), {
-      "content-type": "application/json",
-      "x-action": "qaqc",
-    });
+    const res = await postJson<{ qa: QaResult; usage: Usage }>("/api/rfp", { files: uploaded, rfp: ctx.rfp?.rfp ?? null }, "qaqc");
     ctx.project.qaqc = {
       fileName: files.map((f) => f.name).join(", "),
       checkedAt: Date.now(),
@@ -299,12 +282,7 @@ async function runQaqc(files: File[], ctx: ProposalsContext) {
 
 // ---------- Events (the project page passes them on) ----------
 
-/** Handles a click in the Proposals or Proposal check card; true when it was one of theirs. */
-export async function onProposalsClick(t: HTMLElement, ctx: ProposalsContext): Promise<boolean> {
-  return false;
-}
-
-/** Handles a change (file picked, proposal ticked) in those cards; true when it was one of theirs. */
+/** Handles a file picked in the Proposals or Proposal check card; true when it was one of theirs. */
 export function onProposalsChange(el: HTMLInputElement, ctx: ProposalsContext): boolean {
   if (el.matches("[data-add-proposals], [data-upload-for], [data-qaqc-file]")) {
     const files = [...(el.files ?? [])];

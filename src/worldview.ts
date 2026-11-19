@@ -13,12 +13,13 @@ import {
   type PursuitRfp,
   type WorldView,
 } from "../lib/worldview";
-import { post } from "./api";
+import { postJson } from "./api";
 import { readAmount } from "./fee-calc";
 import { confirmDelete, confirmModal, noticeModal } from "./modal";
 import { servicesMatrix, uploadRfpPdf } from "./rfp";
 import { deletePursuit, getWorldView, listPursuits, listRfps, savePursuit, saveWorldView, savesShared, type SavedRfp } from "./store";
 import { esc } from "./table";
+import { money, plural } from "../lib/format";
 
 // The World view: what the AI is told when it judges RFPs, in plain sight and editable by the team. The team's
 // world view and fee curve, the past pursuits that show what wins, a check of the world view against those
@@ -571,7 +572,6 @@ function hideChartTip() {
 // ---------- Past pursuits ----------
 
 const OUTCOME_LABEL: Record<Outcome, string> = { won: "Won", shortlisted: "Shortlisted", lost: "Lost", "no bid": "No bid" };
-const money = (n: number) => n.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
 
 function pursuitsHtml(): string {
   if (!pursuits.length) return `<p class="none">None yet.</p>`;
@@ -647,7 +647,7 @@ async function readPastRfp(files: File[]): Promise<{ rfp: Rfp; costUsd: number |
   try {
     const uploaded = await Promise.all(files.map(async (f) => ({ file_id: await uploadRfpPdf(f), filename: f.name })));
     // A plain read: the world view isn't sent, so the record of what the RFP said stays neutral.
-    const res = await post<{ rfp: Rfp; usage: Usage }>("/api/rfp", JSON.stringify({ files: uploaded }), { "content-type": "application/json" });
+    const res = await postJson<{ rfp: Rfp; usage: Usage }>("/api/rfp", { files: uploaded });
     return { rfp: res.rfp, costUsd: res.usage.cost_usd ?? null };
   } finally {
     clearInterval(tick);
@@ -744,10 +744,7 @@ async function summarizeOwnPdf(input: HTMLInputElement) {
   if (status) status.textContent = "Reading…";
   try {
     const fileId = await uploadRfpPdf(file);
-    const res = await post<{ summary: string; usage: Usage }>("/api/extract", JSON.stringify({ file_id: fileId, filename: file.name }), {
-      "content-type": "application/json",
-      "x-action": "summarize-own",
-    });
+    const res = await postJson<{ summary: string; usage: Usage }>("/api/extract", { file_id: fileId, filename: file.name }, "summarize-own");
     const box = document.querySelector<HTMLTextAreaElement>('[data-pursuit-form] [name="ourProposal"]');
     if (box) box.value = res.summary;
     if (status) status.textContent = "";
@@ -818,10 +815,7 @@ async function runCheck() {
           const r = rfpOf(p, rfps)!;
           const ctx = contextFrom(wv!, pursuits, rfps, { rfp: r, exclude: p.id });
           const { fit: _fit, ...rfp } = r as Rfp & { fit?: Fit };
-          const res = await post<{ fit: Fit; usage: Usage }>("/api/rfp", JSON.stringify({ rfp, worldView: ctx.worldView, pursuits: ctx.pursuits }), {
-            "content-type": "application/json",
-            "x-action": "fit-check",
-          });
+          const res = await postJson<{ fit: Fit; usage: Usage }>("/api/rfp", { rfp, worldView: ctx.worldView, pursuits: ctx.pursuits }, "fit-check");
           cost += res.usage.cost_usd ?? 0;
           return { pursuit: p, name: r.project_name, fit: res.fit };
         }),
@@ -866,10 +860,7 @@ async function draftFromSite() {
   status.classList.remove("error");
   status.textContent = "Reading the website. This takes up to a minute.";
   try {
-    const res = await post<{ draft: SiteDraft; usage: Usage }>("/api/rfp", JSON.stringify({ url }), {
-      "content-type": "application/json",
-      "x-action": "from-site",
-    });
+    const res = await postJson<{ draft: SiteDraft; usage: Usage }>("/api/rfp", { url }, "from-site");
     siteDraft = res.draft;
     const filled: string[] = [];
     const offered: string[] = [];
@@ -894,7 +885,7 @@ async function draftFromSite() {
     }
     const pages = res.draft.pagesRead.length;
     status.textContent = [
-      filled.length || offered.length ? `Read ${pages} page${pages === 1 ? "" : "s"}.` : "The website didn't say enough to draft from.",
+      filled.length || offered.length ? `Read ${plural(pages, "page")}.` : "The website didn't say enough to draft from.",
       filled.length ? `Filled in: ${filled.join(", ")}.` : "",
       offered.length ? `Suggested below what you've written: ${offered.join(", ")}.` : "",
       res.draft.notes,
@@ -931,10 +922,7 @@ async function runSuggest() {
       reasons: r.fit.reasons,
       debrief: r.pursuit.debrief,
     }));
-    const res = await post<{ text: string; usage: Usage }>("/api/rfp", JSON.stringify({ worldView: worldViewText(wv), results }), {
-      "content-type": "application/json",
-      "x-action": "suggest",
-    });
+    const res = await postJson<{ text: string; usage: Usage }>("/api/rfp", { worldView: worldViewText(wv), results }, "suggest");
     suggestion = res.text.trim();
     check.costUsd += res.usage.cost_usd ?? 0;
   } catch (err) {

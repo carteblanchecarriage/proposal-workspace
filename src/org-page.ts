@@ -1,4 +1,4 @@
-import { post } from "./api";
+import { postJson } from "./api";
 import { confirmTyped, noticeModal } from "./modal";
 import { setOrgName } from "./org";
 import { signOut } from "./auth";
@@ -26,7 +26,7 @@ type Info = {
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 const usd = (n: number) => `$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-const orgAction = <T>(action: string, body: object = {}) => post<T>("/api/auth", JSON.stringify(body), { "content-type": "application/json", "x-action": action });
+const orgAction = <T>(action: string, body: object = {}) => postJson<T>("/api/auth", body, action);
 
 let info: Info | null = null;
 /** The name's edit box is open. */

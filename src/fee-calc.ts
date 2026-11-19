@@ -30,7 +30,7 @@ export function wholePercents(weights: number[]): (number | null)[] {
   const exact = weights.map((w) => (w / sum) * 100);
   const out = exact.map(Math.floor);
   let left = 100 - out.reduce((s, x) => s + x, 0);
-  for (const i of exact.map((x, i) => i).sort((a, b) => exact[b] - out[b] - (exact[a] - out[a]))) {
+  for (const i of exact.map((_, i) => i).sort((a, b) => exact[b] - out[b] - (exact[a] - out[a]))) {
     if (left-- <= 0) break;
     out[i]++;
   }

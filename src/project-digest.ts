@@ -5,11 +5,11 @@ import { totals } from "./fee-calc";
 import { proposalDue } from "./rfp";
 import { listComparisons, listFees, listProjects, listRfps, listSchedules, projectLabel } from "./store";
 import { firmName, statedTotal } from "./table";
+import { money } from "../lib/format";
 
 export type DigestPart = "project" | "rfp" | "consultants" | "fee" | "schedule" | "comparison";
 
 const MAX_CHARS = 8_000;
-const money = (n: number) => `$${Math.round(n).toLocaleString("en-US")}`;
 const cut = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
 
 /** The digest for a project, leaving out the part the page shows in full ("project": everything). */
@@ -86,7 +86,6 @@ export async function buildDigest(projectId: string, part: DigestPart): Promise<
     for (const c of cmps) out.push(`Comparison${c.group ? ` (${c.group.label})` : ""}: ${cut(c.cmp.briefing.headline, 300)}`);
   }
 
-  if (p.check) out.push(`Proposal check: ${cut(p.check.summary, 400)}`);
   if (p.qaqc) out.push(`QA/QC of our proposal (${p.qaqc.fileName}): ${cut(p.qaqc.summary, 300)}`);
 
   return cut(out.join("\n\n"), MAX_CHARS);

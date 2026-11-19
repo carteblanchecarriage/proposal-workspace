@@ -29,6 +29,10 @@ export async function post<T>(url: string, body: BodyInit, headers: Record<strin
   return data as T;
 }
 
+/** POSTs a JSON body; action picks the job on endpoints that do several (the x-action header). */
+export const postJson = <T>(url: string, body: unknown, action?: string) =>
+  post<T>(url, JSON.stringify(body), { "content-type": "application/json", ...(action ? { "x-action": action } : {}) });
+
 /** Sends a PDF's raw bytes. */
 export const postPdf = <T>(url: string, file: File) =>
   post<T>(url, file, { "content-type": "application/pdf", "x-filename": encodeURIComponent(file.name) });

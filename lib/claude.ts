@@ -5,7 +5,7 @@ import { costOf, type Usage } from "./cost.js";
 import { recordFile, recordUsage } from "./usage-hook.js";
 import { DISCIPLINES, toDisciplines } from "./disciplines.js";
 import { mergeExtension } from "./comparison-edit.js";
-import { ADDENDUM_SYSTEM, CHAT_NO_PDFS, CHAT_SYSTEM, CHECK_SYSTEM, COMPARE_SYSTEM, EXTRACT_SYSTEM, FEE_CHAT_SYSTEM, FEE_DRAFT_SYSTEM, FIT_CHECK_SYSTEM, OWN_PROPOSAL_SYSTEM, RFP_SYSTEM, SCHEDULE_DRAFT_SYSTEM, SUGGEST_SYSTEM, US_ENGLISH, WEBSITE_SYSTEM, QAQC_SYSTEM, EXTEND_SYSTEM } from "./prompts.js";
+import { ADDENDUM_SYSTEM, CHAT_NO_PDFS, CHAT_SYSTEM, COMPARE_SYSTEM, EXTRACT_SYSTEM, FEE_CHAT_SYSTEM, FEE_DRAFT_SYSTEM, FIT_CHECK_SYSTEM, OWN_PROPOSAL_SYSTEM, RFP_SYSTEM, SCHEDULE_DRAFT_SYSTEM, SUGGEST_SYSTEM, US_ENGLISH, WEBSITE_SYSTEM, QAQC_SYSTEM, EXTEND_SYSTEM } from "./prompts.js";
 
 export const MODEL = "claude-opus-5-5";
 
@@ -147,7 +147,8 @@ export const RfpSchema = z.object({
     ) as Record<RfpFactKey, z.ZodObject<{ value: z.ZodString; page: z.ZodNumber }>>,
   ),
   // Every discipline on the governing list, each marked requested or not, so the team can see which consultants it needs.
-  services: z.array(z.object({ discipline: z.enum(DISCIPLINES), requested: z.enum(["yes", "no", "unclear"]), detail: z.string(), page: z.number() })),
+  // "needed" is the team's own mark (the RFP doesn't ask for it, but the project needs it); the AI never writes it.
+  services: z.array(z.object({ discipline: z.enum(DISCIPLINES), requested: z.enum(["yes", "no", "unclear", "needed"]), detail: z.string(), page: z.number() })),
   dates: z.array(
     z.object({
       label: z.string(),
@@ -219,27 +220,6 @@ export function fromWire(w: RfpWire): Rfp {
   return { ...w, facts, services };
 }
 
-// A project's consultant proposals checked against its RFP review: who covers each requested service, and what's missing or wrong.
-export const ProjectCheckSchema = z.object({
-  summary: z.string(),
-  coverage: z.array(
-    z.object({
-      discipline: z.string(),
-      status: z.enum(["covered", "partial", "missing", "in_house"]),
-      firm_indexes: z.array(z.number()),
-      note: z.string(),
-    }),
-  ),
-  issues: z.array(
-    z.object({
-      level: z.enum(["high", "medium", "low"]),
-      title: z.string(),
-      detail: z.string(),
-      firm_indexes: z.array(z.number()),
-    }),
-  ),
-});
-export type ProjectCheck = z.infer<typeof ProjectCheckSchema>;
 
 // What the chat model returns. Corrections come back as JSON text (validated below against the full schemas),
 // because nesting whole proposals/analyses here would exceed the structured-output union-field limit.
@@ -753,29 +733,6 @@ const textOf = (msg: { content: { type: string }[] }) =>
     .filter((b) => b.type === "text")
     .map((b) => (b as unknown as { text: string }).text)
     .join("");
-
-/** Checks a project's consultant proposals against its RFP review. Text only (no PDFs), so it's quick and cheap. */
-export async function checkProject(rfp: Rfp, proposals: Proposal[], firm = ""): Promise<{ check: ProjectCheck; usage: Usage }> {
-  const payload = proposals.map((p, firm_index) => {
-    const { hourly_rates, fee_items, ...rest } = p;
-    return { firm_index, ...rest };
-  });
-  const stream = getClient().beta.messages.stream({
-    ...BASE,
-    system: withContext(CHECK_SYSTEM, firm),
-    output_config: { effort: "high", format: betaZodOutputFormat(ProjectCheckSchema) },
-    messages: [
-      {
-        role: "user",
-        content: `RFP review (JSON):\n${JSON.stringify(rfp)}\n\nConsultant proposal extractions (JSON):\n${JSON.stringify(payload, null, 1)}`,
-      },
-    ],
-  });
-  const msg = await stream.finalMessage();
-  checkStop(msg);
-  if (!msg.parsed_output) throw new UserFacingError("Couldn't read the AI's project check. Try again.", 502);
-  return { check: msg.parsed_output, usage: usageOf(msg) };
-}
 
 // A starting fee drafted from the RFP review: budget, and the firm's own architecture and interior design work
 // (FF&E included when the RFP asks for it) by phase, task and role. Consultants are left to their own proposals.

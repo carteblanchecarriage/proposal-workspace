@@ -1,5 +1,6 @@
 import type { Comparison, Proposal } from "../lib/claude";
 import { toDisciplines } from "../lib/disciplines";
+import { dateText, money, plural } from "../lib/format";
 
 type FeeItem = Proposal["fee_items"][number];
 /** A proposal plus the uploaded file it came from and its Anthropic file id (both added client-side). */
@@ -20,8 +21,6 @@ export const esc = (s: unknown) =>
   String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
 
 // Saved records come back from the database, so numbers are coerced before display (never trusted as HTML).
-const money = (n: number | null | undefined) =>
-  n == null || !Number.isFinite(Number(n)) ? "—" : Number(n).toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
 
 const list = (items: string[]) => (items.length ? `<ul>${items.map((i) => `<li>${esc(i)}</li>`).join("")}</ul>` : "—");
 
@@ -56,7 +55,7 @@ function fmtDate(d: string): string {
   else return d;
   const date = new Date(y, m - 1, day);
   if (date.getMonth() !== m - 1 || date.getDate() !== day) return d; // reject impossible dates like 2/30
-  return date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  return dateText(date);
 }
 
 const source = (p: Sourced) => (p.source_file ? `<small class="src">${esc(p.source_file)}</small>` : "");
@@ -313,7 +312,7 @@ export function glanceHtml(proposals: Sourced[], cmp: Comparison): string {
       const facts = [
         excluded ? `${excluded} scope item${excluded === 1 ? "" : "s"} excluded` : "",
         unknown ? `${unknown} not mentioned` : "",
-        act ? `${act} flag${act === 1 ? "" : "s"} to act on` : "",
+        act ? `${plural(act, "flag")} to act on` : "",
       ].filter(Boolean);
       return `<div class="glance-card${act ? " has-act" : ""}">
         <p class="glance-firm">${esc(firmName(p.firm))}${t != null && t === low ? ' <span class="glance-low">Lowest</span>' : ""}</p>

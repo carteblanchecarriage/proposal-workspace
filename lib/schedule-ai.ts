@@ -1,3 +1,4 @@
+import type { MessageParam } from "@anthropic-ai/sdk/resources/messages";
 import { getClient, usageOf } from "./claude.js";
 import { SCHEDULE_PROMPT } from "./schedule-prompt.js";
 import { US_ENGLISH } from "./prompts.js";
@@ -26,7 +27,7 @@ ${JSON.stringify(project ?? null, null, 2)}`;
     max_tokens: MAX_TOKENS,
     system,
     // Content is passed through as the editor built it (text, or a file block plus text).
-    messages: messages.map(({ role, content }) => ({ role, content })) as never,
+    messages: messages.map(({ role, content }) => ({ role, content })) as MessageParam[],
   });
   const text = msg.content
     .filter((b) => b.type === "text")

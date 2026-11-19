@@ -7,9 +7,6 @@
     "api/chat.ts": {
       "maxDuration": 300
     },
-    "api/check.ts": {
-      "maxDuration": 300
-    },
     "api/compare.ts": {
       "maxDuration": 300
     },

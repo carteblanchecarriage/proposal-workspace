@@ -3,8 +3,12 @@
 // "Ask AI" button in the page's toolbar (assistantButton) opens it. A conversation belongs to one page and starts fresh
 // on another: every turn resends the conversation, so a short one keeps the cost down. Along with the page itself the
 // assistant gets a short digest of the rest of the project (project-digest.ts).
+import type { AssistPage } from "../lib/assist";
+import type { Usage } from "../lib/cost";
+import { postJson } from "./api";
 import { buildDigest, type DigestPart } from "./project-digest";
 import { esc } from "./table";
+import { usd } from "../lib/cost";
 
 export type Turn = { role: "user" | "assistant"; content: string };
 /** An image or PDF attached to a question (schedule only), base64. */
@@ -92,8 +96,12 @@ export function closeAssistant() {
   document.body.classList.remove("chat-open");
 }
 
-/** Forgets the digests (call after the project changes elsewhere); the next question builds a fresh one. */
-export const refreshDigest = () => digests.clear();
+
+/** One turn with the project assistant on a page without an assistant of its own: questions and answers, no edits. */
+export async function askProjectAssistant(page: AssistPage, pageContext: unknown, digest: string, turns: Turn[]): Promise<Reply> {
+  const res = await postJson<{ reply: string; usage: Usage }>("/api/chat", { page, pageContext, digest, turns }, "assist");
+  return { text: res.reply, source: "data", costUsd: res.usage.cost_usd };
+}
 
 // ---------- Panel ----------
 
@@ -163,12 +171,11 @@ function addMessage(role: "user" | "error", text: string): HTMLElement {
 }
 
 const SOURCE: Record<Source, string> = { data: "From page data", pdfs: "Read the PDFs" };
-const cost = (usd: number | null | undefined) => (usd == null ? "" : usd < 0.01 ? "<$0.01" : `$${usd.toFixed(2)}`);
 
 function addReply(r: Reply, replace?: HTMLElement): HTMLElement {
   const div = document.createElement("div");
   div.className = "msg assistant";
-  const meta = [r.meta, r.source && SOURCE[r.source], cost(r.costUsd)].filter(Boolean).join(" · ");
+  const meta = [r.meta, r.source && SOURCE[r.source], r.costUsd != null && usd(r.costUsd)].filter(Boolean).join(" · ");
   div.innerHTML = esc(r.text).replace(/\n/g, "<br>") + (meta ? `<span class="updated">${esc(meta)}</span>` : "");
   if (r.retry) {
     const btn = document.createElement("button");

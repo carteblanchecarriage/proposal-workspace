@@ -8,7 +8,7 @@
   import { goto } from '../lib/nav.js';
   import { confirmDelete } from '../../modal';
   import { authHeaders } from '../../auth';
-  import { blockedInDemo, post } from '../../api';
+  import { blockedInDemo, postJson } from '../../api';
   import { setAssistantPage } from '../../assistant';
   import { palette, options, colorMap, badge, handOver } from '../lib/palette.js';
   import { orgName } from '../../org';
@@ -77,7 +77,7 @@
           { type: 'text', text: last.content },
         ]
       : last.content;
-    const res = await post('/api/schedule-ai', JSON.stringify({ project, digest, messages: [...turns.slice(0, -1), { role: 'user', content }] }), { 'content-type': 'application/json' });
+    const res = await postJson('/api/schedule-ai', { project, digest, messages: [...turns.slice(0, -1), { role: 'user', content }] });
     const raw = res.text ?? '';
     const base = { source: 'data', costUsd: res.usage?.cost_usd ?? null };
     // An edit comes back as JSON ({ message, changes }); anything else is a plain answer.

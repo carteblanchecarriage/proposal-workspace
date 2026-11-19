@@ -1,6 +1,6 @@
 import { cleanFeeStyle, type FeeStyle } from "./fee-style";
 import { emptyWorldView, type Pursuit, type WorldView } from "../lib/worldview";
-import type { Comparison, ProjectCheck, Proposal, QaResult, Rfp } from "../lib/claude";
+import type { Comparison, Proposal, QaResult, Rfp } from "../lib/claude";
 import type { Contact } from "./contacts";
 import type { Sourced } from "./table";
 import { authHeaders, authHeadersNow, refreshAuth } from "./auth";
@@ -122,9 +122,8 @@ export type ReceivedProposal = {
   proposal: Proposal;
 };
 
-/** A project ties an RFP review and its comparisons together (they store its id as projectId). */
-export type ConsultantStatus = "candidate" | "asked" | "teaming";
-export const CONSULTANT_STATUS: Record<ConsultantStatus, string> = { candidate: "Candidate", asked: "Asked", teaming: "Teaming" };
+/** Where a firm stood per discipline, in projects saved before firms had a single decision (ProjectFirm.statuses). */
+type ConsultantStatus = "candidate" | "asked" | "teaming";
 
 /** A firm column in the project's consultant matrix. */
 export type ProjectFirm = {
@@ -172,8 +171,6 @@ export type SavedProject = {
   proposals?: ReceivedProposal[];
   /** The last QA/QC check of the firm's own finished proposal. */
   qaqc?: { fileName: string; checkedAt: number; summary: string; flags: QaResult["flags"]; costUsd: number | null };
-  /** The last check of its proposals against the RFP. firms[i] names firm_index i; comparisonIds are what was checked. */
-  check?: ProjectCheck & { firms: string[]; comparisonIds: string[]; checkedAt: number; costUsd: number | null };
 };
 
 function open(): Promise<IDBDatabase> {

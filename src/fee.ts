@@ -6,7 +6,7 @@ import { confirmDelete, formModal, noticeModal } from "./modal";
 import { projectDisciplines } from "./rfp";
 import { BELOW_LINE_BASIS, type BelowLineBasis, getFeeStyle, getWorldView, deleteFee, listComparisons, listFees, listProjects, listRfps, projectLabel, saveFee, savesShared, type SavedFee, type SavedProject } from "./store";
 import { esc, firmName } from "./table";
-import { post } from "./api";
+import { postJson } from "./api";
 import { feeCurveAt, type FeePoint } from "../lib/worldview";
 import { contextForRfp } from "./worldview";
 import type { FeeDraft } from "../lib/claude";
@@ -15,6 +15,7 @@ import { applyFeeChanges, worksheetFor } from "./fee-chat";
 import { assistantButton, setAssistantPage, type AssistantPage } from "./assistant";
 import type { FeeChat } from "../lib/claude";
 import { feeTimeHtml, hideFeeTimeTip, onFeeTimeMove } from "./fee-time";
+import { dateText, money, plural } from "../lib/format";
 
 // Fee builder: labor by phase (hours per role × the role's rate), consultants with a management markup, and a
 // construction budget to check the total against as a percentage. One fee per project; also usable on its own.
@@ -90,8 +91,6 @@ let initialized = false;
 let saveTimer: ReturnType<typeof setTimeout> | undefined;
 let dirty = false;
 
-const money = (n: number | null | undefined) =>
-  n == null || !Number.isFinite(n) ? "—" : n.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
 const hrs = (n: number) => (n ? n.toLocaleString("en-US", { maximumFractionDigits: 1 }) : "—");
 const pct = (n: number | null | undefined) => (n == null || !Number.isFinite(n) ? "—" : `${n.toLocaleString("en-US", { maximumFractionDigits: 1 })}%`);
 /** "$1,250,000", "12.5%", "1,200" → number; blank or unreadable → null. */
@@ -200,15 +199,11 @@ function feeAssistant(f: SavedFee): AssistantPage {
     ask: async (turns, { digest }) => {
       // The fee as it is now (Undo replaces the object, so it's read at the time of asking).
       const now = fee?.id === f.id ? fee : f;
-      const res = await post<{ answer: FeeChat; usage: Usage }>(
-        "/api/fee-draft",
-        JSON.stringify({ worksheet: worksheetFor(now), rfp: await linkedRfp(now).catch(() => null), turns, digest }),
-        { "content-type": "application/json", "x-action": "chat" },
-      );
+      const res = await postJson<{ answer: FeeChat; usage: Usage }>("/api/fee-draft", { worksheet: worksheetFor(now), rfp: await linkedRfp(now).catch(() => null), turns, digest }, "chat");
       if (fee?.id !== f.id) return { text: res.answer.reply }; // the fee was closed while waiting
       const { changes, assumptions } = res.answer;
       const { applied, skipped } = changes.length || assumptions.length ? applyAssistant(changes, assumptions) : { applied: 0, skipped: 0 };
-      const meta = [applied ? `Worksheet updated (${applied} change${applied === 1 ? "" : "s"})` : "", skipped ? `${skipped} change${skipped === 1 ? "" : "s"} couldn't be applied` : ""]
+      const meta = [applied ? `Worksheet updated (${plural(applied, "change")})` : "", skipped ? `${plural(skipped, "change")} couldn't be applied` : ""]
         .filter(Boolean)
         .join(" · ");
       // The next turn sees what was done; the worksheet itself is resent fresh each time.
@@ -305,11 +300,7 @@ export async function makeFee(project?: SavedProject) {
   if (picked[0] === AI_DRAFT && rfp) {
     const context = await contextForRfp(rfp);
     const drafted = await withWaiting("Drafting the fee from the RFP review…", () =>
-      post<{ draft: FeeDraft; usage: Usage }>(
-        "/api/fee-draft",
-        JSON.stringify({ rfp: rfp.rfp, roles: record.roles, worldView: context.worldView, pursuits: context.pursuits }),
-        { "content-type": "application/json" },
-      ),
+      postJson<{ draft: FeeDraft; usage: Usage }>("/api/fee-draft", { rfp: rfp.rfp, roles: record.roles, worldView: context.worldView, pursuits: context.pursuits }),
     ).catch((err: Error) => noticeModal("Couldn't draft the fee", err.message).then(() => null));
     if (!drafted) return;
     record.lens = context.lens;
@@ -595,7 +586,6 @@ function render() {
   fitSummaryLines($("fee-page"));
 }
 
-const shortDate = (ms: number) => new Date(ms).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 
 /**
  * The fee's summary at the top: the AI draft's budget basis and assumptions, or the team's own list. Every line can be
@@ -613,9 +603,9 @@ function summaryHtml(f: SavedFee): string {
   const lines = d ? [...(d.basis ? [line("basis", d.basis)] : []), ...d.assumptions.map((a, i) => (editing || a.trim() ? line(`a:${i}`, a) : ""))].filter(Boolean) : [];
   const notes = [
     fromRfp && f.lens
-      ? `Drafted with the <a class="link" href="#worldview">world view</a>${f.lens.savedAt ? ` of ${esc(shortDate(f.lens.savedAt))}` : ""}${f.lens.text ? "" : " (none written yet)"}`
+      ? `Drafted with the <a class="link" href="#worldview">world view</a>${f.lens.savedAt ? ` of ${esc(dateText(f.lens.savedAt))}` : ""}${f.lens.text ? "" : " (none written yet)"}`
       : "",
-    d?.revisedAt ? `Revised by the AI assistant ${esc(shortDate(d.revisedAt))}` : "",
+    d?.revisedAt ? `Revised by the AI assistant ${esc(dateText(d.revisedAt))}` : "",
   ].filter(Boolean);
   return `<div class="block fee-draft">
       <h2 class="label">${fromRfp ? "Architecture and interiors drafted by AI from the RFP review. Check every number." : "Assumptions"}${editing ? "" : ` <button class="link edit-link" data-edit-sum>Edit</button>`}</h2>

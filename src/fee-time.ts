@@ -5,6 +5,7 @@ import { totals } from "./fee-calc";
 import { shortPhase } from "./fee-templates";
 import type { SavedFee } from "./store";
 import { esc } from "./table";
+import { money } from "../lib/format";
 
 const WEEKS_PER_MONTH = 52 / 12;
 const FULL_TIME = 40;
@@ -59,7 +60,6 @@ export function weeklyHours(spans: PhaseSpan[], weeks: number): number[] {
   return out;
 }
 
-const money = (n: number) => n.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
 const hrs = (n: number) => n.toLocaleString("en-US", { maximumFractionDigits: 0 });
 const people = (h: number) => {
   const n = Math.round((h / FULL_TIME) * 10) / 10;

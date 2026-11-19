@@ -13,7 +13,7 @@ import {
   type ChatMessage,
   type SavedComparison,
 } from "./store";
-import { post, setDemoBlockedHandler, setUnauthorizedHandler } from "./api";
+import { post, postJson, setDemoBlockedHandler, setUnauthorizedHandler } from "./api";
 import { setOrgName } from "./org";
 import { startAnalytics } from "./analytics";
 
@@ -35,6 +35,7 @@ import { setPrintName } from "./print";
 import { initTooltips } from "./tooltip";
 import { copyShareLink, parseHash } from "./share";
 import { briefingHtml, comparisonTitle, esc, feeTable, firmName, glanceHtml, notesHtml, scopeTable, type Sourced } from "./table";
+import { dateText, plural } from "../lib/format";
 
 // Opening straight onto a schedule screen: hide the footer (and, for the print preview, the header) from the first
 // paint, so they don't flash before the schedule loads (e.g. inside the print panel's preview).
@@ -268,11 +269,7 @@ runBtn.addEventListener("click", async () => {
     // Started from a project page: link the comparison to that project.
     const linkTo = pendingProject();
     const projectName = linkTo?.name ?? null;
-    const { comparison: cmp, usage } = await post<{ comparison: Comparison; usage: Usage }>(
-      "/api/compare",
-      JSON.stringify({ projectName, proposals }),
-      { "content-type": "application/json" },
-    );
+    const { comparison: cmp, usage } = await postJson<{ comparison: Comparison; usage: Usage }>("/api/compare", { projectName, proposals });
     // Reused readings cost nothing this time.
     const costs = [...done.map((e) => (e.reused ? 0 : e.usage?.cost_usd)), usage.cost_usd];
     const costUsd = costs.reduce<number>((a, c) => a + (c ?? 0), 0);
@@ -338,8 +335,8 @@ function showResults(scroll: boolean) {
   const { proposals, cmp, projectName } = current;
   $("cmp-title").textContent = comparisonTitle(proposals);
   $("cmp-sub").textContent = [
-    `${proposals.length} firm${proposals.length === 1 ? "" : "s"}`,
-    `compared ${new Date(current.savedAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`,
+    `${plural(proposals.length, "firm")}`,
+    `compared ${dateText(current.savedAt)}`,
   ].join(" · ");
   $("glance").innerHTML = glanceHtml(proposals, cmp);
   $("briefing").innerHTML = briefingHtml(proposals, cmp);
@@ -384,11 +381,7 @@ async function askComparison(c: SavedComparison, turns: Turn[], digest: string, 
   readingPdfs = withPdfs;
   let res: ChatResponse & { usage: Usage };
   try {
-    res = await post<ChatResponse & { usage: Usage }>(
-      "/api/chat",
-      JSON.stringify({ projectName: c.projectName, proposals: c.proposals, comparison: c.cmp, turns, withPdfs, digest }),
-      { "content-type": "application/json" },
-    );
+    res = await postJson<ChatResponse & { usage: Usage }>("/api/chat", { projectName: c.projectName, proposals: c.proposals, comparison: c.cmp, turns, withPdfs, digest });
   } catch (err) {
     // The PDFs' copies at the AI provider are deleted after a day: offer to pick them again.
     if ((err as { status?: number }).status === 410)
@@ -971,7 +964,7 @@ feedbackForm.addEventListener("submit", async (e) => {
   feedbackStatus.classList.remove("error");
   feedbackStatus.textContent = "Sending…";
   try {
-    await post("/api/feedback", JSON.stringify({ message, tab: location.hash.slice(1) || "home" }), { "content-type": "application/json" });
+    await postJson("/api/feedback", { message, tab: location.hash.slice(1) || "home" });
     feedbackInput.value = "";
     feedbackStatus.textContent = "Thanks!";
     setTimeout(() => setFeedbackOpen(false), 1200);

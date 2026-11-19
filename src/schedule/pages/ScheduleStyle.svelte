@@ -9,6 +9,8 @@
   import { esc } from '../../table';
 
   let loaded = $state(false);
+  // Couldn't read the saved style: editing stays off, so the standard look can't be saved over the real one.
+  let loadFailed = $state(false);
   // The organization's schedule conventions for the AI (unset: the starting ones).
   let conventions = $state(undefined);
   const conventionsText = (c) => (c ?? DEFAULT_SCHEDULE_CONVENTIONS);
@@ -18,7 +20,9 @@
       palette.set(cleanPalette(s.colors));
       options.set(cleanOptions(s));
       conventions = s.conventions;
-    } catch {}
+    } catch {
+      loadFailed = true;
+    }
     loaded = true;
   });
   // Escape leaves editing without saving, like Cancel (a dialog on top handles its own Escape first).
@@ -90,8 +94,9 @@
       <div>
         <h3 class="style-head">Schedules</h3>
       </div>
-      {#if draft}<span class="settings-editing">Editing: saved together</span>{:else}<button class="btn" onclick={startEditing}>Edit schedule settings</button>{/if}
+      {#if draft}<span class="settings-editing">Editing: saved together</span>{:else if !loadFailed}<button class="btn" onclick={startEditing}>Edit schedule settings</button>{/if}
     </div>
+    {#if loadFailed}<p class="status error">Couldn't load your saved schedule settings. Reload the page to edit them.</p>{/if}
     <p class="intro">How your organization's schedules look. These apply to every schedule, so changes only take effect when you save them.</p>
 
     <h4 class="settings-sub">Colors</h4>

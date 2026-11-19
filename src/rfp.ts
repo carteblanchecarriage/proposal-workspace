@@ -3,13 +3,14 @@ import { showPdfPage } from "./pdf-page";
 import { reviewContext } from "./worldview";
 import { DISCIPLINES, toDisciplines, type Discipline } from "../lib/disciplines";
 import { type Usage } from "../lib/cost";
-import { post, postPdf } from "./api";
+import { post, postJson, postPdf } from "./api";
 import { deleteRfp, listProjects, listRfps, projectLabel, saveProject, saveRfp, savesShared, type SavedProject, type SavedRfp, RFP_DOC_KINDS, type RfpDocKind } from "./store";
 import { clearPendingProject, pendingProject } from "./pending";
 import { askProjectName, confirmDelete, confirmModal, formModal, noticeModal } from "./modal";
 import { copyShareLink } from "./share";
 import { esc } from "./table";
-import { assistantButton, setAssistantPage } from "./assistant";
+import { askProjectAssistant, assistantButton, setAssistantPage } from "./assistant";
+import { dateText } from "../lib/format";
 
 // Vercel rejects request bodies over 4.5 MB, so larger PDFs go straight to storage first (see uploadRfpPdf).
 // Locally there's no limit. Storage takes up to 50 MB per file.
@@ -105,11 +106,7 @@ async function run() {
     const stored = uploads.flatMap((u, i) => (u.path ? [{ name: usable[i].file.name, path: u.path }] : []));
     // The team's world view and past pursuits go with every review (see the World view page).
     const context = await reviewContext();
-    const res = await post<{ rfp: Rfp; usage: Usage }>(
-      "/api/rfp",
-      JSON.stringify({ files, worldView: context.worldView, pursuits: context.pursuits, sections: context.sections }),
-      { "content-type": "application/json" },
-    );
+    const res = await postJson<{ rfp: Rfp; usage: Usage }>("/api/rfp", { files, worldView: context.worldView, pursuits: context.pursuits, sections: context.sections });
     // Started from a project page: the review is that project's RFP review.
     const linkTo = pendingProject();
     current = {
@@ -232,7 +229,7 @@ async function deleteCurrentRfp() {
   try {
     const paths = review.stored?.map((f) => f.path) ?? [];
     // Best effort: anything left is removed after 30 days anyway.
-    if (paths.length) await post("/api/upload", JSON.stringify({ paths }), { "content-type": "application/json", "x-action": "delete-stored" }).catch(() => {});
+    if (paths.length) await postJson("/api/upload", { paths }, "delete-stored").catch(() => {});
     await deleteRfp(review.id);
   } catch (err) {
     return noticeModal("Couldn't delete", (err as Error).message);
@@ -531,14 +528,8 @@ function setRfpAssistant(saved: SavedRfp) {
     hint: 'Ask about this RFP review. For example, "What do we need to submit, and in what format?" or "Which watch-outs affect the fee?" The answers come from the review, not the RFP PDF; check exact wording on the page cited.',
     projectId: saved.projectId ?? null,
     part: "rfp",
-    ask: async (turns, { digest }) => {
-      const pageContext = { review: saved.rfp, addenda: (saved.addenda ?? []).map((a) => ({ title: docTitle(a), changes: a.changes })) };
-      const res = await post<{ reply: string; usage: Usage }>("/api/chat", JSON.stringify({ page: "rfp", pageContext, digest, turns }), {
-        "content-type": "application/json",
-        "x-action": "assist",
-      });
-      return { text: res.reply, source: "data" as const, costUsd: res.usage.cost_usd };
-    },
+    ask: (turns, { digest }) =>
+      askProjectAssistant("rfp", { review: saved.rfp, addenda: (saved.addenda ?? []).map((a) => ({ title: docTitle(a), changes: a.changes })) }, digest, turns),
   });
 }
 
@@ -942,7 +933,7 @@ function fitBlock(): string {
   const fit = (current.rfp as { fit?: Fit }).fit;
   const lens = current.lens;
   const judged = lens
-    ? `<p class="fit-lens">Judged with the <a class="link" href="#worldview">world view</a>${lens.savedAt ? ` of ${esc(dayText(lens.savedAt))}` : ""}${lens.text ? "" : " (none written yet)"}</p>`
+    ? `<p class="fit-lens">Judged with the <a class="link" href="#worldview">world view</a>${lens.savedAt ? ` of ${esc(dateText(lens.savedAt))}` : ""}${lens.text ? "" : " (none written yet)"}</p>`
     : "";
   if (editing === "fit")
     return `<div class="block fit"><h2 class="label">Fit</h2>${editForm(
@@ -970,7 +961,6 @@ function fitPill(): string {
   return verdictPill(fit, "#rfp-fit", "data-fit-pill");
 }
 
-const dayText = (ms: number) => new Date(ms).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 
 // ---------- Proposal outline ----------
 
@@ -1052,7 +1042,7 @@ async function openOriginal(index: number, page?: number) {
   if (page) {
     // A page reference shows that page here (see pdf-page.ts), with a link to the whole file.
     try {
-      const { url } = await post<{ url: string }>("/api/upload", JSON.stringify({ path: file.path }), { "content-type": "application/json", "x-action": "view" });
+      const { url } = await postJson<{ url: string }>("/api/upload", { path: file.path }, "view");
       await showPdfPage(url, page, file.name);
     } catch (err) {
       await noticeModal("Couldn't open the PDF", (err as Error).message);
@@ -1061,7 +1051,7 @@ async function openOriginal(index: number, page?: number) {
   }
   const tab = window.open("", "_blank"); // opened now, while the click counts, so it isn't blocked as a pop-up
   try {
-    const { url } = await post<{ url: string }>("/api/upload", JSON.stringify({ path: file.path }), { "content-type": "application/json", "x-action": "view" });
+    const { url } = await postJson<{ url: string }>("/api/upload", { path: file.path }, "view");
     if (tab) tab.location.href = url;
   } catch (err) {
     tab?.close();
@@ -1072,7 +1062,6 @@ async function openOriginal(index: number, page?: number) {
 // ---------- Addenda ----------
 // Added from the project page: each one updates the review and records what it changed.
 
-const dateText = (ms: number) => new Date(ms).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 
 /** What each added document updated, newest first; an update's page opens that document while it's kept. */
 type AddedDoc = NonNullable<SavedRfp["addenda"]>[number];
@@ -1128,9 +1117,7 @@ export async function addAddendum(review: SavedRfp, files: File[]): Promise<Save
   const start = review.stored?.length ?? 0;
   const uploads = await Promise.all(files.map((f, i) => uploadKept(f, review.id, start + i)));
   const context = await reviewContext();
-  const res = await post<{ rfp: Rfp; changes: { section: string; change: string; page: number }[]; usage: Usage }>(
-    "/api/rfp",
-    JSON.stringify({
+  const res = await postJson<{ rfp: Rfp; changes: { section: string; change: string; page: number }[]; usage: Usage }>("/api/rfp", {
       files: uploads.map((u, i) => ({ file_id: u.fileId, filename: files[i].name })),
       rfp: review.rfp,
       number,
@@ -1139,15 +1126,13 @@ export async function addAddendum(review: SavedRfp, files: File[]): Promise<Save
       worldView: context.worldView,
       pursuits: context.pursuits,
       sections: context.sections,
-    }),
-    { "content-type": "application/json", "x-action": "addendum" },
-  );
+    }, "addendum");
   // The team's own additions stay as they were: notes, and disciplines marked "needed".
   const before = review.rfp as Rfp & { notes?: string };
   const next = res.rfp as Rfp & { notes?: string };
   if (before.notes) next.notes = before.notes;
   const needed = new Set(servicesMatrix(before).filter((s) => s.requested === "needed").map((s) => s.discipline));
-  next.services = next.services.map((s) => (needed.has(s.discipline) && s.requested !== "yes" ? { ...s, requested: "needed" as never } : s));
+  next.services = next.services.map((s) => (needed.has(s.discipline) && s.requested !== "yes" ? { ...s, requested: "needed" as const } : s));
   const now = Date.now();
   const kept = uploads.flatMap((u, i) => (u.path ? [{ name: files[i].name, path: u.path, at: now }] : []));
   const updated: SavedRfp = {

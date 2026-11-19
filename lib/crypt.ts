@@ -26,8 +26,6 @@ function masterKey(): Buffer | null {
   return (master = key);
 }
 
-export const encryptionConfigured = () => !!masterKey();
-
 const orgKeys = new Map<string, Buffer>();
 function orgKey(org: string): Buffer {
   const key = masterKey();

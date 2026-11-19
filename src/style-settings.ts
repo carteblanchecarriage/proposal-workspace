@@ -34,6 +34,8 @@ let root: HTMLElement | null = null;
 let status = "";
 let statusError = false;
 let escapeBound = false;
+/** Couldn't read the saved style: editing stays off, so the standard look can't be saved over the real one. */
+let loadFailed = false;
 
 /** Fills the Style and formatting section: the schedule settings (loaded on demand) and the fee table settings. */
 export async function renderStyleSettings(section: HTMLElement) {
@@ -60,7 +62,7 @@ export async function renderStyleSettings(section: HTMLElement) {
   root!.addEventListener("change", (e) => {
     if (draft && (e.target as HTMLElement).matches("[data-fee-color]")) renderFee();
   });
-  const [m, style] = await Promise.all([import("./schedule/style-mount"), getFeeStyle().catch(() => DEFAULT_FEE_STYLE)]);
+  const [m, style] = await Promise.all([import("./schedule/style-mount"), getFeeStyle().catch(() => ((loadFailed = true), DEFAULT_FEE_STYLE))]);
   const schedTarget = section.querySelector<HTMLElement>("#org-schedule-style");
   if (schedTarget?.isConnected) {
     schedTarget.innerHTML = "";
@@ -80,8 +82,9 @@ function renderFee() {
       <div>
         <h3 class="style-head">Fees</h3>
       </div>
-      ${draft ? `<span class="settings-editing">Editing: saved together</span>` : '<button class="btn" data-fee-style-edit>Edit fee settings</button>'}
+      ${draft ? `<span class="settings-editing">Editing: saved together</span>` : loadFailed ? "" : '<button class="btn" data-fee-style-edit>Edit fee settings</button>'}
     </div>
+    ${loadFailed ? `<p class="status error">Couldn't load your saved fee settings. Reload the page to edit them.</p>` : ""}
     <p class="style-intro">The Proposal table on every fee, and how it looks when copied into a proposal.</p>
     <h4 class="settings-sub">Table colors</h4>
     <ul class="style-colors">
