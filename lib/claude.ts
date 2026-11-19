@@ -5,7 +5,7 @@ import { costOf, type Usage } from "./cost.js";
 import { recordFile, recordUsage } from "./usage-hook.js";
 import { DISCIPLINES, toDisciplines } from "./disciplines.js";
 import { mergeExtension } from "./comparison-edit.js";
-import { ADDENDUM_SYSTEM, CHAT_SYSTEM, CHECK_SYSTEM, COMPARE_SYSTEM, EXTRACT_SYSTEM, FEE_CHAT_SYSTEM, FEE_DRAFT_SYSTEM, FIT_CHECK_SYSTEM, OWN_PROPOSAL_SYSTEM, RFP_SYSTEM, SCHEDULE_DRAFT_SYSTEM, SUGGEST_SYSTEM, US_ENGLISH, WEBSITE_SYSTEM, QAQC_SYSTEM, EXTEND_SYSTEM } from "./prompts.js";
+import { ADDENDUM_SYSTEM, CHAT_NO_PDFS, CHAT_SYSTEM, CHECK_SYSTEM, COMPARE_SYSTEM, EXTRACT_SYSTEM, FEE_CHAT_SYSTEM, FEE_DRAFT_SYSTEM, FIT_CHECK_SYSTEM, OWN_PROPOSAL_SYSTEM, RFP_SYSTEM, SCHEDULE_DRAFT_SYSTEM, SUGGEST_SYSTEM, US_ENGLISH, WEBSITE_SYSTEM, QAQC_SYSTEM, EXTEND_SYSTEM } from "./prompts.js";
 
 export const MODEL = "claude-opus-5-5";
 
@@ -849,9 +849,11 @@ export async function askFeeAssistant(
   rfp: unknown,
   turns: { role: "user" | "assistant"; content: string }[],
   context = "",
+  /** the rest of the project, from the assistant (src/project-digest.ts) */
+  digest = "",
 ): Promise<{ answer: FeeChat; usage: Usage }> {
   const last = turns[turns.length - 1];
-  const state = `${rfp ? `RFP review (JSON):\n${JSON.stringify(rfp)}\n\n` : ""}Current fee worksheet (JSON):\n${JSON.stringify(worksheet)}`;
+  const state = `${digest ? `The rest of the project (digest):\n${digest}\n\n` : ""}${rfp ? `RFP review (JSON):\n${JSON.stringify(rfp)}\n\n` : ""}Current fee worksheet (JSON):\n${JSON.stringify(worksheet)}`;
   const stream = getClient().beta.messages.stream({
     ...BASE,
     system: withContext(FEE_CHAT_SYSTEM, context),
@@ -874,23 +876,27 @@ export async function chat(
   projectName: string | null,
   turns: ChatTurn[],
   firm = "",
+  /** the original PDFs too; without them it answers from the extracted data and analysis (much cheaper) */
+  withPdfs = false,
+  /** the rest of the project, from the assistant (src/project-digest.ts) */
+  digest = "",
 ): Promise<ChatResponse & { usage: Usage }> {
-  const docs = proposals.map((p, i) => ({
+  const docs = !withPdfs ? [] : proposals.map((p, i) => ({
     type: "document" as const,
     title: `firm_index ${i}: ${p.firm} (${p.source_file})`,
     source: { type: "file" as const, file_id: p.file_id },
   }));
   const extractions = proposals.map(({ file_id, source_file, ...p }, firm_index) => ({ firm_index, ...p }));
-  const context = `${projectName ? `Project: ${projectName}\n\n` : ""}Extracted data (JSON):\n${JSON.stringify(extractions)}\n\nCurrent analysis (JSON):\n${JSON.stringify(comparison)}`;
+  const context = `${projectName ? `Project: ${projectName}\n\n` : ""}${digest ? `The rest of the project (digest):\n${digest}\n\n` : ""}Extracted data (JSON):\n${JSON.stringify(extractions)}\n\nCurrent analysis (JSON):\n${JSON.stringify(comparison)}`;
 
   const [first, ...rest] = turns;
   const stream = getClient().beta.messages.stream({
     ...BASE,
-    system: withContext(CHAT_SYSTEM, firm),
+    system: withContext(withPdfs ? CHAT_SYSTEM : `${CHAT_SYSTEM}\n\n${CHAT_NO_PDFS}`, firm),
     // Most chat turns are lookups; medium effort keeps them cheaper and faster than the high used for reading.
     output_config: { effort: "medium", format: betaZodOutputFormat(ChatWireSchema) },
     messages: [
-      { role: "user", content: [...docs, // PDFs + data + analysis are identical across turns (until a correction), so they're cached:
+      { role: "user", content: [...docs, // (PDFs +) data + analysis are identical across turns (until a correction), so they're cached:
         // follow-up questions read them at the cache rate.
         { type: "text", text: context, cache_control: { type: "ephemeral" } },
         { type: "text", text: first.content },] },

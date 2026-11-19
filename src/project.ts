@@ -18,6 +18,7 @@ import { copyShareLink } from "./share";
 import { AI_MARK, briefingDetails, esc, feeTable, firmName, glanceHtml, scopeTable, statedTotal, type Sourced } from "./table";
 import { contactsHtml, copyEmail, keyOf, siteLink } from "./consultants";
 import { parseContacts } from "./contacts";
+import { assistantButton, setAssistantPage, type Turn } from "./assistant";
 
 // A project page: its RFP review, consultant proposals (and their comparisons), the proposal check, consultants by
 // discipline, schedule and fee.
@@ -37,6 +38,14 @@ export { pendingProject, clearPendingProject } from "./pending";
 
 export function initProject() {
   $("project-page").addEventListener("click", onClick);
+  // Escape leaves the consultant matrix's edit mode, like Done (its edits are already saved; a note being typed is
+  // saved first). A dialog on top handles its own Escape first.
+  addEventListener("keydown", (e) => {
+    if (e.key !== "Escape" || !matrixEditing || $("project-page").closest("[hidden]") || document.querySelector("dialog[open]")) return;
+    (document.activeElement as HTMLElement | null)?.blur?.();
+    matrixEditing = false;
+    render();
+  });
 }
 
 /** Asks for a new project's number and name, saves it, and returns it (null if cancelled or not saved). */
@@ -174,6 +183,14 @@ function render() {
   const sched = schedules[0];
 
   $("project-page").classList.add("is-dash");
+  setAssistantPage({
+    key: `project:${p.id}`,
+    title: "Ask AI about this project",
+    hint: 'Ask about anything in this project: the RFP, fee, schedule, consultants and comparisons. For example, "Does the schedule leave time for the DD client review the RFP asks for?" or "Which requested consultant services don\'t have a proposal yet?"',
+    projectId: p.id,
+    part: "project",
+    ask: (turns, { digest }) => askAssist("project", dashboardContext(p), digest, turns),
+  });
   // A dashboard: the RFP review, schedule and fee on top; the consultants (proposals and matrix) and proposal check below. On a large enough screen it fits the window (see fitDashboard); long lists scroll inside their card.
   $("project-page").innerHTML = `
     <div class="proj-head">
@@ -181,7 +198,7 @@ function render() {
         <h1 class="headline">${esc(projectLabel(p))}</h1>
         ${sub ? `<p class="proj-sub">${sub}</p>` : ""}
       </div>
-      <span class="tools"><button class="btn" data-rename>Edit</button><button class="btn" data-share>Share</button><button class="btn" data-delete-project="${esc(p.id)}">Delete</button></span>
+      <span class="tools">${assistantButton()}<button class="btn" data-rename>Edit</button><button class="btn" data-share>Share</button><button class="btn" data-delete-project="${esc(p.id)}">Delete</button></span>
     </div>
 
     <div class="proj-grid">
@@ -232,7 +249,7 @@ function render() {
       </div>
 
       <div class="proj-card proj-consultants">
-        <div class="proj-card-head"><h2 class="label">${cardTitle("Consultant matrix", `#project/${encodeURIComponent(p.id)}/consultants`)}</h2><span class="proj-card-links"><span class="m-key" title="Solid dots: in the firm's proposal. Hollow: expected, no proposal yet. Green: a firm you're using."><i></i>Using<i class="m-key-exp"></i>Expected</span>${
+        <div class="proj-card-head"><h2 class="label">${cardTitle("Consultant matrix", `#project/${encodeURIComponent(p.id)}/consultants`)}</h2><span class="proj-card-links"><span class="m-key" title="Solid dots: in the firm's proposal. Hollow: expected, no proposal yet. Green: a firm you're using. While editing, click a cell to cycle through them."><i class="m-key-prop"></i>In proposal<i class="m-key-exp"></i>Expected<i class="m-key-using"></i>Using</span>${
           // Once the consultants have been compared, the card says so (its title opens the page either way).
           comparisons.some((c) => c.group) ? `<a class="link" href="#project/${encodeURIComponent(p.id)}/consultants">See comparison</a>` : ""
         }<button class="link" data-matrix-edit>${matrixEditing ? "Done" : "Edit"}</button></span></div>
@@ -314,8 +331,7 @@ function fitDashboard() {
   if (!grid) return;
   if (!on) return void (grid.style.height = "");
   const footer = document.querySelector<HTMLElement>("footer.site")?.offsetHeight ?? 0;
-  const feedback = document.getElementById("feedback-toggle")?.offsetHeight ?? 0;
-  const avail = innerHeight - (grid.getBoundingClientRect().top + scrollY) - footer - feedback - 32;
+  const avail = innerHeight - (grid.getBoundingClientRect().top + scrollY) - footer - 32;
   grid.style.height = avail >= 420 ? `${avail}px` : "";
 }
 addEventListener("resize", () => fitDashboard());
@@ -567,7 +583,15 @@ function coverage(p: SavedProject, c: ProjectFirm): { set: Set<string>; fromProp
   if (latest) return { set: new Set<string>([...toDisciplines(latest.proposal.disciplines ?? []), ...own]), fromProposal: true };
   return { set: new Set(c.disciplines), fromProposal: false };
 }
-const covers = (p: SavedProject, c: ProjectFirm, r: Row) => r.members.some((d) => coverage(p, c).set.has(d));
+type CellState = "proposal" | "expected" | "none";
+/** A matrix cell as read: from the proposal (solid), expected while it's still out (hollow), or empty. */
+function baseCell(p: SavedProject, c: ProjectFirm, r: Row): CellState {
+  const cov = coverage(p, c);
+  return !r.members.some((d) => cov.set.has(d)) ? "none" : cov.fromProposal ? "proposal" : "expected";
+}
+/** A matrix cell as shown: the team's own mark when they've set one, otherwise as read. */
+const cellState = (p: SavedProject, c: ProjectFirm, r: Row): CellState => c.cells?.[r.key] ?? baseCell(p, c, r);
+const covers = (p: SavedProject, c: ProjectFirm, r: Row) => cellState(p, c, r) !== "none";
 
 /**
  * Keeps firms and proposals on one source when the project opens: every firm has an id and its directory link (by
@@ -647,17 +671,18 @@ function consultantsHtml(p: SavedProject): string {
     .map((r) => {
       const cells = firms
         .map((c) => {
-          const cov = coverage(p, c);
-          const on = r.members.some((d) => cov.set.has(d));
-          // From the proposal (solid, can't be changed here) or expected while it's still out (hollow, editable).
-          const locked = cov.fromProposal && !r.custom;
-          const kind = on ? (cov.fromProposal ? " on" : " on expected") : "";
-          const what = on ? (cov.fromProposal ? `In ${c.name}'s proposal` : `Expected from ${c.name}; no proposal yet`) : "";
+          // In the proposal (solid), expected while it's still out (hollow), or empty. While editing, a click cycles
+          // empty → expected → in proposal → empty, so the team can correct anything, including what a proposal read.
+          const state = cellState(p, c, r);
+          const kind = state === "proposal" ? " on" : state === "expected" ? " on expected" : "";
+          const marked = c.cells?.[r.key] !== undefined && state !== baseCell(p, c, r);
+          const what = state === "proposal" ? `In ${c.name}'s proposal` : state === "expected" ? `Expected from ${c.name}; no proposal yet` : `${c.name} doesn't cover ${r.label}`;
+          const label = `${what}${marked ? " (set by hand)" : ""}`;
           return `<td class="dec-${dec(c)}">${
-            editing && !locked
-              ? `<button class="m-cell" data-toggle-cell="${esc(c.id!)}" data-row="${esc(r.key)}" aria-pressed="${on}" aria-label="${esc(c.name)} expected to cover ${esc(r.label)}"><span class="m-dot${kind}" aria-hidden="true"></span></button>`
-              : on
-                ? `<span class="m-dot${kind}" role="img" aria-label="${esc(what)}" title="${esc(editing ? `${what}. From the proposal, so it can't be changed here.` : what)}"></span>`
+            editing
+              ? `<button class="m-cell" data-toggle-cell="${esc(c.id!)}" data-row="${esc(r.key)}" aria-label="${esc(`${r.label}, ${c.name}: ${label}. Click to change.`)}" title="${esc(`${label}. Click to change.`)}"><span class="m-dot${kind}" aria-hidden="true"></span></button>`
+              : state !== "none"
+                ? `<span class="m-dot${kind}" role="img" aria-label="${esc(label)}" title="${esc(label)}"></span>`
                 : ""
           }</td>`;
         })
@@ -700,6 +725,55 @@ type ReviewGroup = {
   stale: boolean;
 };
 
+// ---------- AI assistant ----------
+
+/** One turn with the project assistant (questions and answers; it changes nothing). */
+async function askAssist(page: "project" | "consultants", pageContext: unknown, digest: string, turns: Turn[]) {
+  const res = await post<{ reply: string; usage: Usage }>("/api/chat", JSON.stringify({ page, pageContext, digest, turns }), {
+    "content-type": "application/json",
+    "x-action": "assist",
+  });
+  return { text: res.reply, source: "data" as const, costUsd: res.usage.cost_usd };
+}
+
+/** The dashboard as the assistant sees it; the RFP, fee, schedule and consultants come in the project digest. */
+function dashboardContext(p: SavedProject) {
+  return {
+    project: projectLabel(p),
+    proposal_check: p.check ? { summary: p.check.summary, firms: p.check.firms, coverage: p.check.coverage, issues: p.check.issues } : null,
+    qaqc: p.qaqc ? { file: p.qaqc.fileName, summary: p.qaqc.summary, flags: p.qaqc.flags } : null,
+  };
+}
+
+/** The Consultants page: each discipline's firms, proposals (the main terms, not every fee line) and comparison. */
+function consultantsContext(groups: ReviewGroup[]) {
+  return groups.map((g) => ({
+    discipline: g.row.label,
+    firms: g.firms.map((c) => ({ name: c.name, decision: decisionOf(c), note: c.note ?? "" })),
+    waiting_for: g.waiting.map((c) => c.name),
+    proposals: g.proposals.map((r) => {
+      const pr = r.proposal;
+      return {
+        firm: firmName(pr.firm),
+        received: new Date(r.receivedAt).toISOString().slice(0, 10),
+        stated_total: statedTotal(pr),
+        fee_structure: pr.fee_structure,
+        disciplines: pr.disciplines,
+        ca_site_visits: pr.ca_site_visits,
+        schedule: pr.schedule,
+        reimbursables: pr.reimbursables,
+        additional_services: pr.additional_services,
+        exclusions: pr.exclusions,
+        assumptions: pr.assumptions,
+        clarifications: pr.clarifications,
+      };
+    }),
+    comparison: g.saved
+      ? { compared: new Date(g.saved.savedAt).toISOString().slice(0, 10), out_of_date: g.stale, headline: g.saved.cmp.briefing.headline, overview: g.saved.cmp.briefing.overview, flags: g.saved.cmp.briefing.flags.map((f) => `${f.level}: ${f.title}. ${f.detail}`) }
+      : null,
+  }));
+}
+
 function reviewGroups(p: SavedProject): ReviewGroup[] {
   const firms = p.consultants ?? [];
   return matrixRows(p).map((row) => {
@@ -736,6 +810,14 @@ function renderConsultantsPage() {
   document.documentElement.classList.remove("project-dash");
   $("project-page").classList.add("is-dash");
   const groups = reviewGroups(p);
+  setAssistantPage({
+    key: `consultants:${p.id}`,
+    title: "Ask AI about the consultants",
+    hint: 'Ask about the consultant proposals on this page. For example, "Who excludes CA site visits?" or "Which disciplines are still waiting on a proposal?" For fee lines and scope detail, open a discipline\'s comparison and ask there.',
+    projectId: p.id,
+    part: "consultants",
+    ask: (turns, { digest }) => askAssist("consultants", consultantsContext(groups), digest, turns),
+  });
   const stale = groups.filter((g) => g.stale);
   const received = (p.proposals ?? []).length;
   const day = (ms: number) => new Date(ms).toLocaleDateString("en-US", { month: "short", day: "numeric" });
@@ -801,11 +883,11 @@ function renderConsultantsPage() {
           : received
             ? `<span class="cgroup-status">Up to date</span>`
             : ""
-      }</span>
+      }${assistantButton()}</span>
     </div>
     <details class="block cpage-matrix" data-part="matrix" ${openParts.has("matrix-closed") ? "" : "open"}>
       <summary class="cgroup-summary"><span class="cgroup-title">Who covers what</span><span class="cgroup-line">${plural((p.consultants ?? []).length, "firm")} across ${plural(groups.length, "discipline")}</span></summary>
-      <div class="cgroup-body"><div class="cpage-matrix-tools"><span class="m-key" title="Solid dots: in the firm's proposal. Hollow: expected, no proposal yet. Green: a firm you're using."><i></i>Using<i class="m-key-exp"></i>Expected</span><button class="link" data-matrix-edit>${matrixEditing ? "Done" : "Edit"}</button></div>${consultantsHtml(p)}</div>
+      <div class="cgroup-body"><div class="cpage-matrix-tools"><span class="m-key" title="Solid dots: in the firm's proposal. Hollow: expected, no proposal yet. Green: a firm you're using. While editing, click a cell to cycle through them."><i class="m-key-prop"></i>In proposal<i class="m-key-exp"></i>Expected<i class="m-key-using"></i>Using</span><button class="link" data-matrix-edit>${matrixEditing ? "Done" : "Edit"}</button></div>${consultantsHtml(p)}</div>
     </details>
     <h2 class="cpage-h2">By discipline</h2>
     ${withProposals.length ? withProposals.map(section).join("") : `<p class="none">No proposals yet. Upload them on the project page's Consultant proposals card.</p>`}
@@ -904,9 +986,17 @@ async function toggleCell(firmId: string, rowKey: string) {
   const c = firmById(firmId);
   const r = project && rowOf(project, rowKey);
   if (!c || !r) return;
-  if (coverage(project!, c).fromProposal && !r.custom) return; // the proposal says what it covers
-  const on = c.disciplines.some((d) => r.members.includes(d));
-  c.disciplines = on ? c.disciplines.filter((d) => !r.members.includes(d)) : [...new Set([...c.disciplines, ...r.members])];
+  const p = project!;
+  const NEXT: Record<CellState, CellState> = { none: "expected", expected: "proposal", proposal: "none" };
+  const next = NEXT[cellState(p, c, r)];
+  // Without a proposal (or on the team's own rows) the firm's disciplines say what it's expected to cover, so they follow.
+  if (!coverage(p, c).fromProposal || r.custom)
+    c.disciplines = next === "none" ? c.disciplines.filter((d) => !r.members.includes(d)) : [...new Set([...c.disciplines, ...r.members])];
+  // Anything that still differs from what's read is kept as the team's own mark.
+  const cells = { ...c.cells };
+  delete cells[r.key];
+  if (next !== baseCell(p, c, r)) cells[r.key] = next;
+  c.cells = Object.keys(cells).length ? cells : undefined;
   await saveAndRender();
 }
 

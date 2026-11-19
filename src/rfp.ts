@@ -9,6 +9,7 @@ import { clearPendingProject, pendingProject } from "./pending";
 import { askProjectName, confirmDelete, confirmModal, formModal, noticeModal } from "./modal";
 import { copyShareLink } from "./share";
 import { esc } from "./table";
+import { assistantButton, setAssistantPage } from "./assistant";
 
 // Vercel rejects request bodies over 4.5 MB, so larger PDFs go straight to storage first (see uploadRfpPdf).
 // Locally there's no limit. Storage takes up to 50 MB per file.
@@ -409,7 +410,7 @@ function showResults() {
       <span class="tools">${current.projectId ? "" : '<button class="btn" data-start-project>Start project</button>'}${
         // The original RFP (the first file), while it's kept; opens the whole PDF in a new tab.
         isKept(current.stored?.[0]) ? `<button class="btn" data-open-file="0" title="Open ${esc(current.stored![0].name)}">View RFP</button>` : ""
-      }<button class="btn" data-share>Share</button><button class="btn" data-print>Print</button><button class="btn" data-delete-rfp>Delete</button></span>
+      }${assistantButton()}<button class="btn" data-share>Share</button><button class="btn" data-print>Print</button><button class="btn" data-delete-rfp>Delete</button></span>
     </div>
     ${
       editing === "header"
@@ -519,6 +520,26 @@ function showResults() {
   $("rfp-intake").hidden = true;
   $("rfp-results").hidden = false;
   scrollTo(0, 0);
+  setRfpAssistant(current);
+}
+
+/** The assistant on the RFP review: questions about the review (and the project around it); it changes nothing. */
+function setRfpAssistant(saved: SavedRfp) {
+  setAssistantPage({
+    key: `rfp:${saved.id}`,
+    title: "Ask AI about this RFP",
+    hint: 'Ask about this RFP review. For example, "What do we need to submit, and in what format?" or "Which watch-outs affect the fee?" The answers come from the review, not the RFP PDF; check exact wording on the page cited.',
+    projectId: saved.projectId ?? null,
+    part: "rfp",
+    ask: async (turns, { digest }) => {
+      const pageContext = { review: saved.rfp, addenda: (saved.addenda ?? []).map((a) => ({ title: docTitle(a), changes: a.changes })) };
+      const res = await post<{ reply: string; usage: Usage }>("/api/chat", JSON.stringify({ page: "rfp", pageContext, digest, turns }), {
+        "content-type": "application/json",
+        "x-action": "assist",
+      });
+      return { text: res.reply, source: "data" as const, costUsd: res.usage.cost_usd };
+    },
+  });
 }
 
 /** A titled block. Every review shows the same blocks in the same order; an empty one says so. */

@@ -126,8 +126,9 @@ export async function showWorldView() {
     page.addEventListener("mouseleave", () => hideChartTip(), true);
     // Escape leaves the world view's edit form without saving (a dialog on top handles its own Escape first).
     addEventListener("keydown", (e) => {
-      if (e.key !== "Escape" || !(editingView || curveDraft || phasesDraft || sectionsDraft != null) || page.closest("[hidden]") || document.querySelector("dialog[open]")) return;
+      if (e.key !== "Escape" || !(editingView || editingPursuit || curveDraft || phasesDraft || sectionsDraft != null) || page.closest("[hidden]") || document.querySelector("dialog[open]")) return;
       editingView = false;
+      editingPursuit = null;
       sectionsDraft = null;
       curveDraft = null;
       phasesDraft = null;

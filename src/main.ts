@@ -26,7 +26,7 @@ import { getCurrentRfp, initRfp, openRfp, rfpBusy, showRfpIntakeProject, showRfp
 import { showCalls } from "./calls";
 import { showConsultants } from "./consultants";
 import { flushFee, showFee } from "./fee";
-import { closeFeeChat } from "./fee-chat";
+import { assistantBusy, setAssistantPage, type AssistantPage, type Reply, type Turn } from "./assistant";
 import { showWorldView } from "./worldview";
 import { showOrg } from "./org-page";
 import { typeSplash } from "./splash";
@@ -150,8 +150,7 @@ function resetProposals() {
   results.hidden = true;
   current = null;
   history.replaceState(null, "", "#proposals");
-  resetChat();
-  setChatOpen(false);
+  setAssistantPage(null);
   setStatus("");
   render();
   showIntakeProject();
@@ -281,7 +280,6 @@ runBtn.addEventListener("click", async () => {
     current = { id: crypto.randomUUID(), savedAt: Date.now(), proposals, cmp, projectName, projectId: linkTo?.id, messages: [], costUsd, costPartial: partial };
     clearPendingProject();
     showIntakeProject();
-    resetChat();
     showResults(true);
     const saveError = await persist().then(() => "", (err: Error) => ` Not saved: ${err.message}`);
     const failed = entries.length - done.length;
@@ -314,7 +312,7 @@ $("print").addEventListener("click", () => window.print());
 $("share").addEventListener("click", (e) => current && copyShareLink("proposals", current.id, e.currentTarget as HTMLElement));
 $("delete-comparison").addEventListener("click", async () => {
   const c = current;
-  if (!c || busy || chatting || !(await confirmDelete("comparison"))) return;
+  if (!c || busy || assistantBusy() || !(await confirmDelete("comparison"))) return;
   try {
     await deleteComparison(c.id);
   } catch (err) {
@@ -322,7 +320,7 @@ $("delete-comparison").addEventListener("click", async () => {
   }
   current = null;
   results.hidden = true;
-  setChatOpen(false);
+  setAssistantPage(null);
   location.hash = c.projectId ? `#project/${encodeURIComponent(c.projectId)}` : "#project";
 });
 
@@ -351,127 +349,83 @@ function showResults(scroll: boolean) {
   setBackLink();
   $("print-meta").textContent = [projectName, new Date().toLocaleDateString()].filter(Boolean).join(" — ");
   results.hidden = false;
+  setAssistantPage(comparisonAssistant(current));
   if (scroll) results.scrollIntoView({ behavior: "smooth" });
 }
 
-// ---------- Chat ----------
+// ---------- AI assistant ----------
+// The comparison's chat (assistant.ts): it answers from the extracted data and the analysis, and reads the original PDFs
+// only when asked to ("Re-read the PDFs"), since they're the costliest part. Corrections update the analysis in place;
+// the conversation is saved with the comparison.
 
-const chatEl = $<HTMLElement>("chat");
-const chatLog = $<HTMLDivElement>("chat-log");
-const chatForm = $<HTMLFormElement>("chat-form");
-const chatInput = $<HTMLTextAreaElement>("chat-input");
-const chatSend = $<HTMLButtonElement>("chat-send");
-const chatStatus = $<HTMLSpanElement>("chat-status");
 const reattachInput = $<HTMLInputElement>("reattach-input");
-const chatHint = chatLog.innerHTML;
-let chatting = false;
+let readingPdfs = false;
 
-function setChatOpen(open: boolean) {
-  chatEl.hidden = !open;
-  document.body.classList.toggle("chat-open", open);
-  if (open) chatInput.focus();
-}
-$("chat-open").addEventListener("click", () => setChatOpen(!document.body.classList.contains("chat-open")));
-$("chat-close").addEventListener("click", () => setChatOpen(false));
-
-function resetChat() {
-  chatLog.innerHTML = chatHint;
-  for (const msg of current?.messages ?? []) addMessage(msg.role, msg.text, msg.updated, msg.cost);
-}
-
-function addMessage(role: ChatMessage["role"] | "error", text: string, updated = false, cost?: number | null): HTMLDivElement {
-  const div = document.createElement("div");
-  div.className = `msg ${role}`;
-  const meta = updated ? "Analysis updated" : "";
-  div.innerHTML = esc(text).replace(/\n/g, "<br>") + (meta ? `<span class="updated">${meta}</span>` : "");
-  chatLog.appendChild(div);
-  chatLog.scrollTop = chatLog.scrollHeight;
-  return div;
-}
-
-chatInput.addEventListener("keydown", (e) => {
-  if (e.key === "Enter" && !e.shiftKey) {
-    e.preventDefault();
-    chatForm.requestSubmit();
-  }
-});
-
-chatForm.addEventListener("submit", async (e) => {
-  e.preventDefault();
-  const text = chatInput.value.trim();
-  if (!text || chatting || !current) return;
-  const c = current;
-  chatting = true;
-  chatSend.disabled = true;
-  chatInput.value = "";
-  addMessage("user", text);
-  const turns = [...c.messages, { role: "user" as const, text }].map((msg) => ({ role: msg.role, content: msg.text }));
-  // Visible placeholder reply so it's obvious the question is being worked on.
-  const pending = document.createElement("div");
-  pending.className = "msg assistant pending";
-  chatLog.appendChild(pending);
-  const started = Date.now();
-  const showProgress = () => {
-    const secs = Math.round((Date.now() - started) / 1000);
-    const why =
-      secs < 15
+function comparisonAssistant(c: SavedComparison): AssistantPage {
+  return {
+    key: `cmp:${c.id}`,
+    title: "Ask AI about these proposals",
+    hint: 'Ask about anything in the proposals, or tell me what to fix. For example, "Are site visits during construction included?" or "The fee for design development looks wrong". Answers come from the data on this page; use "Re-read the PDFs" under an answer when you need the exact wording or pages. Corrections update the analysis in place.',
+    placeholder: "Ask a question or request a correction…",
+    projectId: c.projectId ?? null,
+    part: "comparison",
+    history: c.messages.map((m) => ({ role: m.role, text: m.text, meta: m.updated ? "Analysis updated" : undefined, source: m.source, costUsd: m.cost })),
+    progress: (secs) =>
+      !readingPdfs
         ? "Checking the proposals"
-        : secs < 45
-          ? "Still working: re-reading the PDFs takes a little longer on the first question"
-          : "Still working: corrections and detailed checks can take a minute or two";
-    pending.innerHTML = `<span class="dots"><i></i><i></i><i></i></span> ${why}… <span class="secs">${secs}s</span>`;
-    chatLog.scrollTop = chatLog.scrollHeight;
+        : secs < 30
+          ? "Re-reading the PDFs"
+          : "Still working: re-reading the PDFs takes a little longer, and corrections can take a minute or two",
+    ask: (turns, { digest }) => askComparison(c, turns, digest, false),
   };
-  showProgress();
-  const tick = setInterval(showProgress, 1000);
-  chatInput.disabled = true;
+}
+
+async function askComparison(c: SavedComparison, turns: Turn[], digest: string, withPdfs: boolean): Promise<Reply> {
+  readingPdfs = withPdfs;
+  let res: ChatResponse & { usage: Usage };
   try {
-    const res = await post<ChatResponse & { usage: Usage }>(
+    res = await post<ChatResponse & { usage: Usage }>(
       "/api/chat",
-      JSON.stringify({ projectName: c.projectName, proposals: c.proposals, comparison: c.cmp, turns }),
+      JSON.stringify({ projectName: c.projectName, proposals: c.proposals, comparison: c.cmp, turns, withPdfs, digest }),
       { "content-type": "application/json" },
     );
-    for (const u of res.updated_proposals) {
-      const prev = c.proposals[u.firm_index];
-      if (!prev) continue;
-      c.proposals[u.firm_index] = { ...u.proposal, source_file: prev.source_file, file_id: prev.file_id, pdf_tokens: prev.pdf_tokens, source_hash: prev.source_hash };
-      if (prev.source_hash) {
-        const saved = await getReading(prev.source_hash);
-        if (saved) await saveReading({ ...saved, proposal: u.proposal });
-      }
-    }
-    if (res.updated_comparison) c.cmp = res.updated_comparison;
-    const updated = res.updated_proposals.length > 0 || !!res.updated_comparison;
-    if (updated && current === c) showResults(false);
-    const cost = res.usage.cost_usd;
-    c.messages.push({ role: "user", text }, { role: "assistant", text: res.reply, updated, cost });
-    c.costUsd = (c.costUsd ?? 0) + (cost ?? 0);
-    if (cost == null) c.costPartial = true;
-    if (current === c) {
-      addMessage("assistant", res.reply, updated, cost);
-    }
-    await saveComparison(c);
   } catch (err) {
-    // Give the question back for a retry; it isn't added to the saved conversation.
-    chatInput.value = text;
-    const div = addMessage("error", (err as Error).message);
-    if ((err as { status?: number }).status === 410) {
-      const btn = document.createElement("button");
-      btn.className = "btn";
-      btn.textContent = "Re-attach PDFs";
-      btn.addEventListener("click", () => reattachInput.click());
-      div.appendChild(btn);
-    }
-  } finally {
-    clearInterval(tick);
-    pending.remove();
-    chatStatus.textContent = "";
-    chatting = false;
-    chatSend.disabled = false;
-    chatInput.disabled = false;
-    chatInput.focus();
+    // The PDFs' copies at the AI provider are deleted after a day: offer to pick them again.
+    if ((err as { status?: number }).status === 410)
+      void confirmModal({ title: "The PDFs have expired", body: "Pick the original proposal PDFs (same file names) to re-attach them, then ask again.", confirm: "Re-attach PDFs" }).then(
+        (ok) => ok && reattachInput.click(),
+      );
+    throw err;
   }
-});
+  for (const u of res.updated_proposals) {
+    const prev = c.proposals[u.firm_index];
+    if (!prev) continue;
+    c.proposals[u.firm_index] = { ...u.proposal, source_file: prev.source_file, file_id: prev.file_id, pdf_tokens: prev.pdf_tokens, source_hash: prev.source_hash };
+    if (prev.source_hash) {
+      const saved = await getReading(prev.source_hash);
+      if (saved) await saveReading({ ...saved, proposal: u.proposal });
+    }
+  }
+  if (res.updated_comparison) c.cmp = res.updated_comparison;
+  const updated = res.updated_proposals.length > 0 || !!res.updated_comparison;
+  if (updated && current === c) showResults(false);
+  const cost = res.usage.cost_usd;
+  const source = withPdfs ? "pdfs" : "data";
+  const msg: ChatMessage = { role: "assistant", text: res.reply, updated, cost, source };
+  // A re-read replaces the answer it re-checks; a new question adds both turns.
+  if (withPdfs && c.messages.at(-1)?.role === "assistant") c.messages[c.messages.length - 1] = msg;
+  else c.messages.push({ role: "user", text: turns[turns.length - 1].content }, msg);
+  c.costUsd = (c.costUsd ?? 0) + (cost ?? 0);
+  if (cost == null) c.costPartial = true;
+  await saveComparison(c);
+  return {
+    text: res.reply,
+    meta: updated ? "Analysis updated" : "",
+    source,
+    costUsd: cost,
+    retry: withPdfs ? undefined : { label: "Re-read the PDFs", run: () => askComparison(c, turns, digest, true) },
+  };
+}
 
 // Re-uploads the original PDFs for a saved comparison whose files expired, matched by file name.
 reattachInput.addEventListener("change", async () => {
@@ -479,7 +433,6 @@ reattachInput.addEventListener("change", async () => {
   reattachInput.value = "";
   if (!current || !files.length) return;
   const c = current;
-  chatStatus.textContent = "Re-attaching…";
   let matched = 0;
   const missing: string[] = [];
   try {
@@ -497,16 +450,14 @@ reattachInput.addEventListener("change", async () => {
       matched++;
     }
     await saveComparison(c);
-    addMessage(
-      "error",
+    await noticeModal(
+      missing.length ? "Some PDFs are still missing" : "PDFs re-attached",
       missing.length
         ? `Re-attached ${matched} of ${c.proposals.length}. Still missing: ${missing.join(", ")}. Pick those files (same names) to continue.`
-        : "PDFs re-attached. Send your question again.",
+        : "Use Re-read the PDFs again.",
     );
   } catch (err) {
-    addMessage("error", (err as Error).message);
-  } finally {
-    chatStatus.textContent = "";
+    await noticeModal("Couldn't re-attach", (err as Error).message);
   }
 });
 
@@ -515,7 +466,6 @@ async function openComparison(id: string) {
   const saved = (await listComparisons()).find((s) => s.id === id);
   if (!saved) return noticeModal("Comparison not found", "It may have been deleted.");
   current = saved;
-  resetChat();
   showResults(true);
 }
 
@@ -909,9 +859,8 @@ function showTab() {
     for (const t of TABS) $(`tab-${t}`).hidden = true;
     // Schedules belong to projects: the Projects tab stays highlighted.
     document.querySelectorAll("nav.tabs a, a.worldview-link, a.org-name").forEach((a) => a.classList.toggle("on", a.getAttribute("data-tab") === "project"));
-    setChatOpen(false);
+    setAssistantPage(null); // the schedule editor sets its own
     flushFee();
-    closeFeeChat();
     import("./schedule/mount").then((m) => {
       schedule = m;
       if (onSchedule()) m.showSchedule(location.hash);
@@ -919,6 +868,8 @@ function showTab() {
     return;
   }
   schedule?.hideSchedule();
+  // Every page has its own assistant conversation; the page that opens sets its own (assistant.ts).
+  setAssistantPage(null);
   const { tab: t, id } = parseHash();
   // Opening the site (no page in the address, or the name in the header) shows the projects list.
   // Open Calls is hidden for now: its address goes to Projects.
@@ -936,7 +887,6 @@ function showTab() {
   }
   if (tab === "proposals") showIntakeProject();
   if (tab === "rfp") showRfpIntakeProject();
-  if (tab !== "proposals") setChatOpen(false);
   // A shared link (#rfp/<id> or #proposals/<id>) opens that item once signed in.
   if (id && started) tab === "rfp" ? openRfp(id) : tab === "proposals" ? openComparison(id) : tab === "project" && openProject(id);
   if (!id && tab === "project" && started) showProjectList();
@@ -945,10 +895,7 @@ function showTab() {
   if (tab === "worldview" && started) showWorldView();
   if (tab === "org" && started) showOrg();
   if (tab === "fee" && started) showFee(id);
-  else {
-    flushFee();
-    closeFeeChat();
-  }
+  else flushFee();
 }
 
 /**
@@ -997,6 +944,7 @@ const feedbackInput = $<HTMLTextAreaElement>("feedback-input");
 const feedbackStatus = $("feedback-status");
 function setFeedbackOpen(open: boolean) {
   feedbackForm.hidden = !open;
+  $("feedback-toggle").setAttribute("aria-expanded", String(open));
   feedbackStatus.textContent = "";
   if (open) feedbackInput.focus();
 }
@@ -1005,7 +953,7 @@ $("feedback-close").addEventListener("click", () => setFeedbackOpen(false));
 feedbackForm.addEventListener("keydown", (e) => {
   if (e.key === "Escape") setFeedbackOpen(false);
 });
-// Lift the widget above the blue footer while the footer is on screen.
+// Lift the feedback panel above the blue footer (where its button is) while the footer is on screen.
 const footer = document.querySelector("footer.site") as HTMLElement;
 const liftFeedback = () => {
   // A hidden footer (schedule editor) reports top 0, which would push the widget off screen.

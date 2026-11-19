@@ -343,7 +343,7 @@
         <div class="toolbar">
           <a id="cmp-back" class="link" href="#project">← Projects</a>
           <span class="tools">
-            <button id="chat-open" class="btn">Ask / correct</button>
+            <button class="btn" type="button" data-assistant>Ask AI</button>
             <button id="share" class="btn">Share</button>
             <button id="print" class="btn">Print / PDF</button>
             <button id="delete-comparison" class="btn">Delete</button>
@@ -386,31 +386,12 @@
       </div>
     </main>
 
-    <aside id="chat" class="chat" hidden>
-      <div class="chat-head">
-        <span class="label">Ask or correct</span>
-        <button id="chat-close" class="link">Close</button>
-      </div>
-      <div id="chat-log" class="chat-log">
-        <p class="chat-hint">
-          Ask about anything in the proposals, or tell me what to fix. For example, "Are site visits during
-          construction included?" or "The fee for design development looks wrong, check page 9". Corrections
-          update the analysis in place.
-        </p>
-      </div>
-      <input id="reattach-input" type="file" accept="application/pdf,.pdf" multiple hidden />
-      <form id="chat-form" class="chat-form">
-        <textarea id="chat-input" rows="3" placeholder="Ask a question or request a correction…"></textarea>
-        <div class="chat-actions">
-          <span id="chat-status" class="status"></span>
-          <button id="chat-send" class="btn primary" type="submit">Send</button>
-        </div>
-      </form>
-    </aside>
+    <input id="reattach-input" type="file" accept="application/pdf,.pdf" multiple hidden />
 
     <footer class="site">
       <span>AI can make mistakes. Check important dates, figures and requirements against the original documents.</span>
       <span>This site is in development, so features and how they work may change.</span>
+      <button id="feedback-toggle" class="btn feedback-toggle" type="button">Send feedback</button>
     </footer>
 
     <div id="feedback" class="feedback">
@@ -422,7 +403,6 @@
           <button class="btn primary" type="submit">Send</button>
         </div>
       </form>
-      <button id="feedback-toggle" class="btn feedback-toggle" type="button">Feedback</button>
     </div>
 
     <script type="module" src="/src/main.ts"></script>

@@ -7,7 +7,7 @@ import { authHeaders, authHeadersNow, refreshAuth } from "./auth";
 import { unauthorized } from "./api";
 
 
-export type ChatMessage = { role: "user" | "assistant"; text: string; updated?: boolean; cost?: number | null };
+export type ChatMessage = { role: "user" | "assistant"; text: string; updated?: boolean; cost?: number | null; /** what the answer read: the page data, or the PDFs too (older messages: the PDFs) */ source?: "data" | "pdfs" };
 
 export type SavedComparison = {
   id: string;
@@ -139,6 +139,11 @@ export type ProjectFirm = {
   decision?: "using" | "fee";
   /** the team's note on the firm for this project */
   note?: string;
+  /**
+   * The team's own marks in the consultant matrix, by row key, over what the proposal (or the firm's disciplines)
+   * says: "proposal" (solid, in the proposal), "expected" (hollow) or "none" (empty). Unset: as read.
+   */
+  cells?: Record<string, "proposal" | "expected" | "none">;
   /** older entries: where the firm stood per discipline */
   statuses?: Record<string, ConsultantStatus>;
 };

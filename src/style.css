@@ -212,7 +212,13 @@ table.diff-only tr.same { display: none; }
   display: flex; flex-direction: column; background: var(--bg); border-left: 1px solid var(--ink);
 }
 .chat[hidden] { display: none; }
-body.chat-open > main, body.chat-open footer.site { margin-right: 420px; }
+/* The site's font and color even over the schedule editor, whose stylesheet sets its own on body. */
+.chat { font-family: var(--sans); color: var(--ink); }
+body.chat-open > main, body.chat-open footer.site, body.chat-open > #schedule-root { margin-right: 420px; }
+.chat .a-chip { font-size: 12px; margin-bottom: 6px; color: var(--muted); }
+.chat .a-chip[hidden] { display: none; }
+.chat .a-retry { display: block; margin-top: 6px; font-size: 12px; }
+.chat .a-retry:disabled { opacity: .5; cursor: default; }
 .chat-head { display: flex; justify-content: space-between; align-items: baseline; padding: 20px 20px 12px; border-bottom: 1px solid var(--rule); }
 .chat-head .label { margin: 0; }
 .chat-log { flex: 1; overflow-y: auto; padding: 16px 20px; display: flex; flex-direction: column; gap: 12px; font-size: 14px; }
@@ -241,7 +247,7 @@ body.chat-open > main, body.chat-open footer.site { margin-right: 420px; }
 .chat-actions { display: flex; justify-content: space-between; align-items: center; margin-top: 8px; }
 @media (max-width: 900px) {
   .chat { width: 100%; border-left: 0; }
-  body.chat-open > main, body.chat-open footer.site { margin-right: 0; }
+  body.chat-open > main, body.chat-open footer.site, body.chat-open > #schedule-root { margin-right: 0; }
 }
 
 .print-head { display: none; }
@@ -283,8 +289,12 @@ dialog.modal p { margin: 0 0 20px; color: var(--ink); font-size: 14px; }
 /* Feedback widget */
 .feedback { position: fixed; right: 20px; bottom: calc(20px + var(--footer-lift, 0px)); z-index: 40; display: flex; flex-direction: column; align-items: flex-end; gap: 8px; }
 body.chat-open .feedback { display: none; }
-.feedback-toggle { background: var(--site-blue); border-color: var(--site-blue); color: #fff; }
-.feedback-toggle:hover:not(:disabled) { background: #2449b0; }
+/* In the blue footer: white, bold and full height so it stands out against it. */
+footer.site { align-items: center; }
+footer.site .feedback-toggle { background: #fff; border: 2px solid #fff; color: var(--site-blue); font-weight: 700; font-size: 14px; padding: 8px 18px; margin-left: auto; }
+footer.site .feedback-toggle:hover:not(:disabled) { background: #eaf0ff; border-color: #eaf0ff; }
+footer.site .feedback-toggle:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+footer.site .feedback-toggle[aria-expanded="true"] { background: var(--ink); border-color: var(--ink); color: #fff; }
 .feedback-panel { width: 300px; background: var(--bg); border: 1px solid var(--ink); padding: 12px; }
 .feedback-panel[hidden] { display: none; }
 .feedback-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px; }
@@ -404,7 +414,7 @@ h2.group { font-size: 20px; font-weight: 700; margin: 40px 0 20px; padding-botto
   /* Printed RFP reviews end with this reminder, in a box so it isn't missed. */
   .print-note { display: block; margin-top: 24px; padding: 10px; border: 1.5pt solid #000; font-weight: 700; font-size: 12px; break-inside: avoid; }
   header.site, footer.site, .feedback, .q-remove, .q-add, #intake, #rfp-intake, .rfp-top, .toolbar, .chat, .project-name { display: none !important; }
-  body.chat-open > main, body.chat-open footer.site { margin-right: 0; }
+  body.chat-open > main, body.chat-open footer.site, body.chat-open > #schedule-root { margin-right: 0; }
   body > main { padding: 0; max-width: none; }
   #results { border: 0; margin: 0; padding: 0; }
   .print-head { display: flex; justify-content: space-between; align-items: baseline; border-bottom: 1px solid #000; padding-bottom: 8px; margin-bottom: 20px; }
@@ -1322,6 +1332,9 @@ table.matrix { border: 1px solid var(--ink); }
 .matrix .dec-using .m-dot.on.expected { background: transparent; box-shadow: inset 0 0 0 2px #3c8c37; }
 .m-key-exp { display: inline-block; width: 9px; height: 9px; border-radius: 50%; box-shadow: inset 0 0 0 1.5px var(--ink); margin-left: 8px; }
 .m-key i.m-key-exp { background: transparent; box-shadow: inset 0 0 0 1.5px var(--ink); }
+.m-key i.m-key-prop { background: var(--ink); }
+.m-key i.m-key-prop ~ i { margin-left: 8px; }
+.m-key i.m-key-using { background: #3c8c37; }
 /* Consultant proposals: actions in the card header. */
 .proposals-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px 14px; }
 .proposals-actions .link, .proposals-actions label.link { font-size: 13px; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }

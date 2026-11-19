@@ -23,6 +23,8 @@ const ChatBody = z.object({
     .min(1)
     .max(40)
     .refine((t) => t[t.length - 1].role === "user"),
+  // The rest of the project, from the assistant (src/project-digest.ts).
+  digest: z.string().max(12_000).default(""),
 });
 const MAX_CHAT_BYTES = 1_000_000;
 
@@ -32,7 +34,7 @@ async function handle(request: Request): Promise<Response> {
       if (Number(request.headers.get("content-length") ?? 0) > MAX_CHAT_BYTES) throw new UserFacingError("This fee is too large to send.", 413);
       const chat = ChatBody.safeParse(await request.json().catch(() => null));
       if (!chat.success) throw new UserFacingError("Invalid fee assistant request.");
-      return Response.json(await askFeeAssistant(chat.data.worksheet, chat.data.rfp, chat.data.turns, await worldViewContext()));
+      return Response.json(await askFeeAssistant(chat.data.worksheet, chat.data.rfp, chat.data.turns, await worldViewContext(), chat.data.digest));
     }
     const parsed = Body.safeParse(await request.json().catch(() => null));
     if (!parsed.success) throw new UserFacingError("Invalid fee draft request.");

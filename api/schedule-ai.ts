@@ -12,7 +12,7 @@ async function handle(request: Request): Promise<Response> {
   try {
     if (Number(request.headers.get("content-length") ?? 0) > MAX_BODY)
       throw new UserFacingError("Request too large — attach a smaller file or a screenshot.", 413);
-    const body = (await request.json().catch(() => null)) as { project?: unknown; rfp?: unknown; messages?: { role: string; content: unknown }[] } | null;
+    const body = (await request.json().catch(() => null)) as { project?: unknown; rfp?: unknown; digest?: unknown; messages?: { role: string; content: unknown }[] } | null;
     if (request.headers.get("x-action") === "draft") {
       if (!body?.rfp || typeof body.rfp !== "object") throw new UserFacingError("Invalid schedule draft request.");
       return Response.json(await draftSchedule(body.rfp, await worldViewContext()));
@@ -24,7 +24,9 @@ async function handle(request: Request): Promise<Response> {
       messages.length <= MAX_TURNS &&
       messages.every((m) => (m?.role === "user" || m?.role === "assistant") && m.content);
     if (!valid) throw new UserFacingError("Invalid conversation.");
-    return Response.json(await askScheduleAssistant(body!.project, messages as { role: "user" | "assistant"; content: unknown }[], await worldViewContext()));
+    // The rest of the project, from the assistant (src/project-digest.ts).
+    const digest = typeof body!.digest === "string" ? body!.digest.slice(0, 12_000) : "";
+    return Response.json(await askScheduleAssistant(body!.project, messages as { role: "user" | "assistant"; content: unknown }[], await worldViewContext(), digest));
   } catch (err) {
     return errorResponse(err);
   }

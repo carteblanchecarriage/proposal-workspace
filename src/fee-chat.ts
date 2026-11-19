@@ -1,18 +1,13 @@
-// The fee worksheet's AI assistant: a side panel (styled like the Proposals chat) where the team asks about the fee
-// or asks for changes to its tasks and hours. Claude gets a compact copy of the worksheet with short ids (P1, P1-T2)
-// and returns a list of edits; they're checked here against the worksheet before anything changes, applied as one
-// step (one Undo reverses them), and saved like any other edit.
+// The fee worksheet's side of the AI assistant (the panel is assistant.ts, wired up in fee.ts): the team asks about
+// the fee or asks for changes to its tasks and hours. Claude gets a compact copy of the worksheet with short ids (P1,
+// P1-T2) and returns a list of edits; they're checked here against the worksheet before anything changes, applied as
+// one step (one Undo reverses them), and saved like any other edit.
 import type { FeeChat } from "../lib/claude";
-import { type Usage } from "../lib/cost";
-import { post } from "./api";
 import { budgetOf, taskCost, taskHours, totals } from "./fee-calc";
 import type { SavedFee } from "./store";
-import { esc } from "./table";
 
-type Turn = { role: "user" | "assistant"; content: string };
 type Change = FeeChat["changes"][number];
 
-const MAX_TURNS = 40;
 const round = (n: number) => Math.round(n * 100) / 100;
 
 /** The worksheet as Claude sees it: short ids, every total worked out, nothing it doesn't need. */
@@ -151,131 +146,3 @@ export function applyFeeChanges(f: SavedFee, changes: Change[]): { applied: numb
   }
   return { applied, skipped, phases: touched };
 }
-
-// ---------- Panel ----------
-
-let panel: HTMLElement | null = null;
-let turns: Turn[] = [];
-let forFee = "";
-let sending = false;
-
-type Hooks = {
-  /** the open fee, or null */
-  fee: () => SavedFee | null;
-  /** the linked project's RFP review, if any */
-  rfp: () => Promise<unknown>;
-  /** applies edits as one undoable, saved step; returns what happened */
-  apply: (changes: Change[], assumptions: string[]) => { applied: number; skipped: number };
-};
-let hooks: Hooks | null = null;
-
-function build(): HTMLElement {
-  const el = document.createElement("aside");
-  el.className = "chat fee-chat";
-  el.hidden = true;
-  el.innerHTML = `
-    <div class="chat-head"><span class="label">Ask AI about this fee</span><button class="link" data-fee-chat-close>Close</button></div>
-    <div class="chat-log" data-fee-chat-log></div>
-    <form class="chat-form" data-fee-chat-form>
-      <textarea rows="3" placeholder="Ask a question or ask for a change…" aria-label="Message"></textarea>
-      <p class="estimate">Changes can be undone with Undo.</p>
-      <div class="chat-actions"><span class="status" data-fee-chat-status></span><button class="btn primary" type="submit">Send</button></div>
-    </form>`;
-  el.querySelector("[data-fee-chat-close]")!.addEventListener("click", () => closeFeeChat());
-  const box = el.querySelector("textarea")!;
-  box.addEventListener("keydown", (e) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      el.querySelector<HTMLFormElement>("[data-fee-chat-form]")!.requestSubmit();
-    }
-  });
-  el.addEventListener("keydown", (e) => {
-    if (e.key === "Escape" && !document.querySelector("dialog[open]")) closeFeeChat();
-  });
-  el.querySelector("[data-fee-chat-form]")!.addEventListener("submit", (e) => {
-    e.preventDefault();
-    void send(box);
-  });
-  document.body.appendChild(el);
-  return el;
-}
-
-function hint() {
-  return `<p class="chat-hint">Ask about this fee, or ask for a change to its tasks and hours. For example, "Break schematic design into more tasks" or "Design meetings are weekly, not every two weeks; adjust the hours". It can move the fee up or down when that's what your question comes down to. Rates, phases, consultants and the budget stay as you set them.</p>`;
-}
-
-function addMessage(role: "user" | "assistant" | "error", text: string, meta = "") {
-  const log = panel!.querySelector<HTMLElement>("[data-fee-chat-log]")!;
-  const div = document.createElement("div");
-  div.className = `msg ${role}`;
-  div.innerHTML = esc(text).replace(/\n/g, "<br>") + (meta ? `<span class="updated">${esc(meta)}</span>` : "");
-  log.appendChild(div);
-  log.scrollTop = log.scrollHeight;
-}
-
-async function send(box: HTMLTextAreaElement) {
-  const f = hooks?.fee();
-  const text = box.value.trim();
-  if (!f || !hooks || !text || sending) return;
-  if (turns.length >= MAX_TURNS) return addMessage("error", "This conversation is long. Close the panel and open it again to start a new one.");
-  sending = true;
-  const button = panel!.querySelector<HTMLButtonElement>('[type="submit"]')!;
-  const status = panel!.querySelector<HTMLElement>("[data-fee-chat-status]")!;
-  button.disabled = true;
-  box.value = "";
-  addMessage("user", text);
-  const started = Date.now();
-  const tick = setInterval(() => (status.textContent = `Thinking… ${Math.round((Date.now() - started) / 1000)}s`), 1000);
-  status.textContent = "Thinking…";
-  const sent: Turn[] = [...turns, { role: "user", content: text }];
-  try {
-    const res = await post<{ answer: FeeChat; usage: Usage }>(
-      "/api/fee-draft",
-      JSON.stringify({ worksheet: worksheetFor(f), rfp: (await hooks.rfp().catch(() => null)) ?? null, turns: sent }),
-      { "content-type": "application/json", "x-action": "chat" },
-    );
-    if (hooks.fee()?.id !== f.id) return; // the fee was closed while waiting
-    const { applied, skipped } = res.answer.changes.length || res.answer.assumptions.length ? hooks.apply(res.answer.changes, res.answer.assumptions) : { applied: 0, skipped: 0 };
-    const meta = [
-      applied ? `Worksheet updated (${applied} change${applied === 1 ? "" : "s"})` : "",
-      skipped ? `${skipped} change${skipped === 1 ? "" : "s"} couldn't be applied` : "",
-    ]
-      .filter(Boolean)
-      .join(" · ");
-    addMessage("assistant", res.answer.reply, meta);
-    // The next turn sees what was said and done; the worksheet itself is resent fresh each time.
-    turns = [...sent, { role: "assistant", content: res.answer.reply + (applied ? `\n\n[Applied ${applied} change(s) to the worksheet.]` : "") }];
-  } catch (err) {
-    addMessage("error", `Couldn't get an answer: ${(err as Error).message}`);
-    box.value = text;
-  } finally {
-    clearInterval(tick);
-    status.textContent = "";
-    button.disabled = false;
-    sending = false;
-    box.focus();
-  }
-}
-
-/** Opens the assistant for the open fee; a different fee starts a new conversation. */
-export function openFeeChat(h: Hooks) {
-  hooks = h;
-  panel ??= build();
-  const id = h.fee()?.id ?? "";
-  if (id !== forFee) {
-    forFee = id;
-    turns = [];
-    panel.querySelector("[data-fee-chat-log]")!.innerHTML = hint();
-  }
-  panel.hidden = false;
-  document.body.classList.add("chat-open");
-  panel.querySelector("textarea")!.focus();
-}
-
-export function closeFeeChat() {
-  if (!panel || panel.hidden) return;
-  panel.hidden = true;
-  document.body.classList.remove("chat-open");
-}
-
-export const feeChatOpen = () => !!panel && !panel.hidden;

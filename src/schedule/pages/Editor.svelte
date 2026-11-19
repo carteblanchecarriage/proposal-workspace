@@ -4,12 +4,12 @@
   import TaskPanel    from '../lib/components/TaskPanel.svelte';
   import GanttPanel   from '../lib/components/GanttPanel.svelte';
   import LegendFooter from '../lib/components/LegendFooter.svelte';
-  import AiSidebar    from '../lib/components/AiSidebar.svelte';
   import PrintPanel   from '../lib/components/PrintPanel.svelte';
   import { goto } from '../lib/nav.js';
   import { confirmDelete } from '../../modal';
   import { authHeaders } from '../../auth';
-  import { blockedInDemo } from '../../api';
+  import { blockedInDemo, post } from '../../api';
+  import { setAssistantPage } from '../../assistant';
   import { palette, options, colorMap, badge, handOver } from '../lib/palette.js';
   import { orgName } from '../../org';
   import { pointerDrag } from '../lib/utils/pointer.js';
@@ -50,7 +50,51 @@
     }
   }
 
-  let aiOpen = $state(false);
+  // The AI assistant (src/assistant.ts, the same panel as every project page): it sees this schedule, a digest of the
+  // rest of the project, and an image or PDF when one is attached; its edits are applied as one undoable step.
+  $effect(() => {
+    if (!project) return;
+    setAssistantPage({
+      key: `schedule:${data.id}`,
+      title: 'Ask AI about this schedule',
+      hint: 'Try: "Push the 95% submission back 3 weeks" or "Add a 2-week client review in April." You can also attach an image or PDF; for best results, screenshot the relevant pages rather than uploading a whole document.',
+      placeholder: 'Ask a question or describe a schedule change…',
+      note: 'Changes can be undone with Undo.',
+      projectId: project.workspaceProjectId ?? null,
+      part: 'schedule',
+      attachments: true,
+      ask: askSchedule,
+    });
+  });
+
+  async function askSchedule(turns, { digest, attachment }) {
+    const last = turns[turns.length - 1];
+    const content = attachment
+      ? [
+          attachment.mediaType === 'application/pdf'
+            ? { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: attachment.base64 } }
+            : { type: 'image', source: { type: 'base64', media_type: attachment.mediaType, data: attachment.base64 } },
+          { type: 'text', text: last.content },
+        ]
+      : last.content;
+    const res = await post('/api/schedule-ai', JSON.stringify({ project, digest, messages: [...turns.slice(0, -1), { role: 'user', content }] }), { 'content-type': 'application/json' });
+    const raw = res.text ?? '';
+    const base = { source: 'data', costUsd: res.usage?.cost_usd ?? null };
+    // An edit comes back as JSON ({ message, changes }); anything else is a plain answer.
+    const json = raw.match(/\{[\s\S]*\}/);
+    let parsed = null;
+    try { parsed = json ? JSON.parse(json[0]) : null; } catch { parsed = null; }
+    if (!parsed) return { ...base, text: raw };
+    const changes = Array.isArray(parsed.changes) ? parsed.changes : [];
+    const result = changes.length ? handleAiChanges(changes) : null;
+    const text = parsed.message ?? 'Done.';
+    // Say plainly when a change didn't take, rather than leave the reply claiming it did.
+    const meta = [
+      result?.applied ? `Schedule updated (${result.applied} change${result.applied === 1 ? '' : 's'})` : '',
+      result?.skipped ? `${result.skipped} of ${changes.length} change${changes.length === 1 ? '' : 's'} couldn't be applied` : '',
+    ].filter(Boolean).join(' · ');
+    return { ...base, text, meta, turn: text + (result?.applied ? `\n\n[Applied ${result.applied} change(s) to the schedule.]` : '') };
+  }
 
   // Milestone drag-from-footer state
   let draggingLegendMs = $state(null);  // { code, color, text } while dragging
@@ -481,7 +525,7 @@
     <button onclick={() => goto('/')}>← Back to Schedules</button>
   </div>
 {:else}
-  <div class="schedule-page" class:ai-open={aiOpen} class:multi-page={printMultiPage}>
+  <div class="schedule-page" class:multi-page={printMultiPage}>
 
     <!-- Page header -->
     <header class="sch-hdr no-print-border">
@@ -537,8 +581,8 @@
         <button class="action-btn action-btn-delete" onclick={deleteSchedule} title="Delete this schedule">
           Delete
         </button>
-        <button class="action-btn action-btn-ai" onclick={() => aiOpen = !aiOpen} title="AI Schedule Assistant">
-          AI
+        <button class="action-btn action-btn-ai" type="button" data-assistant title="Ask AI about this schedule">
+          Ask AI
         </button>
       </div>
     </header>
@@ -656,7 +700,6 @@
       </div>
     </div>
 
-    <AiSidebar open={aiOpen} project={project} onApplyChanges={handleAiChanges} onClose={() => aiOpen = false} />
 
     <PrintPanel
       open={printPanelOpen}
@@ -692,7 +735,6 @@
     background: #fff;
     transition: padding-right .22s ease;
   }
-  .schedule-page.ai-open { padding-right: 310px; }
 
   /* Header */
   .sch-hdr {
@@ -928,7 +970,6 @@
 
   /* ── Phones ── */
   @media screen and (max-width: 640px) {
-    .schedule-page.ai-open { padding-right: 0; }
 
     .sch-hdr { flex-wrap: wrap; padding: 8px 12px 8px; gap: 8px; }
     .hdr-left { width: 100%; gap: 10px; }

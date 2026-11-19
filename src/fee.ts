@@ -11,7 +11,9 @@ import { feeCurveAt, type FeePoint } from "../lib/worldview";
 import { contextForRfp } from "./worldview";
 import type { FeeDraft } from "../lib/claude";
 import { type Usage } from "../lib/cost";
-import { applyFeeChanges, closeFeeChat, openFeeChat } from "./fee-chat";
+import { applyFeeChanges, worksheetFor } from "./fee-chat";
+import { assistantButton, setAssistantPage, type AssistantPage } from "./assistant";
+import type { FeeChat } from "../lib/claude";
 import { feeTimeHtml, hideFeeTimeTip, onFeeTimeMove } from "./fee-time";
 
 // Fee builder: labor by phase (hours per role × the role's rate), consultants with a management markup, and a
@@ -180,39 +182,64 @@ export async function showFee(id: string | null) {
     addEventListener("pagehide", () => flushFee(true));
   }
   if (fee && fee.id !== id) flushFee();
-  if (!id || fee?.id !== id) closeFeeChat();
   if (id) return openFee(id);
   fee = null;
   return showList();
 }
 
-/** The AI assistant for the open fee (see fee-chat.ts): its edits are one step, undone with one Undo, and saved. */
-function openAssistant() {
-  openFeeChat({
-    fee: () => fee,
-    rfp: async () => {
-      const project = projects.find((p) => p.id === fee?.workspaceProjectId);
-      if (!project) return null;
-      const rfps = await listRfps();
-      return (rfps.find((r) => r.id === project.rfpId) ?? rfps.find((r) => r.projectId === project.id))?.rfp ?? null;
+/** The AI assistant on the open fee (see fee-chat.ts): its edits are one step, undone with one Undo, and saved. */
+function feeAssistant(f: SavedFee): AssistantPage {
+  return {
+    key: `fee:${f.id}`,
+    title: "Ask AI about this fee",
+    hint: 'Ask about this fee, or ask for a change to its tasks and hours. For example, "Break schematic design into more tasks" or "Design meetings are weekly, not every two weeks; adjust the hours". It can move the fee up or down when that\'s what your question comes down to. Rates, phases, consultants and the budget stay as you set them.',
+    placeholder: "Ask a question or ask for a change…",
+    note: "Changes can be undone with Undo.",
+    projectId: f.workspaceProjectId ?? null,
+    part: "fee",
+    ask: async (turns, { digest }) => {
+      // The fee as it is now (Undo replaces the object, so it's read at the time of asking).
+      const now = fee?.id === f.id ? fee : f;
+      const res = await post<{ answer: FeeChat; usage: Usage }>(
+        "/api/fee-draft",
+        JSON.stringify({ worksheet: worksheetFor(now), rfp: await linkedRfp(now).catch(() => null), turns, digest }),
+        { "content-type": "application/json", "x-action": "chat" },
+      );
+      if (fee?.id !== f.id) return { text: res.answer.reply }; // the fee was closed while waiting
+      const { changes, assumptions } = res.answer;
+      const { applied, skipped } = changes.length || assumptions.length ? applyAssistant(changes, assumptions) : { applied: 0, skipped: 0 };
+      const meta = [applied ? `Worksheet updated (${applied} change${applied === 1 ? "" : "s"})` : "", skipped ? `${skipped} change${skipped === 1 ? "" : "s"} couldn't be applied` : ""]
+        .filter(Boolean)
+        .join(" · ");
+      // The next turn sees what was done; the worksheet itself is resent fresh each time.
+      return { text: res.answer.reply, meta, source: "data", costUsd: res.usage.cost_usd, turn: res.answer.reply + (applied ? `\n\n[Applied ${applied} change(s) to the worksheet.]` : "") };
     },
-    apply: (changes, assumptions) => {
-      if (!fee) return { applied: 0, skipped: changes.length };
-      if (summaryBefore !== null && assumptions.some((a) => a.trim())) cancelSummaryEdit(); // the assistant's list replaces an unsaved edit
-      checkpoint(); // anything typed before asking is its own step
-      const result = applyFeeChanges(fee, changes);
-      result.phases.forEach((id) => openPhases.add(id)); // show what changed
-      // The summary at the top, revised to match (same undo step).
-      const lines = assumptions.map((a) => a.trim().slice(0, 500)).filter(Boolean).slice(0, 12);
-      if (lines.length) {
-        fee.draft ??= { basis: "", assumptions: [], costUsd: null, at: Date.now(), source: "notes" };
-        fee.draft.assumptions = lines;
-        fee.draft.revisedAt = Date.now();
-      }
-      if (result.applied || lines.length) rerender();
-      return result;
-    },
-  });
+  };
+}
+
+/** The linked project's RFP review, for the assistant. */
+async function linkedRfp(f: SavedFee) {
+  const project = projects.find((p) => p.id === f.workspaceProjectId);
+  if (!project) return null;
+  const rfps = await listRfps();
+  return (rfps.find((r) => r.id === project.rfpId) ?? rfps.find((r) => r.projectId === project.id))?.rfp ?? null;
+}
+
+function applyAssistant(changes: FeeChat["changes"], assumptions: string[]) {
+  if (!fee) return { applied: 0, skipped: changes.length };
+  if (summaryBefore !== null && assumptions.some((a) => a.trim())) cancelSummaryEdit(); // the assistant's list replaces an unsaved edit
+  checkpoint(); // anything typed before asking is its own step
+  const result = applyFeeChanges(fee, changes);
+  result.phases.forEach((id) => openPhases.add(id)); // show what changed
+  // The summary at the top, revised to match (same undo step).
+  const lines = assumptions.map((a) => a.trim().slice(0, 500)).filter(Boolean).slice(0, 12);
+  if (lines.length) {
+    fee.draft ??= { basis: "", assumptions: [], costUsd: null, at: Date.now(), source: "notes" };
+    fee.draft.assumptions = lines;
+    fee.draft.revisedAt = Date.now();
+  }
+  if (result.applied || lines.length) rerender();
+  return result;
 }
 
 /** Saves the open fee now (when leaving it, or with keepalive when the page is closing). */
@@ -433,6 +460,7 @@ const input = (attrs: string, value: string, cls = "", placeholder = "") =>
 function render() {
   if (!fee) return;
   const f = fee;
+  setAssistantPage(feeAssistant(f));
   const project = projects.find((p) => p.id === f.workspaceProjectId);
   const by = budgetBy(f);
   $("fee-page").innerHTML = `
@@ -440,7 +468,7 @@ function render() {
     <div class="rfp-top">
       ${project ? `<a class="link" href="#project/${encodeURIComponent(project.id)}">← ${esc(projectLabel(project))}</a>` : `<a class="link" href="#project">← Projects</a>`}
       <span class="status error" id="fee-save-error"></span>
-      <div class="actions"><button class="btn" data-fee-chat>Ask AI</button><button class="btn" data-undo title="Undo (Ctrl+Z)" ${undoStack.length ? "" : "disabled"}>Undo</button><button class="btn" data-delete-fee>Delete</button></div>
+      <div class="actions">${assistantButton()}<button class="btn" data-undo title="Undo (Ctrl+Z)" ${undoStack.length ? "" : "disabled"}>Undo</button><button class="btn" data-delete-fee>Delete</button></div>
     </div>
     ${input('data-k="title" aria-label="Fee title"', f.title, "fee-title")}
     <p class="fee-project">${
@@ -996,7 +1024,6 @@ async function onClick(e: Event) {
     return render();
   }
   const f = fee;
-  if (t.closest("[data-fee-chat]")) return openAssistant();
   let id: string | null;
   if (t.closest("[data-link-fee]")) return linkToProject(f);
   if (t.closest("[data-unlink-fee]")) {

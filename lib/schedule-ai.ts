@@ -12,8 +12,10 @@ export async function askScheduleAssistant(
   project: unknown,
   messages: { role: "user" | "assistant"; content: unknown }[],
   firm = "",
+  /** the rest of the project, from the assistant (src/project-digest.ts) */
+  digest = "",
 ): Promise<{ text: string; usage: Usage }> {
-  const system = `${SCHEDULE_PROMPT}\n\n${US_ENGLISH}${firm ? `\n\n${firm}` : ""}
+  const system = `${SCHEDULE_PROMPT}\n\n${US_ENGLISH}${firm ? `\n\n${firm}` : ""}${digest ? `\n\n## The Rest of the Project (digest, read only)\n${digest}` : ""}
 
 ## Current Project
 ${JSON.stringify(project ?? null, null, 2)}`;
