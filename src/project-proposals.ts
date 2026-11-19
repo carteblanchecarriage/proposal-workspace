@@ -83,6 +83,16 @@ export function adoptFromComparisons(p: SavedProject, comparisons: SavedComparis
 }
 
 // ---------- Consultants and their proposals ----------
+
+/** The Consultant proposals card's actions, for its header. */
+export function proposalsHeadHtml(p: SavedProject): string {
+  const withProposals = (p.consultants ?? []).some((c) => proposalsOf(p, c.id!).latest);
+  return `<span class="proj-card-links proposals-actions">
+      <button class="link" data-add-firm>+ Add consultant</button>
+      <label class="link received-new" title="Upload proposals from firms that aren't on the list yet">Upload from a new firm<input type="file" accept="application/pdf,.pdf" multiple hidden data-add-proposals /></label>
+      ${withProposals ? `<a class="link" href="#project/${encodeURIComponent(p.id)}/consultants">Compare all</a>` : ""}
+    </span>`;
+}
 // The project's firms (the same ones as the consultant matrix): add the ones you're waiting on, then upload each
 // proposal on its firm's row, so nothing is matched by name. Tick firms with proposals to compare them.
 
@@ -109,7 +119,8 @@ export function proposalsHtml(p: SavedProject, comparisons: SavedComparison[], c
         : latest
           ? `Received ${shortDay(latest.receivedAt)}${list.length > 1 ? ` · ${list.length} versions` : ""}`
           : "Waiting for proposal";
-      const disciplines = disciplinesBrief(c.disciplines.length ? c.disciplines : (latest?.proposal.disciplines ?? []));
+      // The proposal says what a firm covers; until it's in, the scope expected from it.
+      const disciplines = disciplinesBrief(latest ? (latest.proposal.disciplines ?? []) : c.disciplines);
       return `<li class="received${latest ? "" : " waiting"}">
         <span class="received-main"><b>${esc(c.name)}</b><span class="received-meta">${esc([disciplines, state].filter(Boolean).join(" · "))}</span></span>
         <span class="received-total">${total != null ? `${money(total)}${AI_MARK}` : ""}</span>
@@ -133,14 +144,10 @@ export function proposalsHtml(p: SavedProject, comparisons: SavedComparison[], c
       </li>`,
     )
     .join("");
+  // The card's actions are in its header (proposalsHeadHtml), so they're never scrolled out of sight.
   return `
-    ${rows ? `<ol class="received-list">${rows}</ol>` : `<p class="none">None yet. Add the consultants you're waiting on, then upload each proposal when it comes in.</p>`}
-    <div class="actions">
-      <button class="btn" data-add-firm>+ Add consultant</button>
-      ${withProposals ? `<a class="btn" href="#project/${encodeURIComponent(p.id)}/consultants">Compare all</a>` : ""}
-      <label class="link received-new">Or upload from a new firm<input type="file" accept="application/pdf,.pdf" multiple hidden data-add-proposals /></label>
-    </div>
     <p class="status" id="received-status">${esc(readingStatus)}</p>
+    ${rows ? `<ol class="received-list">${rows}</ol>` : `<p class="none">None yet. Add the consultants you're waiting on, then upload each proposal when it comes in.</p>`}
     ${cmpList ? `<h3 class="proj-subhead">Earlier comparisons</h3><ol>${cmpList}</ol>` : ""}`;
 }
 
@@ -176,11 +183,9 @@ async function addProposals(files: File[], ctx: ProposalsContext, firmId?: strin
           if (entry) {
             (ctx.project.proposals ??= []).push(entry);
             const firm = firmId ? ctx.project.consultants?.find((c) => c.id === firmId) : undefined;
-            if (firm) {
-              entry.firmId = firm.id;
-              // A firm added before its proposal came in takes the proposal's disciplines.
-              if (!firm.disciplines.length) firm.disciplines = toDisciplines(entry.proposal.disciplines ?? []);
-            } else ctx.linkFirm(entry); // matched by name, or a new firm ("Getting a fee")
+            if (firm) entry.firmId = firm.id;
+            // The firm (this row's, or matched by name, or a new one) gains an X for each discipline the proposal covers.
+            ctx.linkFirm(entry);
             await ctx.save();
           } else problems.push(`${file.name}: already on this project.`);
         } catch (err) {

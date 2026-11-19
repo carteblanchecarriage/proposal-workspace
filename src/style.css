@@ -151,7 +151,7 @@ details.more[open] > .notes { margin-top: 16px; }
 :where(body > main) .legend { margin: -4px 0 16px; display: flex; flex-wrap: wrap; gap: 6px 24px; text-transform: none; letter-spacing: 0; font-family: var(--sans); font-size: 12px; }
 :where(body > main) .legend b { font-weight: 500; margin-right: 4px; }
 
-/* Tables fit the page; only scroll on phones (see --min-table) */
+/* Tables fit the page at every width; long text wraps in its cell. */
 .scroll { overflow-x: auto; }
 table.grid { border-collapse: collapse; width: 100%; font-size: 14px; line-height: 1.45; table-layout: fixed; }
 .grid th, .grid td {
@@ -184,7 +184,7 @@ table.grid { border-collapse: collapse; width: 100%; font-size: 14px; line-heigh
 }
 .grid tr.scenario th .sub { display: inline; margin-left: 12px; font-weight: 400; }
 .grid tr.scenario + tr.cat th { padding-top: 12px; }
-.grid td.st { white-space: nowrap; }
+.grid td.st { white-space: normal; }
 .st-included { color: var(--ink); }
 .st-mark { display: inline-block; width: 1.2em; font-weight: 700; font-style: normal; }
 .diff-dot { color: var(--bad); }
@@ -253,7 +253,6 @@ body.chat-open > main, body.chat-open footer.site { margin-right: 420px; }
   .toolbar { flex-direction: column; align-items: flex-start; }
   .headline { font-size: 20px; }
   .flags, .questions { grid-template-columns: 1fr; }
-  .scroll table.grid { min-width: var(--min-table, 0px); }
   /* Name on its own line, the four tabs below it, so the header never scrolls sideways. */
   header.site { flex-wrap: wrap; gap: 12px; }
   .mark { flex-basis: 100%; }
@@ -909,15 +908,15 @@ a.fee-on-project:hover table, a.fee-on-project:focus-visible table { outline: 2p
 .proj-grid {
   display: grid; gap: 16px;
   grid-template-columns: repeat(12, minmax(0, 1fr));
-  grid-template-rows: minmax(0, 1.2fr) minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr) minmax(0, 1.25fr);
 }
 .proj-schedule { grid-column: span 6; }
 .proj-fee { grid-column: span 3; }
-.proj-qaqc { grid-column: span 3; }
+.proj-qaqc { grid-column: 1 / -1; }
 /* The consultants' rows (firm chips with a status) need the most width; the RFP summary the least. */
 .proj-rfp { grid-column: span 3; }
-.proj-proposals { grid-column: span 4; }
-.proj-consultants { grid-column: span 5; }
+.proj-proposals { grid-column: span 5; }
+.proj-consultants { grid-column: span 7; }
 .proj-card { border: 1px solid var(--ink); display: flex; flex-direction: column; min-height: 0; min-width: 0; background: var(--bg); }
 .proj-card-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 10px 14px; border-bottom: 1px solid var(--rule); }
 .proj-card-head .label { margin: 0; }
@@ -1116,7 +1115,7 @@ select.fee-basis:focus { border-color: var(--ink); outline: none; }
 
 /* Project page: the consultant matrix (firms across, disciplines down). */
 .matrix-wrap { overflow-x: auto; }
-table.matrix { border-collapse: collapse; font-size: 13px; min-width: 100%; }
+table.matrix { border-collapse: collapse; font-size: 13px; width: 100%; table-layout: fixed; }
 .matrix th, .matrix td { border: 1px solid var(--rule); padding: 0; text-align: center; vertical-align: middle; }
 .matrix thead th { padding: 6px 6px 4px; min-width: 112px; vertical-align: bottom; font-weight: 700; }
 .matrix th.m-corner { border-top: 0; border-left: 0; min-width: 0; }
@@ -1193,3 +1192,153 @@ li.received.waiting .received-main b { font-weight: 600; }
 .cgroup-sub { font-size: 16px; font-weight: 700; margin: 26px 0 8px; }
 .cgroup .glance { margin-bottom: 24px; }
 .cpage-matrix .matrix-wrap { max-width: 100%; }
+
+/* Matrix notes: plain text when read-only (two lines on the project page's card; in full on the Consultants page). */
+.m-note-text { display: block; text-align: left; font-size: 12px; line-height: 1.35; padding: 4px 6px; white-space: pre-line; }
+.proj-consultants .m-note-text { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.matrix .m-notes th[scope="row"] { vertical-align: top; padding-top: 5px; }
+.matrix .m-notes td { vertical-align: top; }
+/* Matrix columns stay narrow; long notes wrap. */
+.matrix .m-note-text { max-width: 150px; }
+.matrix th.m-firm { max-width: 150px; }
+/* Proposal check, full width on its own row: the summary beside the flags, the flags in columns. */
+.proj-qaqc .proj-card-body { display: grid; grid-template-columns: minmax(220px, 1fr) 3fr; gap: 4px 28px; align-content: start; }
+.proj-qaqc .qaqc-flags { grid-column: 2; grid-row: 1 / span 4; margin: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 0 18px; }
+.proj-qaqc .proj-card-body > :not(.qaqc-flags) { grid-column: 1; }
+@media (max-width: 1099px) { .proj-qaqc .proj-card-body { display: block; } .proj-qaqc .qaqc-flags { display: block; } }
+/* Proposal check: below the fitted grid, full width, as tall as it needs (the page scrolls to it). */
+.proj-qaqc.proj-below { margin-top: 16px; }
+.proj-qaqc.proj-below .proj-card-body { overflow: visible; }
+/* The matrix fits its width: the discipline column, then the firms sharing the rest; names and notes wrap. */
+.matrix th.m-corner { width: 128px; }
+.matrix th, .matrix td { overflow-wrap: anywhere; }
+.matrix thead th, .matrix:not(.editing) thead th { min-width: 0; max-width: none; }
+.matrix .m-note-text { max-width: none; }
+.matrix .m-decision { width: 100%; }
+.m-note { min-width: 0; }
+/* Table text wraps at word boundaries (hyphenated when a word won't fit), never by scrolling sideways. */
+.grid th, .grid td { overflow-wrap: break-word; hyphens: auto; }
+.grid .ref, .grid td.num .amt { white-space: nowrap; }
+@media (max-width: 640px) { .grid .ref { white-space: normal; } }
+
+/* Consultants page: a list of disciplines, each one line until opened; details open on demand. */
+.cpage-h2 { font-size: 15px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; margin: 8px 0 8px; }
+details.cgroup, details.cpage-matrix { border-top: 1px solid var(--ink); padding: 0; margin: 0; }
+details.cgroup:last-of-type { border-bottom: 1px solid var(--ink); }
+.cgroup-summary { list-style: none; cursor: pointer; display: grid; grid-template-columns: 18px minmax(160px, 220px) minmax(0, 1fr); gap: 4px 14px; align-items: baseline; padding: 14px 0; }
+.cgroup-summary::-webkit-details-marker { display: none; }
+.cgroup-summary::before { content: "+"; font-weight: 800; font-size: 18px; line-height: 1; }
+details[open] > .cgroup-summary::before { content: "−"; }
+.cgroup-summary .cgroup-title { font-size: 19px; font-weight: 800; letter-spacing: -0.01em; }
+.cgroup-line { font-size: 14px; }
+.cgroup-line .cg-stale { color: var(--bad); }
+.cgroup-summary:hover .cgroup-title { text-decoration: underline; text-underline-offset: 3px; }
+.cgroup-body { padding: 0 0 22px 32px; }
+.cg-headline { font-size: 18px; font-weight: 600; line-height: 1.35; margin: 0 0 6px; max-width: 980px; }
+.cg-overview { font-size: 15px; line-height: 1.5; margin: 0 0 14px; max-width: 980px; }
+details.cg-part { border-top: 1px solid var(--rule); }
+details.cg-part > summary { cursor: pointer; padding: 10px 0; font-weight: 700; font-size: 15px; list-style: none; }
+details.cg-part > summary::-webkit-details-marker { display: none; }
+details.cg-part > summary::before { content: "▸ "; }
+details.cg-part[open] > summary::before { content: "▾ "; }
+.cg-count { font-weight: 400; font-size: 13px; margin-left: 6px; }
+.cg-part-body { padding: 4px 0 16px; }
+.cg-open { margin: 12px 0 0; font-size: 14px; }
+.cpage-matrix-tools { display: flex; justify-content: flex-end; gap: 14px; align-items: center; margin-bottom: 8px; }
+.cg-waiting-list { margin-top: 28px; }
+.cg-waiting-list ul { margin: 0; padding-left: 18px; font-size: 14px; }
+.cg-waiting-list li { margin-bottom: 4px; }
+@media (max-width: 640px) {
+  .cgroup-summary { grid-template-columns: 18px minmax(0, 1fr); }
+  .cgroup-line { grid-column: 2; }
+  .cgroup-body { padding-left: 0; }
+}
+
+/* Consultant matrix, cleaner: no grid lines, light row dividers, a dot where a firm covers a discipline. */
+table.matrix { border-collapse: separate; border-spacing: 0; }
+.matrix th, .matrix td { border: 0; }
+.matrix tbody tr > * { border-bottom: 1px solid var(--rule); }
+.matrix tbody tr:last-child > * { border-bottom: 0; }
+.matrix thead th { border-bottom: 1.5px solid var(--ink); vertical-align: bottom; text-align: center; font-weight: 600; padding: 4px 6px 8px; }
+.matrix thead th.m-corner { border-bottom: 1.5px solid var(--ink); }
+.matrix th[scope="row"] { font-weight: 500; color: var(--ink); padding: 7px 10px 7px 0; }
+.matrix td { text-align: center; vertical-align: middle; }
+.matrix:not(.editing) td { height: 30px; }
+.matrix .dec-using { background: transparent; }
+.matrix thead th.dec-using { background: transparent; }
+.m-using-tag { display: inline-block; margin-top: 3px; padding: 1px 7px; font-size: 10px; font-weight: 700; letter-spacing: .05em; text-transform: uppercase; background: #e3f1df; color: #2e6b2a; }
+.m-dot { display: inline-block; width: 11px; height: 11px; border-radius: 50%; background: var(--ink); vertical-align: middle; }
+.matrix .dec-using .m-dot { background: #3c8c37; }
+.matrix.editing .m-dot:not(.on) { background: transparent; box-shadow: inset 0 0 0 1.5px var(--rule); }
+.matrix.editing .m-cell:hover .m-dot:not(.on) { box-shadow: inset 0 0 0 1.5px var(--ink); }
+.m-cell { min-height: 30px; }
+.m-cell:hover { background: transparent; }
+.m-ok { color: #3c8c37; font-weight: 700; }
+.matrix .m-notes th[scope="row"], .matrix .m-notes td { border-bottom: 0; }
+.m-note-text { font-style: italic; text-align: center; }
+.m-fee { font-weight: 500; }
+.m-key i { border-radius: 50%; background: #3c8c37; border: 0; width: 9px; height: 9px; }
+/* Still a grid: faint column lines; rows kept compact so the read-only matrix fits its card. */
+.matrix thead th + th, .matrix td { box-shadow: inset 1px 0 0 #eeeeec; }
+.matrix:not(.editing) td { height: 24px; }
+.matrix:not(.editing) th[scope="row"] { padding-top: 3px; padding-bottom: 3px; }
+.matrix:not(.editing) thead th { padding-bottom: 6px; }
+.m-dot { width: 10px; height: 10px; }
+/* Consultant grid: black lines (rows and columns), thin, no shading. */
+.matrix tbody tr > * { border-bottom: 1px solid var(--ink); }
+.matrix tbody tr:last-child > * { border-bottom: 0; }
+.matrix thead th + th, .matrix td { box-shadow: inset 1px 0 0 var(--ink); }
+/* Consultant grid: closed with an outer border (no open-ended lines). */
+table.matrix { border: 1px solid var(--ink); }
+.matrix thead th, .matrix thead th.m-corner { border-bottom: 1px solid var(--ink); }
+.matrix th[scope="row"], .matrix th.m-corner { padding-left: 10px; }
+.matrix th.m-corner { width: 150px; }
+.matrix:not(.editing) td { height: 22px; }
+.proj-consultants .proj-card-body { padding-bottom: 6px; }
+/* A decided discipline: the whole row light green. */
+.matrix tbody tr.m-decided > * { background: #e9f4e6; }
+/* Firm names: aligned to the top of the header, up to three lines before they're cut. */
+.matrix thead th, .matrix:not(.editing) thead th { vertical-align: top; padding-top: 6px; }
+.matrix .m-firm-name .contact-name { -webkit-line-clamp: 3; overflow-wrap: normal; hyphens: manual; word-break: normal; }
+.matrix:not(.editing) td { height: 20px; }
+.matrix:not(.editing) th[scope="row"] { padding-top: 2px; padding-bottom: 2px; }
+.matrix thead th, .matrix:not(.editing) thead th { padding: 5px 6px 5px; }
+.m-using-tag { margin-top: 2px; }
+.matrix .m-firm-name .contact-name { font-size: 11.5px; }
+/* Long firm names stay inside their column: words wrap (hyphenated where needed) instead of spilling over. */
+.matrix thead th { overflow: hidden; }
+.matrix .m-firm-name .contact-name { overflow-wrap: anywhere; hyphens: auto; word-break: normal; }
+.matrix th[scope="row"] { overflow-wrap: anywhere; hyphens: auto; }
+/* Many firms: fees stay on one line; the discipline column gives up a little width. */
+.m-fee { white-space: nowrap; font-size: 10.5px; letter-spacing: -0.01em; }
+.matrix th.m-corner { width: 128px; }
+.m-fee { font-size: 10px; letter-spacing: 0; }
+.matrix thead th.m-firm, .matrix:not(.editing) thead th.m-firm { padding-left: 3px; padding-right: 3px; }
+/* The Projects tab while it switches to another page: hidden until drawn (no flash of the old page). */
+#project-page[data-loading] { visibility: hidden; }
+
+/* Grid dots: solid = in the firm's proposal; hollow = expected (no proposal yet). */
+.m-dot.on.expected { background: transparent; box-shadow: inset 0 0 0 2px var(--ink); }
+.matrix .dec-using .m-dot.on.expected { background: transparent; box-shadow: inset 0 0 0 2px #3c8c37; }
+.m-key-exp { display: inline-block; width: 9px; height: 9px; border-radius: 50%; box-shadow: inset 0 0 0 1.5px var(--ink); margin-left: 8px; }
+.m-key i.m-key-exp { background: transparent; box-shadow: inset 0 0 0 1.5px var(--ink); }
+/* Consultant proposals: actions in the card header. */
+.proposals-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px 14px; }
+.proposals-actions .link, .proposals-actions label.link { font-size: 13px; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+#received-status:empty { display: none; }
+
+/* Printed submissions: the send-to-printer date. */
+.print-tag { display: inline-block; margin-left: 6px; padding: 0 6px; font-size: 11px; border: 1px solid var(--ink); white-space: nowrap; }
+.glance-tile.print { border-width: 2px; border-style: dashed; }
+.print-flag { font-size: 14px; border-left: 3px solid var(--ink); padding-left: 8px; }
+.rfp-glance { max-width: none; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); }
+/* Project consultants page: firm columns keep a sensible width on wide screens (the grid doesn't stretch). */
+.cpage-matrix table.matrix { width: auto; max-width: 100%; }
+.cpage-matrix .matrix th.m-firm { width: 150px; }
+.cpage-matrix .matrix th.m-corner { width: 150px; }
+/* Firm names centered over their column. */
+.matrix .m-firm-name, .matrix .m-firm-name .contact-name { text-align: center; }
+/* Project page: each card's title opens that section's page. */
+.card-title-link { color: inherit; text-decoration: none; }
+.card-title-link:hover, .card-title-link:focus-visible { text-decoration: underline; text-underline-offset: 3px; }
+.card-title-link::after { content: " →"; font-weight: 400; opacity: .5; }

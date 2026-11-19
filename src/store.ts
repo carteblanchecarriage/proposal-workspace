@@ -24,7 +24,7 @@ export type SavedComparison = {
    * A section of the project's Consultants page: the discipline row it compares, and which proposals it compared
    * (each one's file hash or name, sorted), so the page can tell when it's out of date.
    */
-  group?: { key: string; label: string; signature: string[] };
+  group?: { key: string; label: string; signature: string[]; /** 2: compared for this discipline only */ v?: number };
 };
 
 /** A PDF's reading, saved by a hash of the file's contents so the same PDF is never paid for twice. */
@@ -137,6 +137,8 @@ export type ProjectFirm = {
   disciplines: string[];
   /** using them on this proposal, or getting a fee from them (the default) */
   decision?: "using" | "fee";
+  /** the team's note on the firm for this project */
+  note?: string;
   /** older entries: where the firm stood per discipline */
   statuses?: Record<string, ConsultantStatus>;
 };

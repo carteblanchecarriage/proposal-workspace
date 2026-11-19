@@ -1,4 +1,5 @@
 import { DISCIPLINES, firmDisciplines, toDisciplines } from "../lib/disciplines";
+import { removeFirms } from "../lib/comparison-edit";
 import { defaultScheduleNotes } from "./org";
 import { askProjectName, confirmModal, confirmTyped, formModal, noticeModal } from "./modal";
 import { makeFee, proposalHtml, withWaiting } from "./fee";
@@ -10,11 +11,11 @@ import type { Comparison, Proposal, ScheduleDraft } from "../lib/claude";
 import { consultantTotal, proposalTable, totals } from "./fee-calc";
 import { feeStatusHtml, setFeeStatus } from "./fee-status";
 import { deleteProject, listFees, saveFee, type SavedFee, projectLabel, listComparisons, listProjects, listSchedules, getScheduleStyle, type ScheduleStyle, savesShared, listRfps, saveComparison, saveProject, saveRfp, saveSchedule, listConsultants, type SavedConsultant, type SavedComparison, type SavedProject, type SavedRfp, type SavedSchedule, type ProjectFirm, type ReceivedProposal } from "./store";
-import { addAddendum, docKindLabel, docTitle, formatWhen, parseDay, projectDisciplines, proposalDue, verdictPill } from "./rfp";
+import { addAddendum, docKindLabel, docTitle, formatWhen, physicalSubmission, printBy, parseDay, projectDisciplines, proposalDue, verdictPill } from "./rfp";
 import { setPendingProject } from "./pending";
-import { adoptFromComparisons, onProposalsChange, onProposalsClick, proposalsHtml, qaqcHtml, type ProposalsContext } from "./project-proposals";
+import { adoptFromComparisons, onProposalsChange, onProposalsClick, proposalsHeadHtml, proposalsHtml, qaqcHtml, type ProposalsContext } from "./project-proposals";
 import { copyShareLink } from "./share";
-import { AI_MARK, briefingHtml, esc, feeTable, firmName, glanceHtml, scopeTable, statedTotal, type Sourced } from "./table";
+import { AI_MARK, briefingDetails, esc, feeTable, firmName, glanceHtml, scopeTable, statedTotal, type Sourced } from "./table";
 import { contactsHtml, copyEmail, keyOf, siteLink } from "./consultants";
 import { parseContacts } from "./contacts";
 
@@ -53,13 +54,23 @@ export async function newProject(): Promise<SavedProject | null> {
 }
 
 export async function openProject(id: string) {
+  const nextView = location.hash.split("/")[2] === "consultants" ? "consultants" : "dash";
+  const key = `project:${id}:${nextView}`;
+  const token = beginView(key);
   const found = (await listProjects()).find((p) => p.id === id);
-  if (!found) return noticeModal("Project not found", "It may have been deleted.");
+  if (token !== viewToken) return;
+  if (!found) {
+    endView("");
+    return noticeModal("Project not found", "It may have been deleted.");
+  }
+  const same = project?.id === id;
   project = found;
-  matrixEditing = false;
-  view = location.hash.split("/")[2] === "consultants" ? "consultants" : "dash";
+  if (!same) matrixEditing = false;
+  view = nextView;
   await load();
+  if (token !== viewToken) return; // a later switch is on its way
   render();
+  endView(key);
   scrollTo(0, 0);
 }
 
@@ -78,6 +89,7 @@ async function load() {
     // The organization's schedule colors and font, so the snapshot matches the schedule maker.
     getScheduleStyle().catch(() => ({ colors: {} }) as ScheduleStyle),
   ]);
+  if (project?.id !== id) return; // another project opened meanwhile; its own load fills these in
   directory = dir;
   scheduleStyle = style;
   rfp = rfps.find((r) => r.id === project!.rfpId) ?? rfps.find((r) => r.projectId === id);
@@ -93,10 +105,27 @@ async function load() {
 
 
 /** All projects, newest first, each opening its page. */
+/**
+ * Switching what the Projects tab shows (another project, the list, the Consultants page): the old page is hidden
+ * until the new one is drawn, so it doesn't flash before the data arrives. Only the latest switch is drawn.
+ */
+let shownKey = "";
+let viewToken = 0;
+function beginView(key: string): number {
+  if (shownKey !== key) $("project-page").dataset.loading = "1";
+  return ++viewToken;
+}
+function endView(key: string) {
+  shownKey = key;
+  delete $("project-page").dataset.loading;
+}
+
 export async function showProjectList() {
+  const token = beginView("list");
+  const [projects, rfps] = await Promise.all([listProjects(), listRfps()]);
+  if (token !== viewToken) return; // a later switch is on its way
   project = null;
   $("project-page").classList.remove("is-dash");
-  const [projects, rfps] = await Promise.all([listProjects(), listRfps()]);
   // Sorted by project number, highest first; projects without a number last, newest first.
   const rows = projects.map((p) => {
     const r = rfps.find((x) => x.id === p.rfpId) ?? rfps.find((x) => x.projectId === p.id);
@@ -127,6 +156,7 @@ export async function showProjectList() {
       <div class="project-list-head"><h2 class="label">Projects</h2><button class="btn primary" data-new-project>New project</button></div>
       ${items ? `<ol>${items}</ol>` : `<p class="none">No projects yet. Everything starts from a project: its RFP review, proposals, fee and schedule.</p>`}
     </div>`;
+  endView("list");
 }
 
 /** The project page shows its dashboard, or its Consultants page (#project/<id>/consultants). */
@@ -144,11 +174,10 @@ function render() {
   const sched = schedules[0];
 
   $("project-page").classList.add("is-dash");
-  // A dashboard: the RFP review, proposals and consultants first, then the schedule and fee. On a large enough screen it fits the window (see fitDashboard); long lists scroll inside their card.
+  // A dashboard: the RFP review, schedule and fee on top; the consultants (proposals and matrix) and proposal check below. On a large enough screen it fits the window (see fitDashboard); long lists scroll inside their card.
   $("project-page").innerHTML = `
     <div class="proj-head">
       <div class="proj-title">
-        <a class="link" href="#project">← All projects</a>
         <h1 class="headline">${esc(projectLabel(p))}</h1>
         ${sub ? `<p class="proj-sub">${sub}</p>` : ""}
       </div>
@@ -158,16 +187,17 @@ function render() {
     <div class="proj-grid">
       <div class="proj-card proj-rfp">
         <div class="proj-card-head">
-          <h2 class="label">RFP review</h2>
-          ${rfp ? `<span class="proj-card-links"><a class="link" href="#rfp/${encodeURIComponent(rfp.id)}">Open</a></span>` : ""}
+          <h2 class="label">${cardTitle("RFP review", rfp ? `#rfp/${encodeURIComponent(rfp.id)}` : "")}</h2>
         </div>
         <div class="proj-card-body">
           ${
             rfp
-              ? `<p class="proj-strong"><a class="link" href="#rfp/${encodeURIComponent(rfp.id)}">${esc(rfp.rfp.project_name)}</a></p>
-                 <p>${esc(rfp.rfp.client)}</p>
-                 ${rfp.rfp.fit ? `<p>${verdictPill(rfp.rfp.fit, `#rfp/${encodeURIComponent(rfp.id)}`)}</p>` : ""}
+              ? `${rfp.rfp.fit ? `<p>${verdictPill(rfp.rfp.fit, `#rfp/${encodeURIComponent(rfp.id)}`)}</p>` : ""}
                  ${due ? `<p>Proposals due ${esc(formatWhen(due))}</p>` : ""}
+                 ${(() => {
+                   const pb = printBy(rfp.rfp);
+                   return pb ? `<p class="print-flag" title="${esc(physicalSubmission(rfp.rfp)?.detail ?? "")}"><b>Printed submission:</b> send to printer by ${esc(formatWhen(pb))}</p>` : "";
+                 })()}
                  ${rfpSourcesHtml(rfp)}
                  <div class="actions"><label class="btn" title="An addendum, answers to questions, meeting minutes or another document">Add document<input type="file" accept="application/pdf,.pdf" multiple hidden data-addendum /></label><span class="status" id="addendum-status"></span></div>`
               : `<p class="none">None yet.</p><div class="actions"><button class="btn" data-review-rfp>Review the RFP</button></div>`
@@ -175,22 +205,9 @@ function render() {
         </div>
       </div>
 
-      <div class="proj-card proj-proposals saved">
-        <div class="proj-card-head"><h2 class="label">Consultant proposals</h2></div>
-        <div class="proj-card-body">${proposalsHtml(p, comparisons, proposalsContext())}</div>
-      </div>
-
-      <div class="proj-card proj-consultants">
-        <div class="proj-card-head"><h2 class="label">Consultants</h2><span class="proj-card-links"><span class="m-key" title="Green columns are firms you're using; the rest are firms you're getting a fee from"><i></i>Using</span>${
-          `<a class="link" href="#project/${encodeURIComponent(p.id)}/consultants">Open</a>`
-        }<button class="link" data-matrix-edit>${matrixEditing ? "Done" : "Edit"}</button></span></div>
-        <div class="proj-card-body">${consultantsHtml(p)}</div>
-      </div>
-
       <div class="proj-card proj-schedule">
         <div class="proj-card-head">
-          <h2 class="label">Schedule</h2>
-          ${sched ? `<span class="proj-card-links"><a class="link" href="#schedule/${encodeURIComponent(sched.id)}">Open</a></span>` : ""}
+          <h2 class="label">${cardTitle("Schedule", sched ? `#schedule/${encodeURIComponent(sched.id)}` : "")}</h2>
         </div>
         <div class="proj-card-body">
           ${
@@ -204,21 +221,37 @@ function render() {
 
       <div class="proj-card proj-fee">
         <div class="proj-card-head">
-          <h2 class="label">Fee</h2>
-          ${fee ? `<span class="proj-card-links"><a class="link" href="#fee/${encodeURIComponent(fee.id)}">Open</a></span>` : ""}
+          <h2 class="label">${cardTitle("Architecture fee", fee ? `#fee/${encodeURIComponent(fee.id)}` : "")}</h2>
         </div>
         <div class="proj-card-body">${fee ? feeStatusHtml(fee, true) : ""}${feeSummaryHtml(fee)}</div>
       </div>
 
-      <div class="proj-card proj-qaqc">
+      <div class="proj-card proj-proposals saved">
+        <div class="proj-card-head"><h2 class="label">${cardTitle("Consultant proposals", `#project/${encodeURIComponent(p.id)}/consultants`)}</h2>${proposalsHeadHtml(p)}</div>
+        <div class="proj-card-body">${proposalsHtml(p, comparisons, proposalsContext())}</div>
+      </div>
+
+      <div class="proj-card proj-consultants">
+        <div class="proj-card-head"><h2 class="label">${cardTitle("Consultant matrix", `#project/${encodeURIComponent(p.id)}/consultants`)}</h2><span class="proj-card-links"><span class="m-key" title="Solid dots: in the firm's proposal. Hollow: expected, no proposal yet. Green: a firm you're using."><i></i>Using<i class="m-key-exp"></i>Expected</span>${
+          // Once the consultants have been compared, the card says so (its title opens the page either way).
+          comparisons.some((c) => c.group) ? `<a class="link" href="#project/${encodeURIComponent(p.id)}/consultants">See comparison</a>` : ""
+        }<button class="link" data-matrix-edit>${matrixEditing ? "Done" : "Edit"}</button></span></div>
+        <div class="proj-card-body">${consultantsHtml(p)}</div>
+      </div>
+    </div>
+
+      <div class="proj-card proj-qaqc proj-below">
         <div class="proj-card-head"><h2 class="label">Proposal check</h2></div>
         <div class="proj-card-body">${qaqcHtml(p, rfp)}</div>
       </div>
-    </div>`;
+`;
   fitDashboard();
 }
 
 const money = (n: number) => `$${Math.round(n).toLocaleString("en-US")}`;
+
+/** A card's title: a link to that section's page when there is one. */
+const cardTitle = (text: string, href: string) => (href ? `<a class="card-title-link" href="${href}">${esc(text)}</a>` : esc(text));
 
 /** What the RFP review is built from: the RFP itself, then each document added since (newest last). */
 function rfpSourcesHtml(r: SavedRfp): string {
@@ -257,7 +290,7 @@ function feeSummaryHtml(f: SavedFee | undefined): string {
   if (!arch) return `<p class="none">${esc(f.title || "Untitled fee")} has no amounts yet. <a class="link" href="${href}">Open it</a>.</p>${consultantsNote}`;
   return `<a class="proj-fee-link" href="${href}" aria-label="Open the fee">
       <p class="proj-fee-total">${money(arch)}</p>
-      <p class="proj-fee-pct">Architecture fee${t.budget ? ` · ${((arch / t.budget) * 100).toFixed(1)}% of a ${money(t.budget)} construction budget` : ""}</p>
+      ${t.budget ? `<p class="proj-fee-pct">${((arch / t.budget) * 100).toFixed(1)}% of a ${money(t.budget)} construction budget</p>` : ""}
     </a>
     ${consultantsNote}
     <a class="proj-fee-link" href="${href}" tabindex="-1" aria-hidden="true">
@@ -488,7 +521,7 @@ type Row = { key: string; label: string; members: string[]; custom?: boolean };
 function matrixRows(p: SavedProject): Row[] {
   const needed = new Set<string>(neededDisciplines(p));
   const removed = new Set(p.disciplinesRemoved ?? []);
-  const covered = new Set((p.consultants ?? []).flatMap((c) => c.disciplines));
+  const covered = new Set((p.consultants ?? []).flatMap((c) => [...coverage(p, c).set]));
   const rows: Row[] = GROUPS.filter((g) => !IN_HOUSE.includes(g.key))
     .filter((g) => !g.members.every((d) => removed.has(d)) && g.members.some((d) => needed.has(d) || covered.has(d)))
     .map((g) => ({ ...g }));
@@ -522,6 +555,19 @@ function linkFirm(p: SavedProject, r: ReceivedProposal): ProjectFirm | undefined
 }
 
 /**
+ * What a firm covers on this project. Its proposal is the source: once one is in, the latest proposal's disciplines
+ * (as read from the PDF) are what it covers. Until then, the scope the team expects from it, set by hand. The team's
+ * own rows (e.g. "Energy and LCA") aren't on the governing list, so they're always marked by hand.
+ */
+function coverage(p: SavedProject, c: ProjectFirm): { set: Set<string>; fromProposal: boolean } {
+  const latest = firmProposals(p, c).list.at(-1);
+  const own = c.disciplines.filter((d) => d.startsWith("row:"));
+  if (latest) return { set: new Set<string>([...toDisciplines(latest.proposal.disciplines ?? []), ...own]), fromProposal: true };
+  return { set: new Set(c.disciplines), fromProposal: false };
+}
+const covers = (p: SavedProject, c: ProjectFirm, r: Row) => r.members.some((d) => coverage(p, c).set.has(d));
+
+/**
  * Keeps firms and proposals on one source when the project opens: every firm has an id and its directory link (by
  * name, once), and every proposal points to its firm. Returns true when the project changed and should be saved.
  */
@@ -533,6 +579,9 @@ function syncFirms(p: SavedProject): boolean {
       const d = directory.find((x) => keyOf(x.name) === keyOf(c.name));
       if (d) (c.consultantId = d.id), (changed = true);
     }
+    // The directory is the source of a linked firm's name: a rename there shows here.
+    const d = c.consultantId ? directory.find((x) => x.id === c.consultantId) : undefined;
+    if (d && d.name !== c.name) (c.name = d.name), (changed = true);
   }
   for (const r of p.proposals ?? []) {
     const before = r.firmId;
@@ -582,7 +631,9 @@ function consultantsHtml(p: SavedProject): string {
             .map((v) => `<option value="${v}" ${v === dec(c) ? "selected" : ""}>${STATUS[v]}</option>`)
             .join("")}
         </select><button class="link m-remove" data-remove-firm="${esc(c.id!)}" aria-label="Remove ${esc(c.name)}" title="Remove ${esc(c.name)}">×</button>`
-            : `<span class="visually-hidden">${STATUS[dec(c)]}</span>`
+            : dec(c) === "using"
+              ? `<span class="m-using-tag">Using</span>`
+              : `<span class="visually-hidden">${STATUS[dec(c)]}</span>`
         }${(() => {
           const f = firmProposals(p, c);
           return f.total != null ? `<span class="m-fee">${money(f.total)}${AI_MARK}</span>` : f.list.length ? `<span class="m-fee">Proposal in</span>` : "";
@@ -594,23 +645,39 @@ function consultantsHtml(p: SavedProject): string {
     .map((r) => {
       const cells = firms
         .map((c) => {
-          const on = c.disciplines.some((d) => r.members.includes(d));
+          const cov = coverage(p, c);
+          const on = r.members.some((d) => cov.set.has(d));
+          // From the proposal (solid, can't be changed here) or expected while it's still out (hollow, editable).
+          const locked = cov.fromProposal && !r.custom;
+          const kind = on ? (cov.fromProposal ? " on" : " on expected") : "";
+          const what = on ? (cov.fromProposal ? `In ${c.name}'s proposal` : `Expected from ${c.name}; no proposal yet`) : "";
           return `<td class="dec-${dec(c)}">${
-            editing
-              ? `<button class="m-cell" data-toggle-cell="${esc(c.id!)}" data-row="${esc(r.key)}" aria-pressed="${on}" aria-label="${esc(c.name)} covers ${esc(r.label)}">${on ? "X" : ""}</button>`
-              : `<span class="m-mark">${on ? "X" : ""}</span>`
+            editing && !locked
+              ? `<button class="m-cell" data-toggle-cell="${esc(c.id!)}" data-row="${esc(r.key)}" aria-pressed="${on}" aria-label="${esc(c.name)} expected to cover ${esc(r.label)}"><span class="m-dot${kind}" aria-hidden="true"></span></button>`
+              : on
+                ? `<span class="m-dot${kind}" role="img" aria-label="${esc(what)}" title="${esc(editing ? `${what}. From the proposal, so it can't be changed here.` : what)}"></span>`
+                : ""
           }</td>`;
         })
         .join("");
-      const covered = firms.some((c) => decisionOf(c) === "using" && c.disciplines.some((d) => r.members.includes(d)));
-      return `<tr><th scope="row">${esc(r.label)}${covered ? ' <span class="m-ok" title="A firm you are using covers this">✓</span>' : ""}${
+      const covered = firms.some((c) => decisionOf(c) === "using" && covers(p, c, r));
+      // A decided discipline (a firm you're using covers it): the whole row is light green.
+      return `<tr class="${covered ? "m-decided" : ""}"${covered ? ' title="Decided: a firm you are using covers this"' : ""}><th scope="row">${esc(r.label)}${
         editing ? `<button class="link team-remove" data-remove-discipline="${esc(r.key)}" aria-label="Remove ${esc(r.label)}" title="Remove ${esc(r.label)} from this project">Remove</button>` : ""
       }</th>${cells}</tr>`;
     })
     .join("");
   return `<div class="matrix-wrap"><table class="matrix${editing ? " editing" : ""}">
       <thead><tr><th class="m-corner"></th>${head}</tr></thead>
-      <tbody>${body}</tbody>
+      <tbody>${body}
+        <tr class="m-notes"><th scope="row">Notes</th>${firms
+          .map((c) =>
+            editing
+              ? `<td class="dec-${dec(c)}"><textarea class="m-note" data-firm-note="${esc(c.id!)}" rows="3" aria-label="Notes on ${esc(c.name)}" placeholder="Notes">${esc(c.note ?? "")}</textarea></td>`
+              : `<td class="dec-${dec(c)}"><span class="m-note-text" title="${esc(c.note ?? "")}">${esc(c.note ?? "")}</span></td>`,
+          )
+          .join("")}</tr>
+      </tbody>
     </table></div>${actions}`;
 }
 
@@ -634,14 +701,33 @@ type ReviewGroup = {
 function reviewGroups(p: SavedProject): ReviewGroup[] {
   const firms = p.consultants ?? [];
   return matrixRows(p).map((row) => {
-    const covering = firms.filter((c) => c.disciplines.some((d) => row.members.includes(d)));
+    const covering = firms.filter((c) => covers(p, c, row));
     const latest = covering.map((c) => firmProposals(p, c).list.at(-1)).filter((r): r is ReceivedProposal => !!r);
     const signature = latest.map(proposalKey).sort();
     const saved = comparisons.filter((c) => c.group?.key === row.key).sort((a, b) => b.savedAt - a.savedAt)[0];
-    const stale = latest.length > 0 && (!saved || saved.group!.signature.join("|") !== signature.join("|"));
+    const stale = latest.length > 0 && (!saved || saved.group!.v !== 2 || saved.group!.signature.join("|") !== signature.join("|"));
     return { row, firms: covering, proposals: latest, waiting: covering.filter((c) => !firmProposals(p, c).list.length), signature, saved, stale };
   });
 }
+
+/**
+ * What's open on the Consultants page (disciplines, and their Flags / Fees / Scope parts), kept while the page is
+ * redrawn; everything starts closed so the page reads as a list of disciplines.
+ */
+const openParts = new Set<string>();
+addEventListener(
+  "toggle",
+  (e) => {
+    const d = e.target as HTMLDetailsElement;
+    const key = d.dataset?.part;
+    if (!key) return;
+    // The matrix starts open, so it's remembered when closed; everything else when opened.
+    if (key === "matrix") return void (d.open ? openParts.delete("matrix-closed") : openParts.add("matrix-closed"));
+    d.open ? openParts.add(key) : openParts.delete(key);
+  },
+  true,
+);
+const isOpen = (key: string) => (openParts.has(key) ? "open" : "");
 
 function renderConsultantsPage() {
   const p = project!;
@@ -650,57 +736,84 @@ function renderConsultantsPage() {
   const groups = reviewGroups(p);
   const stale = groups.filter((g) => g.stale);
   const received = (p.proposals ?? []).length;
-  const day = (ms: number) => new Date(ms).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
-  const section = (g: ReviewGroup) => {
-    const status = !g.proposals.length
-      ? "No proposals yet"
-      : !g.saved
-        ? `${g.proposals.length} proposal${g.proposals.length === 1 ? "" : "s"} · not compared yet`
-        : g.stale
-          ? `Out of date · compared ${day(g.saved.savedAt)}`
-          : `${g.proposals.length} proposal${g.proposals.length === 1 ? "" : "s"} · compared ${day(g.saved.savedAt)}`;
-    const c = g.saved;
-    return `<section class="block cgroup${g.stale ? " stale" : ""}" id="cg-${esc(g.row.key)}">
-      <div class="cgroup-head">
-        <h2 class="cgroup-title">${esc(g.row.label)}</h2>
-        <span class="cgroup-status">${esc(status)}</span>
-        ${c ? `<a class="link" href="#proposals/${encodeURIComponent(c.id)}">Open with Ask / correct</a>` : ""}
-      </div>
-      ${g.waiting.length ? `<p class="cgroup-waiting">Waiting for: ${g.waiting.map((w) => esc(w.name)).join(", ")}</p>` : ""}
-      ${
-        !g.firms.length
-          ? `<p class="none">No firm is marked for ${esc(g.row.label)} yet.</p>`
-          : c
-            ? `<div class="glance">${glanceHtml(c.proposals, c.cmp)}</div>
-               <div class="briefing">${briefingHtml(c.proposals, c.cmp)}</div>
-               <h3 class="cgroup-sub">Fees</h3><div class="scroll"><table class="grid">${feeTable(c.proposals, c.cmp)}</table></div>
-               <h3 class="cgroup-sub">Scope</h3><div class="scroll"><table class="grid">${scopeTable(c.proposals, c.cmp)}</table></div>`
-            : g.proposals.length
-              ? `<p class="none">Choose Update comparison to compare ${g.proposals.length === 1 ? "this proposal" : `these ${g.proposals.length} proposals`}.</p>`
-              : ""
-      }
-    </section>`;
+  const day = (ms: number) => new Date(ms).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? "" : "s"}`;
+
+  // A discipline in one line: proposals in, the lowest stated fee, who you're using, and whether it's current.
+  const summaryLine = (g: ReviewGroup) => {
+    const totals = g.proposals.map((r) => ({ name: firmById(r.firmId ?? "")?.name ?? firmName(r.proposal.firm), t: statedTotal(r.proposal) }));
+    const known = totals.filter((x): x is { name: string; t: number } => x.t != null);
+    const low = known.length > 1 ? known.reduce((a, b) => (b.t < a.t ? b : a)) : known[0];
+    const using = g.firms.filter((c) => decisionOf(c) === "using").map((c) => c.name);
+    const status = !g.saved ? "not compared yet" : g.stale ? `out of date (compared ${day(g.saved.savedAt)})` : `compared ${day(g.saved.savedAt)}`;
+    return [
+      plural(g.proposals.length, "proposal"),
+      low ? `${known.length > 1 ? "lowest " : ""}${money(low.t)} (${low.name})` : "",
+      using.length ? `using ${using.join(", ")}` : "",
+      g.waiting.length ? `waiting for ${g.waiting.length}` : "",
+      status,
+    ]
+      .filter(Boolean)
+      .map((x, k, a) => (k === a.length - 1 && g.stale ? `<b class="cg-stale">${esc(x)}</b>` : esc(x)))
+      .join(" · ");
   };
+
+  const section = (g: ReviewGroup) => {
+    const c = g.saved;
+    const key = `cg:${g.row.key}`;
+    const part = (name: string, title: string, body: string) =>
+      `<details class="cg-part" data-part="${esc(`${key}:${name}`)}" ${isOpen(`${key}:${name}`)}><summary>${title}</summary><div class="cg-part-body">${body}</div></details>`;
+    const flags = c ? c.cmp.briefing.flags.length : 0;
+    const questions = c ? c.cmp.briefing.questions.reduce((n, q) => n + q.items.length, 0) : 0;
+    return `<details class="cgroup${g.stale ? " stale" : ""}" id="cg-${esc(g.row.key)}" data-part="${esc(key)}" ${isOpen(key)}>
+      <summary class="cgroup-summary"><span class="cgroup-title">${esc(g.row.label)}</span><span class="cgroup-line">${summaryLine(g)}</span></summary>
+      <div class="cgroup-body">
+        ${g.waiting.length ? `<p class="cgroup-waiting">Waiting for: ${g.waiting.map((w) => esc(w.name)).join(", ")}</p>` : ""}
+        ${
+          c
+            ? `<div class="glance">${glanceHtml(c.proposals, c.cmp)}</div>
+               <p class="cg-headline">${esc(c.cmp.briefing.headline)}</p>
+               <p class="cg-overview">${esc(c.cmp.briefing.overview)}</p>
+               ${flags || questions ? part("brief", `Flags and questions <span class="cg-count">${[flags ? plural(flags, "flag") : "", questions ? plural(questions, "question") : ""].filter(Boolean).join(", ")}</span>`, briefingDetails(c.proposals, c.cmp)) : ""}
+               ${part("fees", "Fees", `<div class="scroll"><table class="grid">${feeTable(c.proposals, c.cmp)}</table></div>`)}
+               ${part("scope", "Scope", `<p class="legend"><span><b class="st-included">✓ Included</b></span><span><b class="st-optional">+ Optional</b></span><span><b class="st-excluded">✕ Excluded</b></span><span><b class="st-not_mentioned">? Not mentioned</b></span><span><b class="diff-dot">•</b> firms differ</span></p><div class="scroll"><table class="grid">${scopeTable(c.proposals, c.cmp)}</table></div>`)}
+               <p class="cg-open"><a class="link" href="#proposals/${encodeURIComponent(c.id)}">Open with Ask / correct</a></p>`
+            : `<p class="none">${g.proposals.length === 1 ? "This proposal hasn't" : "These proposals haven't"} been compared yet. Choose Update comparison at the top.</p>`
+        }
+      </div>
+    </details>`;
+  };
+
+  const withProposals = groups.filter((g) => g.proposals.length);
+  const waitingOnly = groups.filter((g) => !g.proposals.length);
   $("project-page").innerHTML = `
     <div class="proj-head">
       <div class="proj-title">
         <a class="link" href="#project/${encodeURIComponent(p.id)}">← ${esc(projectLabel(p))}</a>
-        <h1 class="headline">Consultants</h1>
-        <p class="proj-sub">${(p.consultants ?? []).length} firm${(p.consultants ?? []).length === 1 ? "" : "s"} · ${received} proposal${received === 1 ? "" : "s"} received</p>
+        <h1 class="headline">Consultant proposals</h1>
+        <p class="proj-sub">${plural((p.consultants ?? []).length, "firm")} · ${plural(received, "proposal")} received</p>
       </div>
       <span class="tools">${
         stale.length
-          ? `<button class="btn primary" data-update-review>Update comparison (${stale.length} section${stale.length === 1 ? "" : "s"})</button>`
+          ? `<button class="btn primary" data-update-review>Update comparison (${plural(stale.length, "discipline")})</button>`
           : received
             ? `<span class="cgroup-status">Up to date</span>`
             : ""
       }</span>
     </div>
-    <section class="block cpage-matrix">
-      <div class="cgroup-head"><h2 class="cgroup-title">Who covers what</h2><span class="proj-card-links"><span class="m-key"><i></i>Using</span><button class="link" data-matrix-edit>${matrixEditing ? "Done" : "Edit"}</button></span></div>
-      ${consultantsHtml(p)}
-    </section>
-    ${groups.map(section).join("")}`;
+    <details class="block cpage-matrix" data-part="matrix" ${openParts.has("matrix-closed") ? "" : "open"}>
+      <summary class="cgroup-summary"><span class="cgroup-title">Who covers what</span><span class="cgroup-line">${plural((p.consultants ?? []).length, "firm")} across ${plural(groups.length, "discipline")}</span></summary>
+      <div class="cgroup-body"><div class="cpage-matrix-tools"><span class="m-key" title="Solid dots: in the firm's proposal. Hollow: expected, no proposal yet. Green: a firm you're using."><i></i>Using<i class="m-key-exp"></i>Expected</span><button class="link" data-matrix-edit>${matrixEditing ? "Done" : "Edit"}</button></div>${consultantsHtml(p)}</div>
+    </details>
+    <h2 class="cpage-h2">By discipline</h2>
+    ${withProposals.length ? withProposals.map(section).join("") : `<p class="none">No proposals yet. Upload them on the project page's Consultant proposals card.</p>`}
+    ${
+      waitingOnly.length
+        ? `<div class="cg-waiting-list"><h3 class="cgroup-sub">No proposals yet</h3><ul>${waitingOnly
+            .map((g) => `<li><b>${esc(g.row.label)}</b>${g.waiting.length ? `: waiting for ${g.waiting.map((w) => esc(w.name)).join(", ")}` : ": no firm marked yet"}</li>`)
+            .join("")}</ul></div>`
+        : ""
+    }`;
 }
 
 /** Compares, for each out-of-date section, the latest proposal from every firm marked for it, and saves each. */
@@ -721,10 +834,38 @@ async function updateReview() {
   for (const [n, g] of todo.entries()) {
     if (button) (button.disabled = true), (button.textContent = `Comparing ${g.row.label} (${n + 1} of ${todo.length})…`);
     try {
-      const proposals: Sourced[] = g.proposals.map((r) => ({ ...r.proposal, firm: firmById(r.firmId ?? "")?.name ?? r.proposal.firm, source_file: r.fileName, file_id: r.file_id, pdf_tokens: r.pdf_tokens, source_hash: r.hash ?? undefined }));
-      const { comparison: cmp, usage } = await post<{ comparison: Comparison; usage: Usage }>("/api/compare", JSON.stringify({ projectName, proposals }), {
-        "content-type": "application/json",
-      });
+      const sourced = (r: ReceivedProposal): Sourced => ({ ...r.proposal, firm: firmById(r.firmId ?? "")?.name ?? r.proposal.firm, source_file: r.fileName, file_id: r.file_id, pdf_tokens: r.pdf_tokens, source_hash: r.hash ?? undefined });
+      // Compared for this discipline only: a firm proposing several disciplines is leveled on this one's scope and fee.
+      const focus = { label: g.row.label, disciplines: g.row.custom ? [g.row.label] : g.row.members };
+      const json = { "content-type": "application/json" };
+      let proposals: Sourced[];
+      let result: { comparison: Comparison; usage: Usage };
+      if (g.saved && g.saved.group?.v === 2) {
+        // Already compared: take out the proposals that went, add only the new ones (the rest isn't redone).
+        const key = (x: Sourced) => x.source_hash || x.source_file || "";
+        const now = new Map(g.proposals.map((r) => [proposalKey(r), r]));
+        const before = g.saved.proposals;
+        const gone = before.map((x, i) => (now.has(key(x)) ? -1 : i)).filter((i) => i >= 0);
+        // The firms staying keep their saved reading, with today's firm name.
+        const existing = before.filter((_, i) => !gone.includes(i)).map((x) => ({ ...x, firm: firmById(now.get(key(x))?.firmId ?? "")?.name ?? x.firm }));
+        const added = g.proposals.filter((r) => !before.some((x) => key(x) === proposalKey(r))).map(sourced);
+        if (existing.length) {
+          result = await post<{ comparison: Comparison; usage: Usage }>(
+            "/api/compare",
+            JSON.stringify({ projectName, cmp: removeFirms(g.saved.cmp, gone), existing, added, focus }),
+            { ...json, "x-action": "extend" },
+          );
+          proposals = [...existing, ...added];
+        } else {
+          proposals = g.proposals.map(sourced);
+          result = await post<{ comparison: Comparison; usage: Usage }>("/api/compare", JSON.stringify({ projectName, proposals, focus }), json);
+        }
+      } else {
+        // First comparison for this discipline: compare them all.
+        proposals = g.proposals.map(sourced);
+        result = await post<{ comparison: Comparison; usage: Usage }>("/api/compare", JSON.stringify({ projectName, proposals, focus }), json);
+      }
+      const { comparison: cmp, usage } = result;
       // Replaces the section's earlier comparison (its chat starts over, since the proposals changed).
       await saveComparison({
         id: g.saved?.id ?? crypto.randomUUID(),
@@ -736,7 +877,7 @@ async function updateReview() {
         messages: [],
         costUsd: usage.cost_usd ?? undefined,
         costPartial: usage.cost_usd == null,
-        group: { key: g.row.key, label: g.row.label, signature: g.signature },
+        group: { key: g.row.key, label: g.row.label, signature: g.signature, v: 2 },
       });
     } catch (err) {
       failed.push(`${g.row.label}: ${(err as Error).message}`);
@@ -761,6 +902,7 @@ async function toggleCell(firmId: string, rowKey: string) {
   const c = firmById(firmId);
   const r = project && rowOf(project, rowKey);
   if (!c || !r) return;
+  if (coverage(project!, c).fromProposal && !r.custom) return; // the proposal says what it covers
   const on = c.disciplines.some((d) => r.members.includes(d));
   c.disciplines = on ? c.disciplines.filter((d) => !r.members.includes(d)) : [...new Set([...c.disciplines, ...r.members])];
   await saveAndRender();
@@ -802,7 +944,7 @@ async function addFirm() {
     .map((c) => c.name)
     .sort((a, b) => a.localeCompare(b));
   const values = await formModal({
-    title: "Add firms",
+    title: "Add consultants",
     fields: [
       ...(fromProposals.length ? [{ label: "Sent a proposal for this project", value: "", options: fromProposals }] : []),
       ...(names.length ? [{ label: "From the directory", value: "", options: names }] : []),
@@ -831,7 +973,7 @@ async function removeDiscipline(key: string) {
   const p = project;
   const r = p && rowOf(p, key);
   if (!p || !r) return;
-  const firms = (p.consultants ?? []).filter((c) => c.disciplines.some((d) => r.members.includes(d)));
+  const firms = (p.consultants ?? []).filter((c) => covers(p, c, r));
   const ok = await confirmModal({
     title: `Remove ${r.label}?`,
     body: `${r.label} comes off this project's consultants${firms.length ? `, along with the X's for ${firms.map((c) => c.name).join(", ")}` : ""}. You can add it back with Add discipline. The RFP review isn't changed.`,
@@ -1058,8 +1200,13 @@ addEventListener("hashchange", closeContactCard);
 document.addEventListener("change", async (e) => {
   const el = e.target as HTMLInputElement;
   if (!project || !el.closest?.("#project-page .matrix")) return;
-  const c = firmById(el.dataset.firmDecision ?? "");
+  const c = firmById(el.dataset.firmDecision ?? el.dataset.firmNote ?? "");
   if (!c) return;
+  if (el.dataset.firmNote != null) {
+    // Saved when the box is left; no redraw, so the next box can be clicked straight away.
+    c.note = el.value.trim() || undefined;
+    return void saveProject(project).catch((err) => noticeModal("Not saved", (err as Error).message));
+  }
   c.decision = el.value === "using" ? "using" : "fee";
   await saveAndRender();
 });

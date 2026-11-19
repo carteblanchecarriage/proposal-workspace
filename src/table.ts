@@ -253,6 +253,14 @@ const LEVEL = { high: "Act", medium: "Clarify", low: "Note" } as const;
 
 export function briefingHtml(proposals: Proposal[], cmp: Comparison): string {
   const b = cmp.briefing;
+  return `<p class="headline">${esc(b.headline)}</p>
+    <p class="overview">${esc(b.overview)}</p>
+    ${briefingDetails(proposals, cmp)}`;
+}
+
+/** The briefing's flags and questions to send (without the headline and summary). */
+export function briefingDetails(proposals: Proposal[], cmp: Comparison): string {
+  const b = cmp.briefing;
   const names = (ix: number[]) =>
     ix
       .map((i) => proposals[i]?.firm)
@@ -272,9 +280,7 @@ export function briefingHtml(proposals: Proposal[], cmp: Comparison): string {
     .filter((q) => q.items.length && proposals[q.firm_index])
     .map((q) => `<div><h4>${esc(firmName(proposals[q.firm_index].firm))}</h4>${list(q.items)}</div>`)
     .join("");
-  return `<p class="headline">${esc(b.headline)}</p>
-    <p class="overview">${esc(b.overview)}</p>
-    ${flags ? `<h3 class="label">Flags</h3><ol class="flags">${flags}</ol>` : ""}
+  return `${flags ? `<h3 class="label">Flags</h3><ol class="flags">${flags}</ol>` : ""}
     ${questions ? `<h3 class="label">Questions to send</h3><div class="questions">${questions}</div>` : ""}`;
 }
 

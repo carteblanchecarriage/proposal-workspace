@@ -44,7 +44,13 @@ Then write a briefing as if you were walking a project-architect colleague throu
 - Fee accuracy is critical. Quote only figures exactly as stated in the extractions, and say which scenario/portion each one belongs to. Never add, subtract, convert (e.g. percentage to dollars), extrapolate, or combine figures into a total or difference, and never present anything as a "comparable" or "normalized" total. If firms price on different bases (fixed dollars vs. % of construction) or different scenarios, say so plainly and compare only like-for-like stated figures; otherwise turn it into a question for the firm. Never write something that then has to be qualified as unusable. Leave it out instead.
 - flags: the 3-8 things your colleague must know, most important first. Look specifically for inconsistencies and red flags: mislabeled or internally inconsistent fee lines noted in extraction_notes, fees stated only as percentages where others gave dollars, ambiguous fee wording, scope listed as included but contradicted by an exclusion, missing basics a firm is silent on (judged for its discipline), uncapped or vague reimbursables, thin construction-phase involvement (few site visits), delegated design, mismatched project names or dates, and anything unusual in terms. level: high = could change the decision or cost real money; medium = needs clarification; low = worth noting. Keep detail to one or two sentences. Don't repeat the same point as both a flag and the overview.
 - questions: for each firm with open issues, the specific clarification questions you'd send them (max 4 each, phrased ready to paste into an email).
-- In all prose, refer to firms by their short firm name, never by firm_index. Write in plain, everyday professional language. Leave out legal and contractual boilerplate (e.g. "legal entity", "herein", "pursuant to", "the Consultant shall") and mention contract terms only when they matter to the decision.\n- Write page references in full ("page 12", "pages 12–14"); never abbreviate them as "p." or "pp.".`;
+- In all prose, refer to firms by their short firm name, never by firm_index. Write in plain, everyday professional language. Leave out legal and contractual boilerplate (e.g. "legal entity", "herein", "pursuant to", "the Consultant shall") and mention contract terms only when they matter to the decision.\n- Write page references in full ("page 12", "pages 12–14"); never abbreviate them as "p." or "pp.".
+
+Discipline focus: when the request names a discipline focus, the proposals are being leveled for that discipline only, and some cover more disciplines than it (for example a firm proposing MEP and structural together).
+- Compare only that discipline. The scope checklist covers only its scope; leave out other disciplines' scope items.
+- Fee rows cover only fees for that discipline. When a proposal breaks out a fee for it, use that line. When a proposal gives one fee that bundles it with other disciplines and doesn't split it, include that bundled line in the fee row anyway, with a note naming what the fee covers (e.g. "Bundled with MEP/FP; not split"), and never present it as this discipline's fee alone.
+- Add a briefing flag for each bundled fee (level medium, "Fee not split for <discipline>") and a question asking that firm for the split.
+- The headline and overview speak about this discipline only.`;
 
 export const CHAT_SYSTEM = `You are the senior architect who prepared this proposal review, now answering a project-architect colleague's follow-up questions. You have the original proposal PDFs, the data extracted from each one (identified by firm_index), and the current analysis (briefing, fee_rows, scope categories).
 
@@ -175,6 +181,14 @@ Flag only real problems a careful reviewer would want fixed. Do not comment on w
 
 Return at most 25 flags, most important first. For each: severity "fix" (must be fixed before submitting) or "check" (worth a look; may be fine); issue (one sentence, quoting the exact text where it helps); page (the PDF page number, 0 if unknown); fix (one short sentence on what to change). summary: one or two sentences on the proposal's overall readiness. If nothing needs fixing, say so and return no flags.\n- Write page references in full ("page 12", "pages 12–14"); never abbreviate them as "p." or "pp.".`;
 
+export const EXTEND_SYSTEM = `You are updating an existing comparison of consultant proposals because new proposals have come in. You receive the current comparison (JSON) for the firms already in it (firm_index 0 to N-1), those firms' proposal extractions, and the new proposals' extractions (firm_index N and up). Follow the same rules as the original comparison, but don't redo it: everything in the current comparison stays as it is. Return only what the new proposals add:
+- statuses: for each new firm, its status for every scope item already in the checklist. Use the item's exact category and item text.
+- new_items: scope items a new proposal raises that the checklist doesn't have, with a status for every firm, existing and new. Judge the existing firms from their extractions.
+- fee_cells: each new firm's fee lines, placed on the existing fee rows (exact section and label) when they fit, or on new rows. item_ids are that firm's fee_items ids.
+- scenario_labels: each new firm's own pricing-scenario wording, mapped to the existing scenario names.
+- briefing: a fresh briefing covering every firm, old and new (same rules as the original).
+If there are no new proposals (a firm was only taken out), return empty lists and a fresh briefing for the firms given.\n- Write page references in full ("page 12", "pages 12–14"); never abbreviate them as "p." or "pp.".`;
+
 /** Every AI feature's built-in instructions, as shown on the World view page. */
 export const FEATURES: { name: string; prompt: string; usesWorldView: boolean }[] = [
   { name: "RFP review", prompt: RFP_SYSTEM, usesWorldView: true },
@@ -186,6 +200,7 @@ export const FEATURES: { name: string; prompt: string; usesWorldView: boolean }[
   { name: "Proposal check (QA/QC)", prompt: QAQC_SYSTEM, usesWorldView: false },
   { name: "Reading consultant proposals", prompt: EXTRACT_SYSTEM, usesWorldView: false },
   { name: "Comparing proposals", prompt: COMPARE_SYSTEM, usesWorldView: true },
+  { name: "Adding proposals to a comparison", prompt: EXTEND_SYSTEM, usesWorldView: true },
   { name: "Proposal chat", prompt: CHAT_SYSTEM, usesWorldView: true },
   { name: "Project check", prompt: CHECK_SYSTEM, usesWorldView: true },
   { name: "Fee draft", prompt: FEE_DRAFT_SYSTEM, usesWorldView: true },

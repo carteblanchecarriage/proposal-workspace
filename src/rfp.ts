@@ -277,6 +277,90 @@ export function proposalDue(rfp: Rfp) {
   return rfp.dates.find((d) => /proposal|submission|submittal|response|qualifications/i.test(d.label) && /due|deadline|submi/i.test(d.label));
 }
 
+// ---------- Printed submissions ----------
+// Some RFPs want printed copies, a bound set or a delivered package. Printers rarely turn work around in a day, so a
+// review with a physical submission gets a "send to printer" date: PRINT_BUFFER_DAYS business days before the due date.
+
+export const PRINT_BUFFER_DAYS = 2;
+
+const PHYSICAL = /\bprint(?:ed)? (?:cop(?:y|ies)|sets?|versions?)|\bhard ?cop(?:y|ies)|\bbound\b|\bbinders?\b|\b(?:hand|physically)[- ]deliver|\bdelivered to\b|\b(?:by )?(?:mail|courier|fedex|ups|overnight)\b|\busb\b|\bflash drive|\bthumb drive|\bsealed envelope|\b\d+ (?:cop(?:y|ies)|originals?)\b|\b(?:one|two|three|four|five|six|seven|eight|nine|ten) (?:printed |hard |bound )?cop(?:y|ies)\b|\boriginal and \d/i;
+const DIGITAL_ONLY = /\b(?:electronic(?:ally)?|digital|email|online|portal)(?: submissions?)? only\b|\bno (?:printed|hard|paper) cop|\bdo not (?:mail|deliver|print)/i;
+
+/** Whether the RFP asks for a printed or physically delivered submission, and the words that say so. */
+export function physicalSubmission(rfp: Rfp): { detail: string } | null {
+  const facts = Array.isArray(rfp.facts) ? rfp.facts : Object.values(rfp.facts ?? {});
+  const submission = facts.map((f) => (f as { value?: string }).value ?? "").find((v) => PHYSICAL.test(v));
+  if (submission && !DIGITAL_ONLY.test(submission)) return { detail: submission };
+  const watch = rfp.watch_outs.find((w) => PHYSICAL.test(`${w.title} ${w.detail}`) && !DIGITAL_ONLY.test(`${w.title} ${w.detail}`));
+  return watch ? { detail: watch.title } : null;
+}
+
+/**
+ * US holidays that don't count as working days for a printer: the federal holidays (on their observed weekday when
+ * they fall on a weekend) and the day after Thanksgiving.
+ */
+function usHolidays(year: number): Set<string> {
+  const key = (d: Date) => `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+  const nth = (month: number, weekday: number, n: number) => {
+    const d = new Date(year, month, 1);
+    while (d.getDay() !== weekday) d.setDate(d.getDate() + 1);
+    d.setDate(d.getDate() + 7 * (n - 1));
+    return d;
+  };
+  const last = (month: number, weekday: number) => {
+    const d = new Date(year, month + 1, 0);
+    while (d.getDay() !== weekday) d.setDate(d.getDate() - 1);
+    return d;
+  };
+  const observed = (month: number, day: number) => {
+    const d = new Date(year, month, day);
+    if (d.getDay() === 6) d.setDate(d.getDate() - 1);
+    if (d.getDay() === 0) d.setDate(d.getDate() + 1);
+    return d;
+  };
+  const thanksgiving = nth(10, 4, 4);
+  const dayAfter = new Date(thanksgiving);
+  dayAfter.setDate(dayAfter.getDate() + 1);
+  return new Set(
+    [
+      observed(0, 1), // New Year's Day
+      nth(0, 1, 3), // Martin Luther King Jr. Day
+      nth(1, 1, 3), // Presidents' Day
+      last(4, 1), // Memorial Day
+      observed(5, 19), // Juneteenth
+      observed(6, 4), // Independence Day
+      nth(8, 1, 1), // Labor Day
+      nth(9, 1, 2), // Columbus / Indigenous Peoples' Day
+      observed(10, 11), // Veterans Day
+      thanksgiving,
+      dayAfter,
+      observed(11, 25), // Christmas
+      // Next New Year's Day, observed on this Dec 31 when it falls on a Saturday.
+      ...(new Date(year + 1, 0, 1).getDay() === 6 ? [new Date(year, 11, 31)] : []),
+    ].map(key),
+  );
+}
+const isWorkday = (d: Date) => d.getDay() !== 0 && d.getDay() !== 6 && !usHolidays(d.getFullYear()).has(`${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`);
+
+/**
+ * For a physical submission: the day to send it to the printer, PRINT_BUFFER_DAYS working days before the due date
+ * (weekends and US holidays don't count), as a date entry.
+ */
+export function printBy(rfp: Rfp): { label: string; date: string; when: string; mandatory: boolean; page: number } | null {
+  if (!physicalSubmission(rfp)) return null;
+  const due = proposalDue(rfp);
+  const day = due && parseDay(due.date);
+  if (!day) return null;
+  const d = new Date(day);
+  for (let left = PRINT_BUFFER_DAYS; left > 0; ) {
+    d.setDate(d.getDate() - 1);
+    if (isWorkday(d)) left--;
+  }
+  const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  const when = d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" });
+  return { label: "Send to printer", date: iso, when, mandatory: false, page: 0 };
+}
+
 const KEEP_MS = 30 * 24 * 60 * 60 * 1000;
 /** The open review's kept PDFs, while they're still stored (30 days). */
 /** Whether one of the review's PDFs is still stored (each is kept 30 days from when it was added). */
@@ -298,13 +382,17 @@ function showResults() {
   const { rfp } = current;
   const due = proposalDue(rfp);
 
-  const next = rfp.dates.find((d) => parseDay(d.date) && !isPast(d));
-  const dates = rfp.dates
+  const printDate = printBy(rfp);
+  const withPrint = printDate && due ? rfp.dates.flatMap((d) => (d === due ? [printDate, d] : [d])) : rfp.dates;
+  const next = withPrint.find((d) => parseDay(d.date) && !isPast(d));
+  const dates = withPrint
     .map((d) => {
       const cls = [d === due ? "due" : "", isPast(d) ? "past" : "", d === next ? "next" : ""].filter(Boolean).join(" ");
       return `<tr class="${cls}">
         <td class="when">${esc(formatWhen(d))}<span class="rel">${esc(relDay(d))}</span></td>
-        <td>${esc(d.label)}${d.mandatory ? ' <span class="must">Mandatory</span>' : ""}${d === next ? ' <span class="next-tag">Next</span>' : ""}</td>
+        <td>${esc(d.label)}${d.mandatory ? ' <span class="must">Mandatory</span>' : ""}${
+          d === printDate ? ` <span class="print-tag" title="Worked out: ${PRINT_BUFFER_DAYS} business days before proposals are due (weekends and US holidays don't count), for a printed submission">${PRINT_BUFFER_DAYS} business days before due</span>` : ""
+        }</td>
       </tr>`;
     })
     .join("");
@@ -524,6 +612,10 @@ function glanceTiles(rfp: Rfp, due: Rfp["dates"][number] | undefined, next: Rfp[
     value ? `<div class="glance-tile ${cls}"><span class="gt-label">${esc(label)}</span><span class="gt-value">${esc(value)}</span>${sub ? `<span class="gt-sub">${esc(sub)}</span>` : ""}</div>` : "";
   const tiles = [
     due ? tile("Proposals due", formatWhen(due), relDay(due), isPast(due) ? "past" : "due") : "",
+    (() => {
+      const p = printBy(rfp);
+      return p ? tile("Send to printer", formatWhen(p), `Printed submission · ${relDay(p)}`, isPast(p) ? "past" : "print") : "";
+    })(),
     mandatory ? tile("Next mandatory", mandatory.label, `${formatWhen(mandatory)} · ${relDay(mandatory)}`) : next && next !== due ? tile("Next date", next.label, `${formatWhen(next)} · ${relDay(next)}`) : "",
     tile("Construction budget", fact("construction_budget")),
     tile("Page limit", fact("page_limit")),

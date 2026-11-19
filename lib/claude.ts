@@ -4,7 +4,8 @@ import { z } from "zod";
 import { costOf, type Usage } from "./cost.js";
 import { recordFile, recordUsage } from "./usage-hook.js";
 import { DISCIPLINES, toDisciplines } from "./disciplines.js";
-import { ADDENDUM_SYSTEM, CHAT_SYSTEM, CHECK_SYSTEM, COMPARE_SYSTEM, EXTRACT_SYSTEM, FEE_CHAT_SYSTEM, FEE_DRAFT_SYSTEM, FIT_CHECK_SYSTEM, OWN_PROPOSAL_SYSTEM, RFP_SYSTEM, SCHEDULE_DRAFT_SYSTEM, SUGGEST_SYSTEM, US_ENGLISH, WEBSITE_SYSTEM, QAQC_SYSTEM } from "./prompts.js";
+import { mergeExtension } from "./comparison-edit.js";
+import { ADDENDUM_SYSTEM, CHAT_SYSTEM, CHECK_SYSTEM, COMPARE_SYSTEM, EXTRACT_SYSTEM, FEE_CHAT_SYSTEM, FEE_DRAFT_SYSTEM, FIT_CHECK_SYSTEM, OWN_PROPOSAL_SYSTEM, RFP_SYSTEM, SCHEDULE_DRAFT_SYSTEM, SUGGEST_SYSTEM, US_ENGLISH, WEBSITE_SYSTEM, QAQC_SYSTEM, EXTEND_SYSTEM } from "./prompts.js";
 
 export const MODEL = "claude-opus-5-5";
 
@@ -393,7 +394,11 @@ export async function compareProposals(
   proposals: Proposal[],
   projectName: string | null,
   firm = "",
+  focus?: { label: string; disciplines: string[] },
 ): Promise<{ comparison: Comparison; usage: Usage }> {
+  const focusText = focus
+    ? `Discipline focus: ${focus.label}${focus.disciplines.length > 1 || focus.disciplines[0] !== focus.label ? ` (${focus.disciplines.join(", ")})` : ""}. Follow the discipline-focus rules.\n\n`
+    : "";
   const payload = proposals.map((p, firm_index) => {
     const { hourly_rates, ...rest } = p;
     return { firm_index, ...rest };
@@ -405,7 +410,7 @@ export async function compareProposals(
     messages: [
       {
         role: "user",
-        content: `${projectName ? `Project: ${projectName}\n\n` : ""}Proposal extractions (JSON):\n${JSON.stringify(payload, null, 1)}`,
+        content: `${projectName ? `Project: ${projectName}\n\n` : ""}${focusText}Proposal extractions (JSON):\n${JSON.stringify(payload, null, 1)}`,
       },
     ],
   });
@@ -413,6 +418,54 @@ export async function compareProposals(
   checkStop(msg);
   if (!msg.parsed_output) throw new UserFacingError("Couldn't read the AI's comparison. Try again.", 502);
   return { comparison: msg.parsed_output, usage: usageOf(msg) };
+}
+
+// ---------- Adding proposals to a comparison ----------
+
+const StatusSchema = z.object({
+  firm_index: z.number(),
+  status: z.enum(["included", "excluded", "optional", "not_mentioned"]),
+  note: z.string().nullable(),
+  page: z.number(),
+});
+const ExtensionSchema = z.object({
+  briefing: ComparisonSchema.shape.briefing,
+  statuses: z.array(StatusSchema.extend({ category: z.string(), item: z.string() })),
+  new_items: z.array(z.object({ category: z.string(), item: z.string(), statuses: z.array(StatusSchema) })),
+  fee_cells: z.array(z.object({ section: z.string(), label: z.string(), firm_index: z.number(), item_ids: z.array(z.number()), note: z.string().nullable() })),
+  scenario_labels: z.array(z.object({ name: z.string(), firm_index: z.number(), scenario: z.string() })),
+});
+
+/**
+ * Adds new proposals to an existing comparison (or refreshes its briefing after a firm was taken out) without redoing
+ * it: the AI returns only the new firms' statuses, new scope items, fee cells and a fresh briefing, merged in here.
+ * The existing firms' extractions go along (cheap, as input) so new scope items can be judged for them too.
+ */
+export async function extendComparison(
+  cmp: Comparison,
+  existing: Proposal[],
+  added: Proposal[],
+  projectName: string | null,
+  firm = "",
+  focus?: { label: string; disciplines: string[] },
+): Promise<{ comparison: Comparison; usage: Usage }> {
+  const strip = (ps: Proposal[], from: number) => ps.map((p, i) => ({ firm_index: from + i, ...{ ...p, hourly_rates: undefined } }));
+  const focusText = focus ? `Discipline focus: ${focus.label} (${focus.disciplines.join(", ")}). Follow the discipline-focus rules.\n\n` : "";
+  const stream = getClient().beta.messages.stream({
+    ...BASE,
+    system: withContext(`${COMPARE_SYSTEM}\n\n${EXTEND_SYSTEM}`, firm),
+    output_config: { effort: "high", format: betaZodOutputFormat(ExtensionSchema) },
+    messages: [
+      {
+        role: "user",
+        content: `${projectName ? `Project: ${projectName}\n\n` : ""}${focusText}Current comparison (JSON):\n${JSON.stringify(cmp)}\n\nExisting firms' extractions (JSON):\n${JSON.stringify(strip(existing, 0))}\n\nNew proposals' extractions (JSON):\n${JSON.stringify(strip(added, existing.length))}`,
+      },
+    ],
+  });
+  const msg = await stream.finalMessage();
+  checkStop(msg);
+  if (!msg.parsed_output) throw new UserFacingError("Couldn't read the AI's update to the comparison. Try again.", 502);
+  return { comparison: mergeExtension(cmp, msg.parsed_output), usage: usageOf(msg) };
 }
 
 /** Reads an RFP and its addenda (already uploaded via /api/upload) in one call. */

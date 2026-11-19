@@ -557,7 +557,7 @@ export function demoSeed() {
     proposals,
     cmp,
     // The MEP/FP section of the project's Consultants page (the proposals it compared, by file name).
-    group: { key: "MEP/FP", label: "MEP/FP", signature: proposals.map((x) => x.source_file ?? "").sort() },
+    group: { key: "MEP/FP", label: "MEP/FP", signature: proposals.map((x) => x.source_file ?? "").sort(), v: 2 },
     messages: [
       { role: "user", text: "Which firm is the best value once fire protection is included?" },
       {

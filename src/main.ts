@@ -306,7 +306,7 @@ function setBackLink() {
   const c = current;
   // A section of a project's Consultants page goes back there; other comparisons go back to the project.
   back.href = c?.projectId ? `#project/${encodeURIComponent(c.projectId)}${c.group ? "/consultants" : ""}` : "#project";
-  back.textContent = `← ${c?.group ? `Consultants: ${c.group.label}` : c?.projectId && c.projectName ? c.projectName : "Projects"}`;
+  back.textContent = `← ${c?.group ? `Consultant proposals: ${c.group.label}` : c?.projectId && c.projectName ? c.projectName : "Projects"}`;
 }
 
 const scopeEl = $<HTMLTableElement>("scope");
@@ -345,7 +345,6 @@ function showResults(scroll: boolean) {
   ].join(" · ");
   $("glance").innerHTML = glanceHtml(proposals, cmp);
   $("briefing").innerHTML = briefingHtml(proposals, cmp);
-  results.style.setProperty("--min-table", `${160 + 130 * proposals.length}px`);
   $("fees").innerHTML = feeTable(proposals, cmp);
   scopeEl.innerHTML = scopeTable(proposals, cmp);
   $("notes").innerHTML = notesHtml(proposals);
