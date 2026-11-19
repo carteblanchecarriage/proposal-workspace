@@ -14,6 +14,11 @@ export type RequestContext = {
   endpoint: string;
   /** Usage records being written; route() waits for them before answering. */
   pending: Promise<unknown>[];
+  /**
+   * The organization's saved settings the AI tools read (world view, schedule style),
+   * loaded once by route() for AI requests; null when there's none saved or no database.
+   */
+  settings?: { worldView: Record<string, unknown> | null; scheduleStyle: Record<string, unknown> | null };
 };
 
 const store = new AsyncLocalStorage<RequestContext>();
@@ -43,3 +48,4 @@ setUsageHook((usage: Usage) => {
   if (!ctx?.orgId || !sink) return;
   ctx.pending.push(sink(ctx, usage).catch((err) => console.error("[usage] couldn't record:", (err as Error).message)));
 });
+

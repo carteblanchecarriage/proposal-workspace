@@ -4,16 +4,27 @@
   import { onMount } from 'svelte';
   import { CATEGORIES, BADGES, FONTS, palette, options, cleanPalette, cleanOptions, loadFont } from '../lib/palette.js';
   import { getScheduleStyle, saveScheduleStyle } from '../../store';
+  import { DEFAULT_SCHEDULE_CONVENTIONS, MAX_CONVENTIONS, checkConventions } from '../../../lib/schedule-style';
+  import { confirmModal, noticeModal } from '../../modal';
+  import { esc } from '../../table';
 
   let loaded = $state(false);
+  // The organization's schedule conventions for the AI (unset: the starting ones).
+  let conventions = $state(undefined);
+  const conventionsText = (c) => (c ?? DEFAULT_SCHEDULE_CONVENTIONS);
   onMount(async () => {
     try {
       const s = await getScheduleStyle();
       palette.set(cleanPalette(s.colors));
       options.set(cleanOptions(s));
+      conventions = s.conventions;
     } catch {}
     loaded = true;
   });
+  // Escape leaves editing without saving, like Cancel (a dialog on top handles its own Escape first).
+  function onKey(e) {
+    if (e.key === 'Escape' && draft && !saving && !document.querySelector('dialog[open]')) cancelEditing();
+  }
   // The font sample needs the font itself (Google fonts load on demand; Barlow and Inter are the site's own).
   $effect(() => { if (draft?.font) loadFont(draft.font); });
 
@@ -21,8 +32,11 @@
   let styleStatus = $state('');
   let styleError = $state(false);
   let saving = $state(false);
+  // The whole group (its panel on the Organization page) shows it's being edited.
+  let rootEl = $state(null);
+  $effect(() => { rootEl?.closest('.settings-group')?.classList.toggle('editing', !!draft); });
   const startEditing = () => {
-    draft = { colors: { ...$palette }, ...$options };
+    draft = { colors: { ...$palette }, ...$options, conventions: conventionsText(conventions) };
     styleStatus = '';
   };
   const cancelEditing = () => { draft = null; };
@@ -31,13 +45,29 @@
   async function saveStyle() {
     const colors = cleanPalette(draft.colors);
     const opts = cleanOptions(draft);
+    // Kept only when it differs from the starting conventions, so an untouched one follows improvements to those.
+    const text = (draft.conventions ?? '').trim();
+    const own = text === DEFAULT_SCHEDULE_CONVENTIONS.trim() ? undefined : text;
+    // Guardrails: what can't be saved, and what the assistant would ignore (shown so it can be fixed first).
+    const { errors, warnings } = text === conventionsText(conventions).trim() ? { errors: [], warnings: [] } : checkConventions(text);
+    if (errors.length) return noticeModal('Schedule conventions need a change', errors.join(' '));
+    if (warnings.length) {
+      const ok = await confirmModal({
+        title: 'Check the schedule conventions',
+        body: '',
+        html: `<ul>${warnings.map((w) => `<li>${esc(w)}</li>`).join('')}</ul><p>Save anyway, or go back and fix them? The assistant ignores these parts either way.</p>`,
+        confirm: 'Save anyway',
+      });
+      if (!ok) return;
+    }
     saving = true;
     styleError = false;
     styleStatus = 'Saving…';
     try {
-      await saveScheduleStyle({ colors, ...opts });
+      await saveScheduleStyle({ colors, ...opts, ...(own === undefined ? {} : { conventions: own }) });
       palette.set(colors);
       options.set(opts);
+      conventions = own;
       draft = null;
       styleStatus = 'Saved. Every schedule now uses these.';
     } catch (err) {
@@ -52,14 +82,19 @@
   const fontLabel = (key) => FONTS.find((f) => f.key === key)?.label ?? FONTS[0].label;
 </script>
 
-{#if loaded}
-  <div class="colors">
-    <h3 class="style-head">
-      Schedules
-      {#if !draft}<button class="link edit-link" onclick={startEditing}>Edit</button>{/if}
-    </h3>
-    <p class="intro">How your organization's schedules look, including printed and PDF copies. These apply to every schedule, so changes only take effect when you save them.</p>
+<svelte:window onkeydown={onKey} />
 
+{#if loaded}
+  <div class="colors" bind:this={rootEl}>
+    <div class="settings-head">
+      <div>
+        <h3 class="style-head">Schedules</h3>
+      </div>
+      {#if draft}<span class="settings-editing">Editing: saved together</span>{:else}<button class="btn" onclick={startEditing}>Edit schedule settings</button>{/if}
+    </div>
+    <p class="intro">How your organization's schedules look. These apply to every schedule, so changes only take effect when you save them.</p>
+
+    <h4 class="settings-sub">Colors</h4>
     <ul>
       {#each [...CATEGORIES, ...BADGES] as c, i (c.key)}
         {@const current = colorOf(c.key, c.base)}
@@ -90,6 +125,7 @@
       {/each}
     </ul>
 
+    <h4 class="settings-sub">Font and Today line</h4>
     <dl class="opts">
       <dt>Font</dt>
       <dd>
@@ -112,11 +148,24 @@
       </dd>
     </dl>
 
+    <div class="conventions">
+      <h4 class="settings-sub">Conventions for the AI</h4>
+      <p class="intro">What the AI follows when it drafts or changes a schedule.</p>
+      {#if draft}
+        <textarea rows="16" bind:value={draft.conventions} maxlength={MAX_CONVENTIONS} aria-label="Schedule conventions"></textarea>
+        <span class="std">{(draft.conventions ?? '').length.toLocaleString('en-US')} of {MAX_CONVENTIONS.toLocaleString('en-US')} characters</span>
+        <button class="link" onclick={() => { draft.conventions = DEFAULT_SCHEDULE_CONVENTIONS; }} disabled={saving}>Use the starting conventions</button>
+      {:else}
+        {#if conventionsText(conventions).trim()}<pre>{conventionsText(conventions)}</pre>{:else}<p class="intro">None. The assistant uses general scheduling practice.</p>{/if}
+        <span class="std">{conventions === undefined ? 'Starting conventions' : 'Your own'}</span>
+      {/if}
+    </div>
+
     {#if draft}
       <div class="actions">
-        <button class="btn primary" onclick={saveStyle} disabled={saving}>Save changes</button>
+        <button class="btn primary" onclick={saveStyle} disabled={saving}>Save schedule settings</button>
         <button class="btn" onclick={cancelEditing} disabled={saving}>Cancel</button>
-        <button class="link" onclick={() => { draft = { colors: {}, ...cleanOptions({}) }; }} disabled={saving}>Reset everything to standard</button>
+        <button class="link" onclick={() => { draft = { colors: {}, ...cleanOptions({}), conventions: DEFAULT_SCHEDULE_CONVENTIONS }; }} disabled={saving}>Reset everything to standard</button>
       </div>
     {/if}
     <span class="status" class:error={styleError}>{styleStatus}</span>
@@ -141,7 +190,7 @@
   .colors .sample.round { width: 18px; }
   .colors .sample.diamond { width: 11px; height: 11px; transform: rotate(45deg); margin-left: 4px; justify-self: start; }
   .colors .sample.badge { height: 18px; width: 30px; border-radius: 9px; color: #fff; font-size: 10px; font-weight: 700; line-height: 18px; text-align: center; justify-self: start; }
-  .colors .opts { display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 10px 14px; margin: 20px 0 12px; font-size: 14px; }
+  .colors .opts { display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 10px 14px; margin: 0 0 12px; font-size: 14px; }
   .colors .opts dt { font-weight: 700; }
   .colors .opts dd { margin: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
   .colors select { font: inherit; padding: 5px 8px; border: 1px solid var(--ink); background: var(--bg); }
@@ -150,6 +199,9 @@
   .colors .actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: 8px; }
   .colors .status { display: block; margin-top: 8px; font-size: 13px; text-transform: none; letter-spacing: normal; }
   .colors .status.error { color: var(--bad); }
+  .colors .conventions { margin: 0 0 12px; }
+  .colors .conventions pre { white-space: pre-wrap; font: inherit; font-size: 14px; line-height: 1.5; margin: 0 0 6px; padding: 10px 12px; background: var(--soft); }
+  .colors .conventions textarea { width: 100%; font: inherit; font-size: 14px; line-height: 1.5; padding: 8px 10px; border: 1px solid var(--ink); resize: vertical; margin-bottom: 6px; }
   @media (max-width: 640px) {
     .colors li { grid-template-columns: 36px minmax(0, 1fr) auto; }
     .colors .sample { display: none; }

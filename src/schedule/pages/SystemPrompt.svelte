@@ -47,7 +47,7 @@
         {@html renderMarkdown(data.markdown)}
       </div>
       <div class="sp-foot">
-        <p>To customize: edit <code>lib/schedule-prompt.ts</code> in the project repository.</p>
+        <p>After these built-in instructions the assistant gets your organization's schedule colors and conventions (<a class="link" href="#org">Organization page</a>, Schedules).</p>
       </div>
     </div>
   </main>

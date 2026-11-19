@@ -427,11 +427,12 @@ export const saveWorldView = (w: WorldView, keepalive = false) => saveRecord("se
  * The organization's schedule style (src/schedule/lib/palette.js): colors by category and badge, the font, and whether
  * the Today line shows by default. Missing pieces mean the standard look.
  */
-export type ScheduleStyle = { colors: Record<string, string>; font?: string; showToday?: boolean };
+/** conventions: the organization's own schedule conventions for the AI (unset: the starting ones, lib/schedule-style.ts). */
+export type ScheduleStyle = { colors: Record<string, string>; font?: string; showToday?: boolean; conventions?: string };
 type ScheduleStyleRecord = ScheduleStyle & { id: "schedule-style"; savedAt: number };
 export async function getScheduleStyle(): Promise<ScheduleStyle> {
   const saved = (await listRecords<ScheduleStyleRecord>("settings")).find((r) => r.id === "schedule-style");
-  return { colors: saved?.colors ?? {}, font: saved?.font, showToday: saved?.showToday };
+  return { colors: saved?.colors ?? {}, font: saved?.font, showToday: saved?.showToday, conventions: saved?.conventions };
 }
 export const saveScheduleStyle = (style: ScheduleStyle) =>
   saveRecord("settings", { id: "schedule-style", savedAt: Date.now(), ...style } satisfies ScheduleStyleRecord);

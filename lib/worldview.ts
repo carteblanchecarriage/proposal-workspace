@@ -85,25 +85,49 @@ export const DEFAULT_PHASES: PhaseShare[] = [
   { name: "Closeout", percent: 2 },
 ];
 
+// The starting world view: what a new organization sees (and every AI tool uses) until the team saves its own. Written
+// for a typical architecture and interiors practice, plainly enough that a team can keep what fits and change the rest.
+export const DEFAULT_WHO_WE_ARE = `We are an architecture and interior design firm. We work mostly on public and institutional projects (education, libraries, civic and community buildings, healthcare) and on commercial interiors, both new construction and renovations of occupied buildings. Our clients are public agencies, school districts, universities, nonprofits and private owners. We usually lead the design team and bring in engineering and specialty consultants for each project.`;
+
+export const DEFAULT_GOOD_PURSUIT = `- Project types and client types we have recent, comparable experience with, so we can show relevant work.
+- A clear scope, a realistic budget and schedule, and a fee that's in line with our fee curve.
+- Clients who select on qualifications and approach, not only on fee, and a chance to meet them before the proposal is due.
+- Work within reach of our office, so we can attend meetings and site visits without large travel costs.
+- Repeat clients, or new clients in a sector we want to grow in.`;
+
+export const DEFAULT_RED_FLAGS = `- Unlimited duty to defend or indemnify the owner, or liability not limited to our fee or insurance.
+- A fee cap or required fee well below our fee curve for the scope asked for.
+- Lowest-fee selection without a qualifications step.
+- Required scope we can't staff or cover with consultants we trust.
+- A schedule that's not achievable for the size of the project.
+- Signs the selection is already decided (a very short response window, a narrow incumbent-shaped scope).`;
+
+export const DEFAULT_WEIGHING = `- Fit with our experience and our chance of winning come first; a project we can win and do well beats a bigger one we're unlikely to get.
+- Price for the scope as written. When the RFP is vague, say what we've assumed, and flag scope that could grow.
+- Insurance and contract terms we can't accept are a pass unless the client will negotiate them.
+- A repeat client or a strategic new sector can justify a thinner fee, but not unacceptable contract terms.
+- When in doubt, list the questions to ask the client before deciding.`;
+
 /**
  * Starting market conditions, from the AIA's July 2026 reports. Shown until the team edits the World view's
  * Market conditions; refresh it when new reports come out.
  */
 export const MARKET_JULY_2026 = `As of July 2026 (AIA Architecture Billings Index, July 2026; AIA Consensus Construction Forecast, July 2026):
-- Billings at architecture firms have been shrinking nationally since early 2023 (index 46.6 in July; below 50 means declining). The Northeast, which includes Pennsylvania, is the weakest region (44.8), for a second straight month.
+- Billings at architecture firms have been shrinking nationally since early 2023 (index 46.6 in July; below 50 means declining), and the Northeast is the weakest region (44.8).
 - Expect more firms competing for each public RFP and pressure on fees. Be selective, and price carefully rather than chasing work.
 - Nonresidential construction spending is forecast to dip 0.3% in 2026, then grow 3.0% in 2027.
 - Institutional work (education, healthcare, public buildings) is the steadiest: forecast up 2.8% in 2026 and 2.7% in 2027.
 - Commercial growth is almost all data centers; without them it's flat, and office work is falling. Manufacturing is forecast down 11.6% in 2026.`;
 
+/** The world view a new organization starts with (savedAt 0 until the team saves its own). */
 export const emptyWorldView = (): WorldView => ({
   id: "worldview",
   savedAt: 0,
   website: "",
-  whoWeAre: "",
-  goodPursuit: "",
-  redFlags: "",
-  weighing: "",
+  whoWeAre: DEFAULT_WHO_WE_ARE,
+  goodPursuit: DEFAULT_GOOD_PURSUIT,
+  redFlags: DEFAULT_RED_FLAGS,
+  weighing: DEFAULT_WEIGHING,
   marketConditions: MARKET_JULY_2026,
   feeCurve: DEFAULT_CURVE.map((p) => ({ ...p })),
   phaseShares: DEFAULT_PHASES.map((p) => ({ ...p })),

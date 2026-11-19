@@ -5,26 +5,10 @@ import { derived, writable } from 'svelte/store';
 // the AI assistant and "draft from RFP" all use them); each organization chooses how they look, and every schedule —
 // existing ones too, and their prints and PDFs — is drawn that way.
 
-/** The categories, with the standard code each one stores, and its 50% halftone (the lighter swatch) where it has one. */
-export const CATEGORIES = [
-  { key: 'design',       label: 'Design phases',          hint: 'Programming, SD, DD and CDs',            base: '#00914D', half: '#80C8A6' },
-  { key: 'review',       label: 'Reviews',                hint: 'Client, owner and design reviews',       base: '#949494' },
-  { key: 'hold',         label: 'Holds and waiting',      hint: 'Waiting periods',                        base: '#20ABE2', half: '#90D5F1' },
-  { key: 'construction', label: 'Construction and CA',    hint: 'Construction and construction administration', base: '#6D245D', half: '#B692AE' },
-  { key: 'permit',       label: 'Permits and approvals',  hint: 'Permit submission and AHJ reviews',      base: '#D83968', half: '#EC9CB4' },
-  { key: 'other',        label: 'Bidding and closeout',   hint: 'Bidding, procurement and closeout',      base: '#282829' },
-];
-
-/**
- * The legend's items: one color for every deliverable, milestone, estimate and approval marker (unset = the standard
- * look: deliverables orange, milestones black, estimates each their own color, approvals blue).
- */
-export const BADGES = [
-  { key: 'deliverable', label: 'Deliverables',  hint: 'Numbered deliverable badges',                  base: '#D4804A' },
-  { key: 'milestone',   label: 'Milestones',    hint: 'Lettered milestone markers',                   base: '#282829' },
-  { key: 'estimate',    label: 'Estimates',     hint: 'SD, DD and other estimate badges',             base: '#00914D' },
-  { key: 'approval',    label: 'Approvals',     hint: 'Approval diamonds, such as permit approval',   base: '#20ABE2' },
-];
+// The categories (with the standard code each stores) and the legend's badge colors, shared with the server so the
+// AI's instructions name the same categories (lib/schedule-style.ts).
+import { CATEGORIES, BADGES } from '../../../lib/schedule-style';
+export { CATEGORIES, BADGES };
 
 /** Fonts the server's PDF browser can load too (Google Fonts, or the site's own Inter). */
 export const FONTS = [

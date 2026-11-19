@@ -1,5 +1,5 @@
-// Style and formatting on the Organization page: how the organization's schedules and proposal fee tables look,
-// everywhere in the app. Both are global, so each reads as text until Edit, and changes only count on Save.
+// Schedule and fee settings on the Organization page. Each group is edited as one: its Edit opens every setting in it,
+// and Save applies them together (Cancel or Escape drops them). Both are global, so they read as text until Edit.
 
 import { DEFAULT_FEE_STYLE, FEE_FONTS, cleanFeeStyle, type FeeFont, type FeeStyle } from "./fee-style";
 import { proposalHtml } from "./fee";
@@ -33,18 +33,28 @@ let draft: FeeStyle | null = null;
 let root: HTMLElement | null = null;
 let status = "";
 let statusError = false;
+let escapeBound = false;
 
 /** Fills the Style and formatting section: the schedule settings (loaded on demand) and the fee table settings. */
 export async function renderStyleSettings(section: HTMLElement) {
   section.innerHTML = `
-    <h2 class="label">Style and formatting</h2>
-    <p class="wv-intro">How your organization's work looks everywhere in the app, and in what you copy, print or download. These apply to everyone in the organization.</p>
-    <div class="style-part" id="org-schedule-style"><span class="status">Loading…</span></div>
-    <div class="style-part" id="org-fee-style"><span class="status">Loading…</span></div>`;
+    <h2 class="label">Schedules and fees</h2>
+    <p class="wv-intro">These apply to everyone in the organization.</p>
+    <div class="style-part settings-group" id="org-schedule-style"><span class="status">Loading…</span></div>
+    <div class="style-part settings-group" id="org-fee-style"><span class="status">Loading…</span></div>`;
   root = section.querySelector<HTMLElement>("#org-fee-style");
   draft = null;
   status = "";
   root!.addEventListener("click", onClick);
+  // Escape leaves editing without saving, like Cancel (a dialog on top handles its own Escape first).
+  if (!escapeBound) {
+    escapeBound = true;
+    addEventListener("keydown", (e) => {
+      if (e.key !== "Escape" || !draft || !root?.isConnected || document.querySelector("dialog[open]")) return;
+      draft = null;
+      renderFee();
+    });
+  }
   root!.addEventListener("input", onInput);
   // A color picker closed: redraw the row too (its swatch and Use standard).
   root!.addEventListener("change", (e) => {
@@ -64,9 +74,16 @@ function renderFee() {
   if (!root?.isConnected) return;
   const s = draft ?? saved;
   const isStandard = (k: keyof FeeStyle) => s[k] === DEFAULT_FEE_STYLE[k];
+  root.classList.toggle("editing", !!draft);
   root.innerHTML = `
-    <h3 class="style-head">Fee table ${draft ? "" : '<button class="link edit-link" data-fee-style-edit>Edit</button>'}</h3>
+    <div class="settings-head">
+      <div>
+        <h3 class="style-head">Fees</h3>
+      </div>
+      ${draft ? `<span class="settings-editing">Editing: saved together</span>` : '<button class="btn" data-fee-style-edit>Edit fee settings</button>'}
+    </div>
     <p class="style-intro">The Proposal table on every fee, and how it looks when copied into a proposal.</p>
+    <h4 class="settings-sub">Table colors</h4>
     <ul class="style-colors">
       ${COLORS.map(
         ([k, label, hint]) => `<li>
@@ -84,6 +101,7 @@ function renderFee() {
         </li>`,
       ).join("")}
     </ul>
+    <h4 class="settings-sub">Text</h4>
     <dl class="style-opts">
       <dt>Font</dt>
       <dd>${
@@ -105,7 +123,7 @@ function renderFee() {
     ${
       draft
         ? `<div class="actions">
-        <button class="btn primary" data-fee-style-save>Save changes</button>
+        <button class="btn primary" data-fee-style-save>Save fee settings</button>
         <button class="btn" data-fee-style-cancel>Cancel</button>
         <button class="link" data-fee-style-reset>Reset everything to standard</button>
       </div>`

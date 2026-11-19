@@ -224,6 +224,13 @@ function phasesHtml(): string {
 
 let sectionsDraft: string | null = null;
 
+/** Each tool's built-in instructions, read-only: what the app adds to every request (a view of the code). */
+function toolsHtml(): string {
+  return FEATURES.map(
+    (f) => `<details class="wv-prompt"><summary>${esc(f.name)} <span class="note">${f.usesWorldView ? "with the world view" : "reads documents as written, without the world view"}</span></summary><pre>${esc(f.prompt)}</pre></details>`,
+  ).join("");
+}
+
 function sectionsHtml(): string {
   const list = wv!.proposalSections ?? [];
   if (sectionsDraft == null)
@@ -353,6 +360,11 @@ function render() {
     </div>
     <span class="status" id="wv-status"></span>
     ${savesShared() ? "" : `<p class="estimate">Saved in this browser only until the database is set up.</p>`}
+    ${
+      wv.savedAt
+        ? ""
+        : `<p class="wv-start"><b>This is a starting world view</b>, written for a typical architecture and interiors firm. Every AI tool already uses it, so make it yours: edit who you are, what you pursue, your red flags and your fee curve. Add your website under Edit and AI can draft the first two for you.</p>`
+    }
 
     ${viewHtml()}
 
@@ -386,10 +398,8 @@ function render() {
 
     <div class="block">
       <h2 class="label">How each tool works</h2>
-      <p class="wv-intro">Each tool's own instructions: what to do and in what format. Fixed in the app's code; the world view above is added after them.</p>
-      ${FEATURES.map(
-        (f) => `<details class="wv-prompt"><summary>${esc(f.name)} <span class="note">${f.usesWorldView ? "with the world view" : "reads documents as written, without the world view"}</span></summary><pre>${esc(f.prompt)}</pre></details>`,
-      ).join("")}
+      <p class="wv-intro">Each tool's built-in instructions: what it does and the format the app reads. They're part of the app and can't be changed here; the world view above is added after them, and the schedule tools also get your schedule colors and conventions from the <a class="link" href="#org">Organization page</a>.</p>
+      ${toolsHtml()}
     </div>`;
   drawChart();
 }

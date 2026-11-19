@@ -1,6 +1,6 @@
 import { errorResponse, UserFacingError } from "./claude.js";
 import { requestContext, runWithContext, setFileSink, setUsageSink, type RequestContext } from "./context.js";
-import { dbConfigured, insertRow, query, rpc } from "./db.js";
+import { dbConfigured, get, insertRow, query, rpc } from "./db.js";
 
 /**
  * Supabase Auth + organizations. The browser signs in with Supabase and sends its access token as
@@ -178,6 +178,16 @@ export function route(handler: Handler, opts: { ai?: boolean } = {}): Handler {
         );
       }
       ctx = { userId: user?.id ?? null, email: user?.email ?? null, orgId: org?.id ?? null, endpoint: new URL(request.url).pathname, pending: [] };
+      // What the AI tools read about the organization: its world view and schedule style.
+      if (opts.ai && org && dbConfigured()) {
+        const read = (key: string) =>
+          get(org.id, "settings", key).then(
+            (r) => (r && typeof r === "object" ? (r as Record<string, unknown>) : null),
+            (err) => (console.error(`[settings] couldn't read ${key}:`, (err as Error).message), null),
+          );
+        const [worldView, scheduleStyle] = await Promise.all([read("worldview"), read("schedule-style")]);
+        ctx.settings = { worldView, scheduleStyle };
+      }
     } catch (err) {
       return errorResponse(err);
     }

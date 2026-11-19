@@ -1,6 +1,7 @@
 import { writable } from 'svelte/store';
 import { listSchedules, saveSchedule, deleteSchedule } from '../../../store';
 import { toWeekday } from '../utils/dates.js';
+import { isScheduleCode } from '../../../../lib/schedule-style';
 
 // The schedule editor's store (a "project" here is one schedule). Same interface as in the schedule maker;
 // saving now goes through this app's database (/api/db, behind the access code) instead of Supabase in the browser.
@@ -89,6 +90,24 @@ async function _deleteProject(id) {
 }
 
 // Point-in-time markers (milestones, deliverables, approvals, estimates) can't land on weekends.
+/**
+ * Guardrails on what the assistant writes (whatever its instructions or the organization's conventions said): a known
+ * task type, colors that are schedule category codes (the organization's style decides how they look), and a bar
+ * that ends after it starts, within fifteen years. Returns the cleaned fields, or null when the task makes no sense.
+ */
+const MAX_SPAN_DAYS = 15 * 366;
+function _cleanAiTask(fields, before = {}) {
+  const out = { ...fields };
+  if ('type' in out && out.type !== 'bar' && out.type !== 'milestone') delete out.type;
+  if ('color' in out && !isScheduleCode(out.color)) delete out.color;
+  const t = { ...before, ...out };
+  if ((t.type ?? 'bar') === 'bar' && ISO.test(t.start ?? '') && ISO.test(t.end ?? '')) {
+    const days = (Date.parse(t.end) - Date.parse(t.start)) / 86_400_000;
+    if (days < 0 || days > MAX_SPAN_DAYS) return null;
+  }
+  return out;
+}
+
 function _weekdayDate(obj) {
   if (!obj) return obj;
   let out = obj.date ? { ...obj, date: toWeekday(obj.date) } : obj;
@@ -200,12 +219,18 @@ export const projectStore = {
           for (const k of Object.keys(v)) if (!ISO.test(v[k])) delete v[k];
           next = { ...next, ...v };
         } else if (c?.type === 'updateTask') {
-          const patch = _weekdayDate(pick(c.patch, TASK_FIELDS));
+          const current = next.tasks.find(t => t.id === c.taskId);
+          const patch = current && _cleanAiTask(_weekdayDate(pick(c.patch, TASK_FIELDS)), current);
+          if (!patch) { result.skipped++; continue; }
           next.tasks = next.tasks.map(t => (t.id === c.taskId ? { ...t, ...patch } : t));
         } else if (c?.type === 'addTask' && c.task) {
           const used = new Set(next.tasks.map(t => t.id));
           const nextId = Math.max(0, ...used, (next.nextTaskId ?? 1) - 1) + 1;
-          const task = _weekdayDate({ ...pick(c.task, TASK_FIELDS), id: used.has(c.task.id) || typeof c.task.id !== 'number' ? nextId : c.task.id });
+          const fields = _cleanAiTask(pick(c.task, TASK_FIELDS));
+          if (!fields || !String(fields.name ?? '').trim()) { result.skipped++; continue; }
+          // A bar without a usable color gets the design phases' (it can be changed in the editor).
+          if ((fields.type ?? 'bar') === 'bar' && !fields.color) fields.color = '#00914D';
+          const task = _weekdayDate({ ...fields, id: used.has(c.task.id) || typeof c.task.id !== 'number' ? nextId : c.task.id });
           const at = c.insertAfterId != null ? next.tasks.findIndex(t => t.id === c.insertAfterId) : -1;
           if (at !== -1) next.tasks.splice(at + 1, 0, task);
           else next.tasks.push(task);
@@ -216,11 +241,12 @@ export const projectStore = {
           const items = next.legend[c.section] ?? [];
           if (!Number.isInteger(c.index) || !items[c.index]) { result.skipped++; continue; }
           const patch = _weekdayDate(pick(c.patch, LEGEND_FIELDS));
+          if ('color' in patch && !isScheduleCode(patch.color)) delete patch.color;
           next.legend[c.section] = _byDate(items.map((it, i) => (i === c.index ? { ...it, ...patch } : it)));
         } else if (c?.type === 'addLegendItem' && LEGEND_SECTIONS.includes(c.section) && c.item && typeof c.item === 'object') {
           const item = _weekdayDate(pick(c.item, LEGEND_FIELDS));
           if (item.date && !ISO.test(item.date)) delete item.date;
-          if (item.color && !/^#[0-9a-f]{3,8}$/i.test(item.color)) delete item.color;
+          if (item.color && !isScheduleCode(item.color)) delete item.color;
           if (!String(item.text ?? '').trim()) { result.skipped++; continue; }
           next.legend[c.section] = _byDate([...(next.legend[c.section] ?? []), item]);
         } else if (c?.type === 'deleteLegendItem' && LEGEND_SECTIONS.includes(c.section)) {

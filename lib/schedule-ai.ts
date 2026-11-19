@@ -14,8 +14,10 @@ export async function askScheduleAssistant(
   firm = "",
   /** the rest of the project, from the assistant (src/project-digest.ts) */
   digest = "",
+  /** the organization's schedule colors and conventions (lib/schedule-style.ts) */
+  style = "",
 ): Promise<{ text: string; usage: Usage }> {
-  const system = `${SCHEDULE_PROMPT}\n\n${US_ENGLISH}${firm ? `\n\n${firm}` : ""}${digest ? `\n\n## The Rest of the Project (digest, read only)\n${digest}` : ""}
+  const system = `${[SCHEDULE_PROMPT, style, US_ENGLISH, firm].filter((x) => x.trim()).join("\n\n")}${digest ? `\n\n## The Rest of the Project (digest, read only)\n${digest}` : ""}
 
 ## Current Project
 ${JSON.stringify(project ?? null, null, 2)}`;
