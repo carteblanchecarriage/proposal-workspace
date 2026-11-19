@@ -682,8 +682,8 @@ function refresh() {
         <tr class="subtotal"><th scope="row">Labor</th><td class="num">${hrs(t.laborHours)}</td><td class="num">${money(t.labor)}</td><td></td><td></td></tr>
         <tr><th scope="row">Consultants</th><td></td><td class="num">${money(t.consultants)}</td><td></td><td></td></tr>
         <tr><th scope="row">Management markup (${pct(f.markupPercent)})</th><td></td><td class="num">${money(t.markup)}</td><td></td><td></td></tr>
-        <tr><th scope="row">Expenses</th><td></td><td class="num">${money(t.expenses)}</td><td></td><td></td></tr>
         <tr class="total"><th scope="row">Total fee</th><td></td><td class="num">${money(t.total)}</td><td></td><td></td></tr>
+        <tr><th scope="row">Reimbursable expenses <span class="note">not included in the total</span></th><td></td><td class="num">${money(t.expenses)}</td><td></td><td></td></tr>
       </tbody>
     </table></div>
     <table class="grid facts fee-check">
@@ -723,7 +723,7 @@ let feeStyle: FeeStyle = DEFAULT_FEE_STYLE;
 
 export function proposalHtml(t: ProposalTable, look: FeeStyle = feeStyle): string {
   const below = t.belowLine ?? [];
-  if (!t.total && !below.length) return `<p class="none">Add hours, rates or consultant fees to fill in the table.</p>`;
+  if (!t.total && !below.length && !t.expenses) return `<p class="none">Add hours, rates or consultant fees to fill in the table.</p>`;
   const PT = feeTableCss(look);
   const ptMoney = feeMoney;
   const th = (style: string, html: string) => `<th style="${PT.border} ${style}">${html}</th>`;
@@ -752,6 +752,13 @@ export function proposalHtml(t: ProposalTable, look: FeeStyle = feeStyle): strin
       .map((r) => `<tr>${td(PT.phase, esc(r.label))}${r.amounts.map((a) => td(PT.cell, ptMoney(a))).join("")}${td(PT.cellTotal, ptMoney(r.total))}</tr>`)
       .join("")}
     <tr>${td(PT.footLabel, "Total")}${t.totals.map((a) => td(PT.foot, ptMoney(a))).join("")}${td(PT.foot, ptMoney(t.total))}</tr>
+    ${
+      t.expenses
+        ? `<tr>${td(PT.phase, `Reimbursable Expenses<span style="${PT.note}">Not included in the total fee</span>`)}${t.columns
+            .map((_, col) => td(PT.cell, col === 0 ? ptMoney(t.expenses!) : ""))
+            .join("")}${td(PT.cellTotal, ptMoney(t.expenses))}</tr>`
+        : ""
+    }
     ${belowRows}</tbody>
   </table>`;
 }
@@ -789,7 +796,8 @@ function proposalText(t: ProposalTable): string {
   const head = ["Phase", ...t.columns.map((c) => (c.firm ? `${c.firm} (${c.discipline})` : c.discipline)), "Total Fee"];
   const ptMoney = feeMoney;
   const rows = t.rows.map((r) => [r.label, ...r.amounts.map(ptMoney), ptMoney(r.total)]);
-  const table = [head, ...rows, [feeStyle.capitals ? "TOTAL" : "Total", ...t.totals.map(ptMoney), ptMoney(t.total)]].map((r) => r.join("\t")).join("\n");
+  const expenses = t.expenses ? [["Reimbursable Expenses (not included in the total fee)", ...t.columns.map((_, col) => (col === 0 ? ptMoney(t.expenses!) : "")), ptMoney(t.expenses)]] : [];
+  const table = [head, ...rows, [feeStyle.capitals ? "TOTAL" : "Total", ...t.totals.map(ptMoney), ptMoney(t.total)], ...expenses].map((r) => r.join("\t")).join("\n");
   const items = t.belowLine ?? [];
   if (!items.length) return table;
   const below = items.map((b) =>

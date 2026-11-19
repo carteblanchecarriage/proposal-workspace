@@ -275,8 +275,8 @@ function rfpSourcesHtml(r: SavedRfp): string {
 /** The fee in brief: each phase's total, the fee, and how it compares with the construction budget. Opens the fee. */
 function feeSummaryHtml(f: SavedFee | undefined): string {
   if (!f) return `<p class="none">None yet.</p><div class="actions"><button class="btn" data-make-fee>Make fee</button></div>`;
-  // The firm's own fee only: the proposal table's Architecture column (its labor, markup on consultants and
-  // expenses). Consultant fees are worked on in the fee itself.
+  // The firm's own fee only: the proposal table's Architecture column (its labor and markup on consultants;
+  // reimbursable expenses are listed below, not in it). Consultant fees are worked on in the fee itself.
   const table = proposalTable(f);
   const t = totals(f);
   const arch = table.totals[0] ?? 0;
@@ -295,7 +295,9 @@ function feeSummaryHtml(f: SavedFee | undefined): string {
     ${consultantsNote}
     <a class="proj-fee-link" href="${href}" tabindex="-1" aria-hidden="true">
       <table class="proj-fee-table">
-        <tbody>${table.rows.map((r) => `<tr><th scope="row">${esc(r.label)}</th><td class="num">${money(r.amounts[0] ?? 0)}</td></tr>`).join("")}</tbody>
+        <tbody>${table.rows.map((r) => `<tr><th scope="row">${esc(r.label)}</th><td class="num">${money(r.amounts[0] ?? 0)}</td></tr>`).join("")}${
+          table.expenses ? `<tr class="proj-fee-expenses"><th scope="row">Reimbursable expenses <span class="note">not in total</span></th><td class="num">${money(table.expenses)}</td></tr>` : ""
+        }</tbody>
       </table>
     </a>`;
 }

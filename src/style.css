@@ -1342,3 +1342,4 @@ table.matrix { border: 1px solid var(--ink); }
 .card-title-link { color: inherit; text-decoration: none; }
 .card-title-link:hover, .card-title-link:focus-visible { text-decoration: underline; text-underline-offset: 3px; }
 .card-title-link::after { content: " →"; font-weight: 400; opacity: .5; }
+.proj-fee-table tr.proj-fee-expenses th, .proj-fee-table tr.proj-fee-expenses td { border-top: 1.5px solid var(--ink); }

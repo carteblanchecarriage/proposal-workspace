@@ -85,7 +85,8 @@ export function totals(f: SavedFee): FeeTotals {
   const consultants = f.consultants.reduce((s, c) => s + consultantTotal(c, f.phases), 0);
   const markup = consultants * (num(f.markupPercent) / 100);
   const expenses = num(f.expenses);
-  const total = labor + consultants + markup + expenses;
+  // Reimbursable expenses are listed below the total fee, not in it (so the fee's % of construction is the fee alone).
+  const total = labor + consultants + markup;
   const budget = budgetOf(f);
   return {
     phases,
@@ -113,6 +114,8 @@ export type ProposalTable = {
   rows: { label: string; amounts: number[]; total: number }[];
   totals: number[];
   total: number;
+  /** reimbursable expenses (the architect's), shown below the total and not included in it */
+  expenses?: number;
   /**
    * Additional scope items, offered outside the fee: rows under the table's total. The amount is in the Total Fee
    * column, and also in the provider's column once one is chosen (column: index into columns; null when not
@@ -136,10 +139,10 @@ export function proposalTable(f: SavedFee): ProposalTable {
     })
     // Every phase on the fee, in order (one without an amount yet shows "-"), so a phase added or moved shows here too.
     .filter((r) => r.label.trim());
-  const expenses = num(f.expenses);
-  if (expenses) rows.push({ label: "Reimbursable Expenses", amounts: [expenses, ...consultants.map(() => 0)], total: expenses });
   const totals = [0, ...consultants.map(() => 0)].map((_, i) => rows.reduce((s, r) => s + r.amounts[i], 0));
   return {
+    // Shown below the total, not in it.
+    expenses: num(f.expenses),
     columns: [{ firm: "", discipline: "Architecture" }, ...consultants.map((c) => ({ firm: c.firm, discipline: c.discipline }))],
     rows,
     totals,
