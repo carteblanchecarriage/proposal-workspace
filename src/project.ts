@@ -180,7 +180,7 @@ function render() {
 
 
   const due = rfp ? proposalDue(rfp.rfp) : undefined;
-  const sub = [rfp?.rfp.client, due ? `Proposals due ${formatWhen(due)}` : ""].filter(Boolean).map((x) => esc(String(x))).join(" · ");
+  const sub = [due ? `Proposals due ${formatWhen(due)}` : ""].filter(Boolean).map((x) => esc(String(x))).join(" · ");
   const fee = fees[0];
   const sched = schedules[0];
 
@@ -1117,6 +1117,8 @@ async function rename() {
     // Reviews and comparisons show the project's name, so keep theirs in step.
     if (rfp) await saveRfp({ ...rfp, project: name });
     await Promise.all(comparisons.map((c) => saveComparison({ ...c, projectName: name })));
+    // Its schedule is named after it (title and project number), so it follows too.
+    await Promise.all(schedules.map((s) => saveSchedule({ ...s, title: p.name, number: p.number ?? "" })));
   } catch (err) {
     await noticeModal("Not saved", (err as Error).message);
   }

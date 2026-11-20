@@ -12,6 +12,7 @@
   import { setAssistantPage } from '../../assistant';
   import { palette, options, colorMap, badge, handOver } from '../lib/palette.js';
   import { orgName } from '../../org';
+  import { listProjects } from '../../store';
   import { pointerDrag } from '../lib/utils/pointer.js';
 
   let { data } = $props();
@@ -402,6 +403,25 @@
     projectStore.updateProject(data.id, { title: val });
   }
 
+  // A schedule made from a project is named after it: its title and project number follow the project (renaming the
+  // project renames it), so they aren't edited here. Checked on opening, which also fixes older schedules.
+  let linked = $derived(!!project?.workspaceProjectId);
+  let syncedFor = '';
+  $effect(() => {
+    const link = project?.workspaceProjectId;
+    if (!link || syncedFor === data.id) return;
+    syncedFor = data.id;
+    listProjects()
+      .then((ps) => {
+        const p = ps.find((x) => x.id === link);
+        const cur = allProjects.find((x) => x.id === data.id);
+        if (!p || !cur) return;
+        const number = p.number ?? '';
+        if (cur.title !== p.name || (cur.number ?? '') !== number) projectStore.updateProject(data.id, { title: p.name, number });
+      })
+      .catch(() => {});
+  });
+
   function handleLegendUpdate(section, items) {
     projectStore.updateLegendSection(data.id, section, items);
   }
@@ -534,7 +554,8 @@
           <div
             bind:this={titleEl}
             class="hdr-title"
-            contenteditable="true"
+            contenteditable={linked ? 'false' : 'true'}
+            title={linked ? "Named after its project. Rename it on the project page." : undefined}
             spellcheck="false"
             onblur={(e) => updateTitle(e.target.textContent.trim() || project.title)}
             onkeydown={(e) => { if (e.key === 'Enter') { e.preventDefault(); e.target.blur(); } }}
@@ -549,7 +570,8 @@
             <span class="meta-sep">·</span>
             <div
               class="meta-field"
-              contenteditable="true"
+              contenteditable={linked ? 'false' : 'true'}
+              title={linked ? "The project's number. Change it on the project page." : undefined}
               spellcheck="false"
               onblur={(e) => updateMeta('number', e.target.textContent.trim())}
             >{project.number || 'Project Number'}</div>

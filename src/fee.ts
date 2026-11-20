@@ -581,7 +581,7 @@ function render() {
       <h2 class="label">Proposal table</h2>
       <div class="scroll"><div id="fee-proposal"></div></div>
       <p class="org-muted" id="fee-rounding-note"></p>
-      <div class="actions"><button class="btn" data-copy-table>Copy table</button><span class="status" id="fee-copy-status"></span></div>
+      <div class="actions"><button class="btn" data-copy-table>Copy table</button><button class="btn" data-save-png title="A 300 dpi image of the table, for InDesign and other layout apps">Save as PNG</button><span class="status" id="fee-copy-status"></span></div>
     </div>`;
   refresh();
   fitSummaryLines($("fee-page"));
@@ -862,6 +862,25 @@ async function exportExcel(button: HTMLButtonElement) {
   }
 }
 
+/** Saves the Proposal table as a 300 dpi PNG (fee-png.ts), drawn from the table on the page. */
+async function saveTablePng(button: HTMLButtonElement) {
+  if (!fee) return;
+  const table = document.querySelector<HTMLTableElement>("#fee-proposal table");
+  const status = document.getElementById("fee-copy-status");
+  if (!table) return noticeModal("Nothing to save yet", "Add hours, rates or consultant fees to fill in the table first.");
+  const project = projects.find((p) => p.id === fee!.workspaceProjectId);
+  button.disabled = true;
+  try {
+    const [{ tablePng, download }, { fileName }] = await Promise.all([import("./fee-png"), import("./fee-excel")]);
+    download(await tablePng(table), fileName(fee, project ? projectLabel(project) : "", "png", " table"));
+    if (status) status.textContent = "Saved. Place it in InDesign at 100%.";
+  } catch (err) {
+    await noticeModal("Couldn't save the image", (err as Error).message);
+  } finally {
+    button.disabled = false;
+  }
+}
+
 async function copyProposalTable() {
   if (!fee) return;
   const t = proposalTable(fee);
@@ -1036,6 +1055,7 @@ async function onClick(e: Event) {
   const attr = (name: string) => t.closest(`[${name}]`)?.getAttribute(name) ?? null;
   if (t.closest("[data-new-fee]")) return makeFee();
   if (t.closest("[data-copy-table]")) return copyProposalTable();
+  if (t.closest("[data-save-png]")) return saveTablePng(t.closest<HTMLButtonElement>("[data-save-png]")!);
   if (t.closest("[data-export-excel]")) return exportExcel(t.closest<HTMLButtonElement>("[data-export-excel]")!);
   if (t.closest("[data-undo]")) return undo();
   if (!fee) return;

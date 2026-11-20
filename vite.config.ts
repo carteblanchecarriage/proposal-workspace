@@ -12,5 +12,8 @@ export default defineConfig(({ mode }) => {
     plugins: [devApi(), svelte(), pdfjsAssets(), siteFiles()],
     // The app, plus the plain pages: Privacy, Terms, and the page Vercel shows for an unknown address (404.html).
     build: { rollupOptions: { input: { main: "index.html", privacy: "privacy.html", terms: "terms.html", notFound: "404.html" } } },
+    // Libraries loaded only on demand (the Excel export), bundled when the dev server starts. Otherwise the dev server
+    // finds them mid-session, re-bundles, and pages already open fail with "Failed to fetch dynamically imported module".
+    optimizeDeps: { include: ["exceljs"] },
   };
 });

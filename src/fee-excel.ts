@@ -11,8 +11,11 @@ const MONEY = '"$"#,##0';
 const HOURS = "#,##0.##";
 const PERCENT = '0.0"%"';
 const RATIO = "0.0%";
-/** Fonts Excel has everywhere, for each fee table font. */
-const EXCEL_FONT: Record<FeeFont, string> = { helvetica: "Arial", arial: "Arial", calibri: "Calibri", georgia: "Georgia", garamond: "Garamond" };
+/**
+ * The organization's fee table font, by the name Excel knows it, on every sheet. Where a computer lacks it (Helvetica
+ * on Windows), Excel shows its closest match and keeps the name, so it prints in the right font wherever it's installed.
+ */
+const EXCEL_FONT: Record<FeeFont, string> = { helvetica: "Helvetica", arial: "Arial", calibri: "Calibri", georgia: "Georgia", garamond: "Garamond" };
 
 /** Column letters: 1 → A, 27 → AA. */
 function col(n: number): string {
@@ -269,8 +272,8 @@ function styleTotal(row: ReturnType<Worksheet["getRow"]>, cols: number, style: F
 }
 
 /** "2611 Maple Hollow Library - Fee.xlsx", with the fee's own title when it says more than the project's: safe on every system. */
-function fileName(f: SavedFee, project: string): string {
+export function fileName(f: SavedFee, project: string, ext = "xlsx", suffix = ""): string {
   const title = (f.title || "").trim();
-  const base = [project, !title || project.toLowerCase().includes(title.toLowerCase()) ? "Fee" : title].filter(Boolean).join(" - ");
-  return `${base.replace(/[\\/:*?"<>|]+/g, "").replace(/\s+/g, " ").trim().slice(0, 120) || "Fee"}.xlsx`;
+  const base = [project, !title || project.toLowerCase().includes(title.toLowerCase()) ? "Fee" : title].filter(Boolean).join(" - ") + suffix;
+  return `${base.replace(/[\\/:*?"<>|]+/g, "").replace(/\s+/g, " ").trim().slice(0, 120) || "Fee"}.${ext}`;
 }
