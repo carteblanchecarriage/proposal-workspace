@@ -1,5 +1,5 @@
 <script>
-  import { palette, colorMap, badge } from '../palette.js';
+  import { palette, colorMap, badge, look } from '../palette.js';
   import { tick } from 'svelte';
   import { toWeekday } from '../utils/dates.js';
 
@@ -120,7 +120,7 @@
           <!-- svelte-ignore a11y_no_static_element_interactions -->
           <div
             class="ms-pill"
-            style:background={$palette.milestone}
+            style:background={look('milestone', $palette)}
             title="Drag to schedule"
             onpointerdown={(e) => onMilestoneDrag?.(m, e)}
           >

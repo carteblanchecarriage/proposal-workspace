@@ -3,10 +3,12 @@ import type { Readable, Writable } from "svelte/store";
 
 type Colors = Record<string, string>;
 type Options = { font: string; showToday: boolean };
-type Choice = { key: string; label: string; hint: string; base: string; half?: string };
+type Choice = { key: string; label: string; hint: string; base: string; half?: string; standard?: string };
 
 export const CATEGORIES: Choice[];
 export const BADGES: Choice[];
+export const STANDARD_COLORS: Colors;
+export function look(key: string, palette: Colors | undefined): string | undefined;
 export const FONTS: { key: string; label: string; stack: string; google?: string }[];
 export const DEFAULT_OPTIONS: Options;
 export function cleanPalette(value: unknown): Colors;

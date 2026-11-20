@@ -173,7 +173,7 @@ export function route(handler: Handler, opts: { ai?: boolean } = {}): Handler {
         throw new UserFacingError(
           org.limitUsd === 0
             ? "AI features need a subscription. The owner can subscribe on the Organization page (click your organization's name at the top)."
-            : `Your organization has used this billing period's AI ($${org.limitUsd.toFixed(2)}). It resets on your billing date.`,
+            : "Your organization has used all of this billing period's AI allowance. It resets on your billing date.",
           402,
         );
       }

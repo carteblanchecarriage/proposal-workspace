@@ -15,18 +15,19 @@ type Info = {
   joinDomain: string | null;
   plan: string;
   createdAt: string;
-  aiLimitUsd: number | null;
-  aiSpentUsd: number;
+  /** AI use as a share of the allowance (lib/org.ts); never dollars */
+  ai: { state: "off" } | { state: "unlimited" } | { state: "limited"; percent: number };
   subscriptionStatus: string | null;
   renewsAt: string | null;
   /** null when billing isn't set up on the server */
-  billing: { price: string | null; capUsd: number } | null;
+  billing: { price: string | null } | null;
   you: string | null;
   people: { email: string | null; role: string; you: boolean }[];
 };
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
-const usd = (n: number) => `$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+/** "37%", "less than 1%" for a little use, "0%" for none. */
+const pct = (n: number) => (n > 0 && n < 1 ? "less than 1%" : `${Math.round(n)}%`);
 const orgAction = <T>(action: string, body: object = {}) => postJson<T>("/api/auth", body, action);
 
 let info: Info | null = null;
@@ -68,26 +69,26 @@ export async function showOrg() {
 function render() {
   if (!info) return;
   const owner = info.you === "owner";
-  const limit = info.aiLimitUsd;
   const period = info.plan === "pro" ? "this billing period" : "this month";
+  const ai = info.ai;
   const usage =
-    limit == null
-      ? `${usd(info.aiSpentUsd)} ${period} (no limit)`
-      : limit === 0
+    ai.state === "unlimited"
+      ? "No limit on AI use."
+      : ai.state === "off"
         ? "AI features aren't turned on for this organization yet."
-        : `${usd(info.aiSpentUsd)} of ${usd(limit)} ${period}`;
+        : `${pct(ai.percent)} of ${period}'s AI allowance used.`;
   const day = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }) : "");
   const b = info.billing;
   const price = b?.price ? ` · ${esc(b.price)}` : "";
   const plan =
     info.plan === "owner"
-      ? `<p>Internal plan: no subscription and no AI limit.</p>`
+      ? `<p>Internal plan: no subscription.${info.ai.state === "limited" ? " AI has a monthly allowance, which resets on the 1st." : " No AI limit."}</p>`
       : info.plan === "pro"
         ? `<p><b>Pro</b>${price}${info.renewsAt ? `. Renews ${esc(day(info.renewsAt))}.` : ""}</p>
            ${info.subscriptionStatus === "past_due" ? `<p class="status error">The last payment didn't go through. Update the card under Manage billing; AI stays on while Stripe retries.</p>` : ""}
            ${owner ? `<button class="btn" type="button" id="org-portal">Manage billing</button>` : ""}`
         : b
-          ? `<p>Free: AI features are off.${b.price ? ` Subscribe for <b>${esc(b.price)}</b>, which includes ${usd(b.capUsd)} of AI use each billing period.` : ""}</p>
+          ? `<p>Free: AI features are off.${b.price ? ` Subscribe for <b>${esc(b.price)}</b>, which includes an AI allowance each billing period.` : ""}</p>
              ${owner ? `<button class="btn primary" type="button" id="org-subscribe">Subscribe</button>` : `<p class="org-muted">Ask your organization's owner to subscribe.</p>`}`
           : `<p>Free.</p>`;
   $("org-page").innerHTML = `

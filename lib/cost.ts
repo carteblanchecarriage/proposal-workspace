@@ -29,9 +29,3 @@ export function costOf(u: Omit<Usage, "cost_usd">): number | null {
     1e6
   );
 }
-
-/** An AI cost for people: "$0.07", or "<$0.01" for a fraction of a cent. */
-export function usd(n: number): string {
-  if (n > 0 && n < 0.01) return "<$0.01";
-  return `$${n.toFixed(2)}`;
-}

@@ -1,7 +1,7 @@
 import { getClient, UserFacingError } from "./claude.js";
 import { listAll, query, TABLES, type Table } from "./db.js";
 import { remove as removeStored, RFP_PATH } from "./storage.js";
-import { billingConfigured, cancelSubscription, planCapUsd, planPrice } from "./billing.js";
+import { billingConfigured, cancelSubscription, planPrice } from "./billing.js";
 
 // The organization page: its name, who's in it, this month's AI use, export, and delete. Deliberately simple: no
 // roles to manage or invites (a firm may well share one login). Owners can rename and delete; everyone can view and
@@ -39,6 +39,14 @@ async function emailOf(user: string): Promise<string | null> {
   return ((await res.json()) as { email?: string }).email ?? null;
 }
 
+/** How much of its AI allowance an organization has used: off (no allowance), unlimited, or a percent (0–100). */
+export type AiUse = { state: "off" } | { state: "unlimited" } | { state: "limited"; percent: number };
+function aiUse(limit: number | null, spent: number): AiUse {
+  if (limit == null) return { state: "unlimited" };
+  if (limit <= 0) return { state: "off" };
+  return { state: "limited", percent: Math.min(100, (spent / limit) * 100) };
+}
+
 export async function orgInfo(org: string, user: string | null) {
   const [o] = await query<OrgRow[]>(`organizations?select=id,name,join_domain,ai_monthly_limit_usd,plan,created_at,subscription_status,current_period_start,current_period_end&id=eq.${q(org)}`);
   if (!o) throw new UserFacingError("Organization not found.", 404);
@@ -59,10 +67,10 @@ export async function orgInfo(org: string, user: string | null) {
     plan: o.plan,
     subscriptionStatus: o.subscription_status,
     renewsAt: o.current_period_end,
-    billing: billingConfigured() ? { price: await planPrice(), capUsd: planCapUsd() } : null,
+    billing: billingConfigured() ? { price: await planPrice() } : null,
     createdAt: o.created_at,
-    aiLimitUsd: o.ai_monthly_limit_usd == null ? null : Number(o.ai_monthly_limit_usd),
-    aiSpentUsd: Math.round(spent * 100) / 100,
+    // AI use as a share of the allowance, never in dollars: the allowance is a usage limit, not a price.
+    ai: aiUse(o.ai_monthly_limit_usd == null ? null : Number(o.ai_monthly_limit_usd), spent),
     you: members.find((m) => m.user_id === user)?.role ?? null,
     people: await Promise.all(members.map(async (m) => ({ email: await emailOf(m.user_id), role: m.role, you: m.user_id === user }))),
   };

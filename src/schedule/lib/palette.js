@@ -7,18 +7,18 @@ import { derived, writable } from 'svelte/store';
 
 // The categories (with the standard code each stores) and the legend's badge colors, shared with the server so the
 // AI's instructions name the same categories (lib/schedule-style.ts).
-import { CATEGORIES, BADGES } from '../../../lib/schedule-style';
-export { CATEGORIES, BADGES };
+import { CATEGORIES, BADGES, STANDARD_COLORS } from '../../../lib/schedule-style';
+export { CATEGORIES, BADGES, STANDARD_COLORS };
 
 /** Fonts the server's PDF browser can load too (Google Fonts, or the site's own Inter). */
 export const FONTS = [
-  { key: 'barlow', label: 'Barlow (standard)', stack: "'Barlow', Arial, sans-serif" },
-  { key: 'inter',  label: 'Inter',             stack: "'Inter Variable', Arial, sans-serif" },
+  { key: 'inter',  label: 'Inter (standard)',  stack: "'Inter Variable', Arial, sans-serif" },
+  { key: 'barlow', label: 'Barlow',            stack: "'Barlow', Arial, sans-serif" },
   { key: 'roboto', label: 'Roboto',            stack: "'Roboto', Arial, sans-serif", google: 'Roboto:wght@400;500;700;800' },
   { key: 'lora',   label: 'Lora (serif)',      stack: "'Lora', Georgia, serif",       google: 'Lora:wght@400;500;600;700' },
 ];
 
-export const DEFAULT_OPTIONS = { font: 'barlow', showToday: true };
+export const DEFAULT_OPTIONS = { font: 'inter', showToday: true };
 
 const HEX = /^#[0-9a-f]{6}$/i;
 /** Where the style travels with a schedule to the print page (see handOver, below). */
@@ -46,17 +46,19 @@ export function cleanOptions(value) {
   };
 }
 
-/** Chosen colors by key; keys left out keep the standard look. */
+/** Chosen colors by key; keys left out are drawn in their standard color (look, below). */
 export const palette = writable(readHandedOver(HANDOFF, cleanPalette));
 /** The font, and whether the Today line shows by default. */
 export const options = writable(readHandedOver(HANDOFF_OPTIONS, cleanOptions));
 
-/** standard code (lowercase) → the color to draw it in, for an organization's chosen colors */
+/** The color a category or badge is drawn in: the organization's choice, else the standard one (none for estimates). */
+export const look = (key, p) => p?.[key] ?? STANDARD_COLORS[key];
+
+/** stored code (lowercase) → the color to draw it in, for an organization's chosen colors */
 export function buildColorMap(p) {
   const m = new Map();
   for (const c of CATEGORIES) {
-    const chosen = p?.[c.key];
-    if (!chosen) continue;
+    const chosen = look(c.key, p);
     m.set(c.base.toLowerCase(), chosen);
     if (c.half) m.set(c.half.toLowerCase(), halftone(chosen));
   }
@@ -64,13 +66,13 @@ export function buildColorMap(p) {
 }
 export const colorMap = derived(palette, buildColorMap);
 
-/** The CSS font stack for a font choice (the standard Barlow when unknown). */
+/** The CSS font stack for a font choice (the standard Inter when unknown). */
 export const fontStack = (key) => (FONTS.find((f) => f.key === key) ?? FONTS[0]).stack;
 
 /** The color to draw a stored color in. */
 export const paint = (hex, map) => (typeof hex === 'string' && map.get(hex.toLowerCase())) || hex;
-/** A milestone's or estimate's color: the organization's badge color when it set one, else its own (painted). */
-export const badge = (kind, hex, p, map) => p[kind] ?? paint(hex, map);
+/** A milestone's or estimate's color: the badge color (chosen or standard) when there is one, else its own (painted). */
+export const badge = (kind, hex, p, map) => look(kind, p) ?? paint(hex, map);
 
 // The font: an attribute on the page that app.css styles the schedule screens by, and the font file when it's a
 // Google font (the PDF browser is allowed to load those).
@@ -94,13 +96,10 @@ export function loadFont(font) {
 options.subscribe((o) => { if (typeof document !== 'undefined') applyFont(o.font); });
 
 // Deliverable and approval markers are drawn by CSS (var(--sched-deliverable), var(--sched-approval)), so their
-// colors are set on the page; unset, the CSS falls back to the standard orange and blue.
+// colors (chosen or standard) are set on the page.
 palette.subscribe((p) => {
   if (typeof document === 'undefined') return;
-  for (const k of ['deliverable', 'approval']) {
-    if (p[k]) document.documentElement.style.setProperty(`--sched-${k}`, p[k]);
-    else document.documentElement.style.removeProperty(`--sched-${k}`);
-  }
+  for (const k of ['deliverable', 'approval']) document.documentElement.style.setProperty(`--sched-${k}`, look(k, p));
 });
 
 // The print preview and the server's PDF browser aren't signed in, so the editor hands the style over with the

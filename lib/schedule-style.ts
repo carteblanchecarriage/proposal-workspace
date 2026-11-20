@@ -5,26 +5,34 @@
 // Schedules store each category's standard code; each organization chooses how a code is drawn (its schedule style), so
 // the AI writes codes and the organization's colors follow, on existing schedules too.
 
-/** The categories, with the standard code each one stores, and its 50% halftone (the lighter swatch) where it has one. */
+/**
+ * The categories, with the code each one stores and its 50% halftone (the lighter swatch) where it has one. The codes
+ * are only identifiers: standard is how a category is drawn until the organization chooses its own color.
+ */
 export const CATEGORIES = [
-  { key: "design", label: "Design phases", hint: "Programming, SD, DD and CDs", base: "#00914D", half: "#80C8A6" },
-  { key: "review", label: "Reviews", hint: "Client, owner and design reviews", base: "#949494" },
-  { key: "hold", label: "Holds and waiting", hint: "Waiting periods", base: "#20ABE2", half: "#90D5F1" },
-  { key: "construction", label: "Construction and CA", hint: "Construction and construction administration", base: "#6D245D", half: "#B692AE" },
-  { key: "permit", label: "Permits and approvals", hint: "Permit submission and AHJ reviews", base: "#D83968", half: "#EC9CB4" },
-  { key: "other", label: "Bidding and closeout", hint: "Bidding, procurement and closeout", base: "#282829" },
-] as { key: string; label: string; hint: string; base: string; half?: string }[];
+  { key: "design", label: "Design phases", hint: "Programming, SD, DD and CDs", base: "#00914D", half: "#80C8A6", standard: "#4A7BD0" },
+  { key: "review", label: "Reviews", hint: "Client, owner and design reviews", base: "#949494", standard: "#A3A8B0" },
+  { key: "hold", label: "Holds and waiting", hint: "Waiting periods", base: "#20ABE2", half: "#90D5F1", standard: "#E8B04A" },
+  { key: "construction", label: "Construction and CA", hint: "Construction and construction administration", base: "#6D245D", half: "#B692AE", standard: "#4E9F76" },
+  { key: "permit", label: "Permits and approvals", hint: "Permit submission and AHJ reviews", base: "#D83968", half: "#EC9CB4", standard: "#9474C9" },
+  { key: "other", label: "Bidding and closeout", hint: "Bidding, procurement and closeout", base: "#282829", standard: "#4B5563" },
+] as { key: string; label: string; hint: string; base: string; half?: string; standard: string }[];
 
 /**
- * The legend's items: one color for every deliverable, milestone, estimate and approval marker (unset = the standard
- * look: deliverables orange, milestones black, estimates each their own color, approvals blue).
+ * The legend's items: one color for every deliverable, milestone, estimate and approval marker. Unset, each is drawn
+ * in its standard color; estimates have none, so each keeps its own (its category's color).
  */
 export const BADGES = [
-  { key: "deliverable", label: "Deliverables", hint: "Numbered deliverable badges", base: "#D4804A" },
-  { key: "milestone", label: "Milestones", hint: "Lettered milestone markers", base: "#282829" },
+  { key: "deliverable", label: "Deliverables", hint: "Numbered deliverable badges", base: "#D4804A", standard: "#E07B39" },
+  { key: "milestone", label: "Milestones", hint: "Lettered milestone markers", base: "#282829", standard: "#374151" },
   { key: "estimate", label: "Estimates", hint: "SD, DD and other estimate badges", base: "#00914D" },
-  { key: "approval", label: "Approvals", hint: "Approval diamonds, such as permit approval", base: "#20ABE2" },
-];
+  { key: "approval", label: "Approvals", hint: "Approval diamonds, such as permit approval", base: "#20ABE2", standard: "#9474C9" },
+] as { key: string; label: string; hint: string; base: string; standard?: string }[];
+
+/** How each category and badge is drawn when the organization hasn't chosen a color (estimates: none). */
+export const STANDARD_COLORS: Record<string, string> = Object.fromEntries(
+  [...CATEGORIES, ...BADGES].filter((c) => c.standard).map((c) => [c.key, c.standard!]),
+);
 
 /**
  * The starting schedule conventions: what an organization's schedules usually look like (phases, review durations,
@@ -103,11 +111,14 @@ ${own}`
 
 /** The schedule colors (category codes, with how this organization draws them) and its conventions, for the AI. */
 export function scheduleStyleText(colors: Record<string, string>, conventions: string | undefined): string {
-  const shown = (key: string) => (colors[key] ? ` (this organization draws it as ${colors[key]})` : "");
+  const shown = (key: string) => {
+    const drawn = colors[key] ?? STANDARD_COLORS[key];
+    return drawn ? ` (this organization draws it as ${drawn})` : "";
+  };
   const cats = CATEGORIES.map(
     (c) => `- \`${c.base}\` ${c.label}: ${c.hint}${shown(c.key)}${c.half ? `. Lighter version for secondary bars in the same category: \`${c.half}\`` : ""}`,
   ).join("\n");
-  const badges = BADGES.filter((b) => colors[b.key]).map((b) => `- ${b.label}${shown(b.key)}`).join("\n");
+  const badges = BADGES.filter((b) => colors[b.key] ?? STANDARD_COLORS[b.key]).map((b) => `- ${b.label}${shown(b.key)}`).join("\n");
   return [
     `## Colors
 

@@ -1,6 +1,6 @@
 import { DISCIPLINES, firmDisciplines, toDisciplines } from "../lib/disciplines";
 import { removeFirms } from "../lib/comparison-edit";
-import { defaultScheduleNotes } from "./org";
+import { defaultScheduleNotes, setScheduleNotes } from "./org";
 import { askProjectName, confirmModal, confirmTyped, formModal, noticeModal } from "./modal";
 import { makeFee, withWaiting } from "./fee";
 import { scheduleSnapshotHtml } from "./schedule-snapshot";
@@ -102,6 +102,7 @@ async function load() {
   if (project?.id !== id) return; // another project opened meanwhile; its own load fills these in
   directory = dir;
   scheduleStyle = style;
+  setScheduleNotes(style.notes);
   rfp = rfps.find((r) => r.id === project!.rfpId) ?? rfps.find((r) => r.projectId === id);
   comparisons = cmps.filter((c) => c.projectId === id);
   // Proposals inside the project's comparisons join its proposal list (once), to compare with later ones.
@@ -456,7 +457,7 @@ function scheduleFromDraft(d: ScheduleDraft): SavedSchedule {
   return {
     id: Date.now().toString(36) + Math.random().toString(36).slice(2, 7),
     savedAt: Date.now(),
-    notes: [...d.notes, defaultScheduleNotes()].join("\n"),
+    notes: [...d.notes, defaultScheduleNotes()].filter(Boolean).join("\n"),
     date: "",
     viewStart: iso(start),
     viewEnd: iso(end),

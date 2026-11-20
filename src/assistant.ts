@@ -8,7 +8,6 @@ import type { Usage } from "../lib/cost";
 import { postJson } from "./api";
 import { buildDigest, type DigestPart } from "./project-digest";
 import { esc } from "./table";
-import { usd } from "../lib/cost";
 
 export type Turn = { role: "user" | "assistant"; content: string };
 /** An image or PDF attached to a question (schedule only), base64. */
@@ -175,7 +174,7 @@ const SOURCE: Record<Source, string> = { data: "From page data", pdfs: "Read the
 function addReply(r: Reply, replace?: HTMLElement): HTMLElement {
   const div = document.createElement("div");
   div.className = "msg assistant";
-  const meta = [r.meta, r.source && SOURCE[r.source], r.costUsd != null && usd(r.costUsd)].filter(Boolean).join(" · ");
+  const meta = [r.meta, r.source && SOURCE[r.source]].filter(Boolean).join(" · ");
   div.innerHTML = esc(r.text).replace(/\n/g, "<br>") + (meta ? `<span class="updated">${esc(meta)}</span>` : "");
   if (r.retry) {
     const btn = document.createElement("button");

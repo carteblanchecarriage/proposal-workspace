@@ -16,7 +16,7 @@
 }
 
 body {
-  font-family: 'Barlow', Arial, sans-serif;
+  font-family: 'Inter Variable', Arial, sans-serif;
   background: #fff;
   color: var(--black);
 }
@@ -39,8 +39,8 @@ button { font-family: inherit; cursor: pointer; }
   .no-print { display: none !important; }
 }
 
-/* The organization's schedule font (Colors and style, on the Schedule page; src/schedule/lib/palette.js). Barlow is
-   the standard and needs no rule. */
+/* The organization's schedule font (Colors and style, on the Schedule page; src/schedule/lib/palette.js). Inter is
+   the standard; Barlow needs no rule, since the schedule's own styles are drawn in Barlow and Barlow Condensed. */
 html[data-schedule-font="inter"] #schedule-root, html[data-schedule-font="inter"] #schedule-root * { font-family: 'Inter Variable', Arial, sans-serif !important; }
 html[data-schedule-font="roboto"] #schedule-root, html[data-schedule-font="roboto"] #schedule-root * { font-family: 'Roboto', Arial, sans-serif !important; }
 html[data-schedule-font="lora"] #schedule-root, html[data-schedule-font="lora"] #schedule-root * { font-family: 'Lora', Georgia, serif !important; }

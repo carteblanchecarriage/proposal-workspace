@@ -1,5 +1,5 @@
 <script>
-  import { palette, colorMap, paint, badge } from '../palette.js';
+  import { palette, colorMap, paint, badge, look } from '../palette.js';
   import { parseDate, toISO, timeColumns, ZOOM_COL_W, totalDays, dateToPx, dateToPxMonth, pxToDateMonth, dateToPxPeriod, pxToDatePeriod, dateToPxQuarter, pxToDateQuarter, isLightColor, MONTHS_SHORT, toWeekday } from '../utils/dates.js';
   import { pointerDrag } from '../utils/pointer.js';
 
@@ -35,15 +35,16 @@
 
   // `half` is the 50% halftone (solid color mixed 50/50 with white)
   const BAR_COLORS = [
-    { hex: '#282829', half: '#949494', label: 'Black — Programming / Bidding / Closeout', halfLabel: 'Gray — Client / Design Review' },
-    { hex: '#00914D', half: '#80C8A6', label: 'Lime — Design phases (SD, DD, CDs)'      },
-    { hex: '#20ABE2', half: '#90D5F1', label: 'Blue — Holds / Waiting periods'           },
-    { hex: '#6D245D', half: '#B692AE', label: 'Berry — Construction & CA'                },
-    { hex: '#D83968', half: '#EC9CB4', label: 'Magenta — Permit / AHJ'                   },
+    // Labels name the category, not a color: each organization chooses how the codes are drawn.
+    { hex: '#282829', half: '#949494', label: 'Programming / Bidding / Closeout', halfLabel: 'Client / Design Review' },
+    { hex: '#00914D', half: '#80C8A6', label: 'Design phases (SD, DD, CDs)'      },
+    { hex: '#20ABE2', half: '#90D5F1', label: 'Holds / Waiting periods'          },
+    { hex: '#6D245D', half: '#B692AE', label: 'Construction & CA'                },
+    { hex: '#D83968', half: '#EC9CB4', label: 'Permit / AHJ'                     },
   ];
   const SWATCH_ROWS = [
     BAR_COLORS.map(c => ({ hex: c.hex,  label: c.label })),
-    BAR_COLORS.map(c => ({ hex: c.half, label: c.halfLabel ?? `${c.label} (50% halftone)` })),
+    BAR_COLORS.map(c => ({ hex: c.half, label: c.halfLabel ?? `${c.label} (lighter)` })),
   ];
 
   let viewStart  = $derived(parseDate(vsStr));
@@ -321,7 +322,7 @@
               <!-- svelte-ignore a11y_no_static_element_interactions -->
               <div
                 class="ov-pill"
-                style:background={$palette.milestone}
+                style:background={look('milestone', $palette)}
                 style:left="{mpx}px"
                 style:top={laneTop('milestones', i)}
                 onpointerdown={(e) => startOverlayDrag(e, 'milestones', i, m.date)}

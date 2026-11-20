@@ -2,10 +2,11 @@
   // The organization's schedule style (colors, font, Today line), on the Organization page. Global, so it reads as
   // text until Edit; changes are a draft (previewed here) until Save changes, and Cancel throws them away.
   import { onMount } from 'svelte';
-  import { CATEGORIES, BADGES, FONTS, palette, options, cleanPalette, cleanOptions, loadFont } from '../lib/palette.js';
+  import { CATEGORIES, BADGES, FONTS, STANDARD_COLORS, palette, options, cleanPalette, cleanOptions, loadFont } from '../lib/palette.js';
   import { getScheduleStyle, saveScheduleStyle } from '../../store';
   import { DEFAULT_SCHEDULE_CONVENTIONS, MAX_CONVENTIONS, checkConventions } from '../../../lib/schedule-style';
   import { confirmModal, noticeModal } from '../../modal';
+  import { setScheduleNotes } from '../../org';
   import { esc } from '../../table';
 
   let loaded = $state(false);
@@ -13,6 +14,10 @@
   let loadFailed = $state(false);
   // The organization's schedule conventions for the AI (unset: the starting ones).
   let conventions = $state(undefined);
+  // The notes every new schedule starts with, one per line (unset: none).
+  let notes = $state('');
+  const MAX_NOTES = 2_000;
+  const noteLines = (t) => (t ?? '').split('\n').map((l) => l.trim()).filter(Boolean);
   const conventionsText = (c) => (c ?? DEFAULT_SCHEDULE_CONVENTIONS);
   onMount(async () => {
     try {
@@ -20,6 +25,7 @@
       palette.set(cleanPalette(s.colors));
       options.set(cleanOptions(s));
       conventions = s.conventions;
+      notes = s.notes ?? '';
     } catch {
       loadFailed = true;
     }
@@ -40,7 +46,7 @@
   let rootEl = $state(null);
   $effect(() => { rootEl?.closest('.settings-group')?.classList.toggle('editing', !!draft); });
   const startEditing = () => {
-    draft = { colors: { ...$palette }, ...$options, conventions: conventionsText(conventions) };
+    draft = { colors: { ...$palette }, ...$options, conventions: conventionsText(conventions), notes };
     styleStatus = '';
   };
   const cancelEditing = () => { draft = null; };
@@ -52,6 +58,8 @@
     // Kept only when it differs from the starting conventions, so an untouched one follows improvements to those.
     const text = (draft.conventions ?? '').trim();
     const own = text === DEFAULT_SCHEDULE_CONVENTIONS.trim() ? undefined : text;
+    const ownNotes = noteLines(draft.notes).join('\n');
+    if (ownNotes.length > MAX_NOTES) return noticeModal('Default notes are too long', `Keep them under ${MAX_NOTES.toLocaleString('en-US')} characters.`);
     // Guardrails: what can't be saved, and what the assistant would ignore (shown so it can be fixed first).
     const { errors, warnings } = text === conventionsText(conventions).trim() ? { errors: [], warnings: [] } : checkConventions(text);
     if (errors.length) return noticeModal('Schedule conventions need a change', errors.join(' '));
@@ -68,10 +76,12 @@
     styleError = false;
     styleStatus = 'Saving…';
     try {
-      await saveScheduleStyle({ colors, ...opts, ...(own === undefined ? {} : { conventions: own }) });
+      await saveScheduleStyle({ colors, ...opts, ...(own === undefined ? {} : { conventions: own }), ...(ownNotes ? { notes: ownNotes } : {}) });
       palette.set(colors);
       options.set(opts);
       conventions = own;
+      notes = ownNotes;
+      setScheduleNotes(ownNotes);
       draft = null;
       styleStatus = 'Saved. Every schedule now uses these.';
     } catch (err) {
@@ -81,7 +91,7 @@
       saving = false;
     }
   }
-  const colorOf = (key, base) => (draft ? draft.colors[key] : $palette[key]) ?? base;
+  const colorOf = (key, base) => (draft ? draft.colors[key] : $palette[key]) ?? STANDARD_COLORS[key] ?? base;
   const isSet = (key) => !!(draft ? draft.colors[key] : $palette[key]);
   const fontLabel = (key) => FONTS.find((f) => f.key === key)?.label ?? FONTS[0].label;
 </script>
@@ -99,7 +109,9 @@
     {#if loadFailed}<p class="status error">Couldn't load your saved schedule settings. Reload the page to edit them.</p>{/if}
     <p class="intro">How your organization's schedules look. These apply to every schedule, so changes only take effect when you save them.</p>
 
+    <section class="part">
     <h4 class="settings-sub">Colors</h4>
+    <p class="part-hint">How each kind of bar and legend marker is drawn.</p>
     <ul>
       {#each [...CATEGORIES, ...BADGES] as c, i (c.key)}
         {@const current = colorOf(c.key, c.base)}
@@ -129,7 +141,9 @@
         </li>
       {/each}
     </ul>
+    </section>
 
+    <section class="part">
     <h4 class="settings-sub">Font and Today line</h4>
     <dl class="opts">
       <dt>Font</dt>
@@ -152,25 +166,39 @@
         {/if}
       </dd>
     </dl>
+    </section>
 
-    <div class="conventions">
+    <section class="part">
+      <h4 class="settings-sub">Default notes</h4>
+      <p class="part-hint">Added to every new schedule. Existing schedules keep their own notes.</p>
+      {#if draft}
+        <textarea rows="4" bind:value={draft.notes} maxlength={MAX_NOTES} placeholder="One note per line" aria-label="Default schedule notes"></textarea>
+        <span class="std">One note per line</span>
+      {:else if noteLines(notes).length}
+        <ol class="notes">{#each noteLines(notes) as n, i (i)}<li><span class="note-num">{i + 1}.</span><span>{n}</span></li>{/each}</ol>
+      {:else}
+        <p class="empty">None. New schedules start without notes.</p>
+      {/if}
+    </section>
+
+    <section class="part">
       <h4 class="settings-sub">Conventions for the AI</h4>
-      <p class="intro">What the AI follows when it drafts or changes a schedule.</p>
+      <p class="part-hint">What the AI follows when it drafts or changes a schedule.</p>
       {#if draft}
         <textarea rows="16" bind:value={draft.conventions} maxlength={MAX_CONVENTIONS} aria-label="Schedule conventions"></textarea>
         <span class="std">{(draft.conventions ?? '').length.toLocaleString('en-US')} of {MAX_CONVENTIONS.toLocaleString('en-US')} characters</span>
         <button class="link" onclick={() => { draft.conventions = DEFAULT_SCHEDULE_CONVENTIONS; }} disabled={saving}>Use the starting conventions</button>
       {:else}
-        {#if conventionsText(conventions).trim()}<pre>{conventionsText(conventions)}</pre>{:else}<p class="intro">None. The assistant uses general scheduling practice.</p>{/if}
+        {#if conventionsText(conventions).trim()}<pre>{conventionsText(conventions)}</pre>{:else}<p class="empty">None. The assistant uses general scheduling practice.</p>{/if}
         <span class="std">{conventions === undefined ? 'Starting conventions' : 'Your own'}</span>
       {/if}
-    </div>
+    </section>
 
     {#if draft}
       <div class="actions">
         <button class="btn primary" onclick={saveStyle} disabled={saving}>Save schedule settings</button>
         <button class="btn" onclick={cancelEditing} disabled={saving}>Cancel</button>
-        <button class="link" onclick={() => { draft = { colors: {}, ...cleanOptions({}), conventions: DEFAULT_SCHEDULE_CONVENTIONS }; }} disabled={saving}>Reset everything to standard</button>
+        <button class="link" onclick={() => { draft = { colors: {}, ...cleanOptions({}), conventions: DEFAULT_SCHEDULE_CONVENTIONS, notes: '' }; }} disabled={saving}>Reset everything to standard</button>
       </div>
     {/if}
     <span class="status" class:error={styleError}>{styleStatus}</span>
@@ -204,9 +232,18 @@
   .colors .actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: 8px; }
   .colors .status { display: block; margin-top: 8px; font-size: 13px; text-transform: none; letter-spacing: normal; }
   .colors .status.error { color: var(--bad); }
-  .colors .conventions { margin: 0 0 12px; }
-  .colors .conventions pre { white-space: pre-wrap; font: inherit; font-size: 14px; line-height: 1.5; margin: 0 0 6px; padding: 10px 12px; background: var(--soft); }
-  .colors .conventions textarea { width: 100%; font: inherit; font-size: 14px; line-height: 1.5; padding: 8px 10px; border: 1px solid var(--ink); resize: vertical; margin-bottom: 6px; }
+  /* Each part: a divider, its heading and one-line hint, then its content, evenly spaced. */
+  .colors .part { border-top: 1px solid var(--rule); padding: 16px 0 12px; }
+  .colors .part :global(.settings-sub) { margin: 0 0 2px; }
+  .colors .part-hint { margin: 0 0 10px; font-size: 13px; }
+  .colors .part ul, .colors .part .opts { margin-bottom: 0; }
+  .colors .empty { margin: 0; font-size: 14px; }
+  .colors .part pre { white-space: pre-wrap; font: inherit; font-size: 14px; line-height: 1.5; margin: 0 0 6px; padding: 10px 12px; background: var(--soft); }
+  /* Numbered rows like the color rows: the number in its own column, a rule between notes. */
+  .colors .notes { list-style: none; margin: 0; padding: 0; font-size: 14px; line-height: 1.5; border-top: 1px solid var(--rule); }
+  .colors .notes li { grid-template-columns: 24px minmax(0, 1fr); align-items: start; gap: 8px; padding: 7px 0; }
+  .colors .note-num { font-weight: 700; text-align: right; }
+  .colors .part textarea { width: 100%; font: inherit; font-size: 14px; line-height: 1.5; padding: 8px 10px; border: 1px solid var(--ink); resize: vertical; margin-bottom: 6px; }
   @media (max-width: 640px) {
     .colors li { grid-template-columns: 36px minmax(0, 1fr) auto; }
     .colors .sample { display: none; }

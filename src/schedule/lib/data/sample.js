@@ -1,5 +1,5 @@
 import { generateId, toISO, toWeekday } from '../utils/dates.js';
-// Default notes shown in the legend footer for new projects (they name the signed-in organization).
+// New schedules start with the organization's default notes (its schedule settings; none until it writes some).
 import { defaultScheduleNotes } from '../../../org';
 
 

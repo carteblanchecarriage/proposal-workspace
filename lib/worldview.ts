@@ -204,7 +204,7 @@ export function firmContext(worldView: string, pursuits: string[]): string {
     );
   if (pursuits.length)
     parts.push(
-      `## Past pursuits\nRFPs the firm pursued or considered, with how each turned out. Use them as evidence of what wins and what doesn't; name one in fit.reasons when it's the basis for a point.\n${pursuits.join("\n")}`,
+      `## Past pursuits\nRFPs the firm pursued or considered, with how each turned out. Use them as background on what tends to win and what doesn't: patterns across them, not one-to-one matches with the RFP in front of you.\n${pursuits.join("\n")}`,
     );
   return parts.join("\n\n");
 }

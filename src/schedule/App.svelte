@@ -9,6 +9,7 @@
   import PrintPreview from './pages/PrintPreview.svelte';
   import SystemPrompt from './pages/SystemPrompt.svelte';
   import { palette, options, cleanPalette, cleanOptions } from './lib/palette.js';
+  import { setScheduleNotes } from '../org';
   import { getScheduleStyle } from '../store';
 
   // The list and editor need every schedule loaded first (as the old app's layout did on start).
@@ -25,6 +26,7 @@
           .then((s) => {
             palette.set(cleanPalette(s.colors));
             options.set(cleanOptions(s));
+            setScheduleNotes(s.notes);
           })
           .catch(() => {});
     Promise.all([printing ? null : projectStore.init(true), style]).then(() => { ready = true; });

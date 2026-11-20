@@ -64,7 +64,7 @@ export async function POST(request: Request): Promise<Response> {
     return Response.json({
       ok: true,
       email,
-      org: org && { name: org.name, role: org.role, aiLimitUsd: org.limitUsd, aiSpentUsd: Math.round(org.spentUsd * 100) / 100 },
+      org: org && { name: org.name, role: org.role },
     });
   } catch (err) {
     return errorResponse(err);

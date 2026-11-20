@@ -520,6 +520,8 @@ const scheduleStyle = {
   },
   font: "inter",
   showToday: true,
+  // The notes every new schedule starts with (no firm named).
+  notes: ["Dates assume timely owner reviews and approvals.", "Construction dates are estimates; the contractor's schedule governs."].join("\n"),
 };
 
 // ---------- Everything, by table ----------
