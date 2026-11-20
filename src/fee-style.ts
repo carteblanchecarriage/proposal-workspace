@@ -11,7 +11,22 @@ export type FeeStyle = {
   font: FeeFont;
   /** "TOTAL FEE" and "TOTAL" in capitals */
   capitals: boolean;
+  /** what the Proposal table's fee amounts are rounded to, in dollars: cents (0.01) up to the nearest 1,000 */
+  rounding: FeeRounding;
 };
+
+/** The rounding choices, smallest first, with how each shows $12,345.67. */
+export const FEE_ROUNDINGS = [
+  { value: 0.01, label: "Cents ($ 12,345.67)" },
+  { value: 1, label: "Whole dollars ($ 12,346) (standard)" },
+  { value: 10, label: "Nearest $10 ($ 12,350)" },
+  { value: 100, label: "Nearest $100 ($ 12,300)" },
+  { value: 1000, label: "Nearest $1,000 ($ 12,000)" },
+] as const;
+export type FeeRounding = (typeof FEE_ROUNDINGS)[number]["value"];
+
+/** An amount rounded to the setting (cents are rounded as cents, so no float dust like 0.30000000000000004). */
+export const roundFee = (n: number, to: FeeRounding) => (to === 0.01 ? Math.round(n * 100) / 100 : Math.round(n / to) * to);
 
 export const FEE_FONTS = {
   helvetica: { label: "Helvetica (standard)", stack: "'Helvetica Neue', Helvetica, Arial, sans-serif" },
@@ -28,6 +43,7 @@ export const DEFAULT_FEE_STYLE: FeeStyle = {
   totalRow: "#231F20",
   font: "helvetica",
   capitals: true,
+  rounding: 1,
 };
 
 const HEX = /^#[0-9a-f]{6}$/i;
@@ -40,6 +56,7 @@ export function cleanFeeStyle(v: Partial<FeeStyle> | null | undefined): FeeStyle
     totalRow: color(v?.totalRow, DEFAULT_FEE_STYLE.totalRow),
     font: v?.font && v.font in FEE_FONTS ? v.font : DEFAULT_FEE_STYLE.font,
     capitals: typeof v?.capitals === "boolean" ? v.capitals : DEFAULT_FEE_STYLE.capitals,
+    rounding: FEE_ROUNDINGS.some((r) => r.value === v?.rounding) ? (v!.rounding as FeeRounding) : DEFAULT_FEE_STYLE.rounding,
   };
 }
 
@@ -86,5 +103,10 @@ export function feeTableCss(s: FeeStyle) {
   };
 }
 
-/** "$ 241,020", always whole dollars (no cents); nothing in it shows a dash. */
-export const feeMoney = (n: number) => (Math.round(n) ? `$ ${Math.round(n).toLocaleString("en-US")}` : "-");
+/** "$ 241,020" (or "$ 241,020.50" when the setting is cents), rounded to the setting; nothing in it shows a dash. */
+export function feeMoney(n: number, to: FeeRounding = 1): string {
+  const v = roundFee(n, to);
+  if (!v) return "-";
+  const cents = to === 0.01;
+  return `$ ${v.toLocaleString("en-US", { minimumFractionDigits: cents ? 2 : 0, maximumFractionDigits: cents ? 2 : 0 })}`;
+}

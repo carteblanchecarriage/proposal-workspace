@@ -1015,6 +1015,7 @@ dialog.modal .csv-issues li { margin: 0 0 4px; }
 .style-opts { display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 10px 14px; margin: 20px 0 12px; font-size: 14px; }
 .style-opts dt { font-weight: 700; }
 .style-opts dd { margin: 0; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
+.style-opts .style-hint { flex-basis: 100%; font-size: 13px; }
 .style-opts select { font: inherit; padding: 5px 8px; border: 1px solid var(--ink); background: var(--bg); }
 .style-opts .check { display: inline-flex; align-items: center; gap: 8px; }
 .style-preview-label { font-size: 13px; font-weight: 700; margin: 16px 0 6px !important; }

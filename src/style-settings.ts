@@ -1,7 +1,7 @@
 // Schedule and fee settings on the Organization page. Each group is edited as one: its Edit opens every setting in it,
 // and Save applies them together (Cancel or Escape drops them). Both are global, so they read as text until Edit.
 
-import { DEFAULT_FEE_STYLE, FEE_FONTS, cleanFeeStyle, type FeeFont, type FeeStyle } from "./fee-style";
+import { DEFAULT_FEE_STYLE, FEE_FONTS, FEE_ROUNDINGS, cleanFeeStyle, type FeeFont, type FeeRounding, type FeeStyle } from "./fee-style";
 import { proposalHtml } from "./fee";
 import { confirmModal } from "./modal";
 import { getFeeStyle, saveFeeStyle } from "./store";
@@ -14,12 +14,12 @@ const SAMPLE = {
     { firm: "Halvorsen Lake Engineering", discipline: "MEP" },
   ],
   rows: [
-    { label: "Schematic Design", amounts: [86400, 14200], total: 100600 },
-    { label: "Design Development", amounts: [112750, 21300], total: 134050 },
-    { label: "Construction Documents", amounts: [198300, 35500], total: 233800 },
+    { label: "Schematic Design", amounts: [86437.5, 14215], total: 100652.5 },
+    { label: "Design Development", amounts: [112748.25, 21330], total: 134078.25 },
+    { label: "Construction Documents", amounts: [198310.8, 35480], total: 233790.8 },
   ],
-  totals: [397450, 71000],
-  total: 468450,
+  totals: [397496.55, 71025],
+  total: 468521.55,
 };
 
 const COLORS: [keyof FeeStyle, string, string][] = [
@@ -62,13 +62,21 @@ export async function renderStyleSettings(section: HTMLElement) {
   root!.addEventListener("change", (e) => {
     if (draft && (e.target as HTMLElement).matches("[data-fee-color]")) renderFee();
   });
-  const [m, style] = await Promise.all([import("./schedule/style-mount"), getFeeStyle().catch(() => ((loadFailed = true), DEFAULT_FEE_STYLE))]);
+  // Each part loads on its own, so one failing never leaves the other on "Loading…".
   const schedTarget = section.querySelector<HTMLElement>("#org-schedule-style");
-  if (schedTarget?.isConnected) {
-    schedTarget.innerHTML = "";
-    m.mountScheduleStyle(schedTarget);
-  }
-  saved = style;
+  void import("./schedule/style-mount")
+    .then((m) => {
+      if (!schedTarget?.isConnected) return;
+      schedTarget.innerHTML = "";
+      m.mountScheduleStyle(schedTarget);
+    })
+    .catch((err) => {
+      // Usually the site was updated while this page was open, so its older code file is gone: a reload fixes it.
+      console.error("[settings] schedule settings didn't load:", err);
+      if (schedTarget?.isConnected)
+        schedTarget.innerHTML = `<span class="status error">Couldn't load the schedule settings. The site may have just been updated: reload the page.</span>`;
+    });
+  saved = await getFeeStyle().catch(() => ((loadFailed = true), DEFAULT_FEE_STYLE));
   renderFee();
 }
 
@@ -120,6 +128,14 @@ function renderFee() {
           ? `<label class="check"><input type="checkbox" data-fee-caps ${s.capitals ? "checked" : ""} /> “TOTAL FEE” and “TOTAL” in capitals</label>`
           : s.capitals ? "In capitals (TOTAL FEE)" : "As written (Total Fee)"
       }</dd>
+      <dt>Rounding</dt>
+      <dd>${
+        draft
+          ? `<select data-fee-rounding aria-label="Fee rounding">${FEE_ROUNDINGS.map(
+              (r) => `<option value="${r.value}" ${r.value === s.rounding ? "selected" : ""}>${esc(r.label)}</option>`,
+            ).join("")}</select>`
+          : esc(FEE_ROUNDINGS.find((r) => r.value === s.rounding)!.label)
+      }<span class="style-hint">Each amount is rounded, and the totals add the rounded amounts, so the table always adds up.</span></dd>
     </dl>
     <p class="style-preview-label">${draft ? "Preview" : "Sample"}</p>
     <div class="scroll style-preview">${proposalHtml(SAMPLE, s)}</div>
@@ -174,6 +190,7 @@ function onInput(e: Event) {
   if (color) draft = { ...draft, [color]: el.value.toUpperCase() };
   else if (el.matches("[data-fee-font]")) draft = { ...draft, font: el.value as FeeFont };
   else if (el.matches("[data-fee-caps]")) draft = { ...draft, capitals: el.checked };
+  else if (el.matches("[data-fee-rounding]")) draft = { ...draft, rounding: Number(el.value) as FeeRounding };
   else return;
   // Redraw only the preview while a color picker is open, so the picker isn't closed under the pointer.
   const preview = root?.querySelector(".style-preview");

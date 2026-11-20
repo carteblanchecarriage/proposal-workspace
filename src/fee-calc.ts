@@ -151,6 +151,20 @@ export function proposalTable(f: SavedFee): ProposalTable {
   };
 }
 
+/**
+ * The proposal table with every fee amount rounded (each phase's amount for each firm), and every total worked out
+ * from the rounded amounts, so the table always adds up as shown. Expenses and additional scope items are amounts
+ * the team typed, and stay as typed.
+ */
+export function roundedTable(t: ProposalTable, round: (n: number) => number): ProposalTable {
+  const rows = t.rows.map((r) => {
+    const amounts = r.amounts.map(round);
+    return { ...r, amounts, total: amounts.reduce((s, x) => s + x, 0) };
+  });
+  const totals = t.totals.map((_, i) => rows.reduce((s, r) => s + r.amounts[i], 0));
+  return { ...t, rows, totals, total: totals.reduce((s, x) => s + x, 0) };
+}
+
 /** Amounts that add up in the below-the-line total (not hourly rates, and not "upon request"). */
 export const summable = (b: { basis: BelowLineBasis; amount: number | null }) => b.amount != null && b.basis !== "hourly" && b.basis !== "request";
 

@@ -789,12 +789,17 @@ export const FeeChatSchema = z.object({
   assumptions: z.array(z.string()),
   changes: z.array(
     z.object({
-      op: z.enum(["add_task", "update_task", "delete_task", "scale_hours", "set_value"]),
+      op: z.enum(["add_task", "update_task", "delete_task", "scale_hours", "set_value", "add_consultant", "update_consultant", "delete_consultant"]),
       phase_id: z.string(),
       task_id: z.string(),
       name: z.string(),
       number: z.number(),
       hours: z.array(z.object({ role_id: z.string(), hours: z.number() })),
+      // Consultant edits: the row (C1, C2…), its discipline and firm, and its fee by phase.
+      consultant_id: z.string(),
+      discipline: z.string(),
+      firm: z.string(),
+      fees: z.array(z.object({ phase_id: z.string(), amount: z.number() })),
     }),
   ),
 });

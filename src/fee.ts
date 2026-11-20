@@ -1,6 +1,6 @@
 import { feeStatusHtml, isFinal, setFeeStatus } from "./fee-status";
-import { DEFAULT_FEE_STYLE, feeMoney, feeTableCss, type FeeStyle } from "./fee-style";
-import { budgetBy, budgetOf, readAmount, readArea, consultantTotal, proposalTable, taskCost, taskHours, totals, type ProposalTable } from "./fee-calc";
+import { DEFAULT_FEE_STYLE, FEE_ROUNDINGS, feeMoney, feeTableCss, roundFee, type FeeRounding, type FeeStyle } from "./fee-style";
+import { budgetBy, budgetOf, readAmount, readArea, consultantTotal, proposalTable, roundedTable, taskCost, taskHours, totals, type ProposalTable } from "./fee-calc";
 import { DEFAULT_ROLES, shortPhase, shortRole, TEMPLATES, templateFor, templatePhases } from "./fee-templates";
 import { confirmDelete, formModal, noticeModal } from "./modal";
 import { projectDisciplines } from "./rfp";
@@ -191,7 +191,7 @@ function feeAssistant(f: SavedFee): AssistantPage {
   return {
     key: `fee:${f.id}`,
     title: "Ask AI about this fee",
-    hint: 'Ask about this fee, or ask for a change to its tasks and hours. For example, "Break schematic design into more tasks" or "Design meetings are weekly, not every two weeks; adjust the hours". It can move the fee up or down when that\'s what your question comes down to. Rates, phases, consultants and the budget stay as you set them.',
+    hint: 'Ask about this fee, or ask for a change to its tasks, hours or consultants. For example, "Break schematic design into more tasks" or "Add Acme Engineering for MEP at $48,000". It can move the fee up or down when that\'s what your question comes down to. Rates, phases and the budget stay as you set them.',
     placeholder: "Ask a question or ask for a change…",
     note: "Changes can be undone with Undo.",
     projectId: f.workspaceProjectId ?? null,
@@ -580,6 +580,7 @@ function render() {
     <div class="block">
       <h2 class="label">Proposal table</h2>
       <div class="scroll"><div id="fee-proposal"></div></div>
+      <p class="org-muted" id="fee-rounding-note"></p>
       <div class="actions"><button class="btn" data-copy-table>Copy table</button><span class="status" id="fee-copy-status"></span></div>
     </div>`;
   refresh();
@@ -686,7 +687,16 @@ function refresh() {
   const off = (share: number | null, target: number) => share != null && Math.abs(share - target) > 5;
   const diff = t.target != null ? t.total - t.target : null;
   const sign = (n: number) => (n > 0 ? "+" : n < 0 ? "−" : "");
-  $("fee-proposal").innerHTML = proposalHtml(proposalTable(f));
+  const table = proposalTable(f);
+  $("fee-proposal").innerHTML = proposalHtml(table);
+  // When rounding moves the table's total off the worksheet's, say by how much, so the two never silently disagree.
+  const shown = proposalRounded(table).total;
+  const gap = Math.round(shown - table.total);
+  const to = FEE_ROUNDINGS.find((r) => r.value === feeStyle.rounding)!;
+  $("fee-rounding-note").textContent =
+    feeStyle.rounding > 1 && gap
+      ? `Amounts rounded to the ${to.value === 1000 ? "nearest $1,000" : to.value === 100 ? "nearest $100" : "nearest $10"} (Organization settings). The table's total is ${feeMoney(Math.abs(gap))} ${gap > 0 ? "more" : "less"} than the worksheet's.`
+      : "";
   $("fee-time").innerHTML = feeTimeHtml(f);
   $("fee-summary").innerHTML = `
     <div class="scroll"><table class="grid fee-table fee-summary">
@@ -739,11 +749,16 @@ async function linkToProject(f: SavedFee) {
 /** The organization's fee table style, loaded when a fee opens. */
 let feeStyle: FeeStyle = DEFAULT_FEE_STYLE;
 
-export function proposalHtml(t: ProposalTable, look: FeeStyle = feeStyle): string {
+/** The table as the organization rounds it (fee-style.ts): every amount rounded, totals adding the rounded amounts. */
+export const proposalRounded = (t: ProposalTable, look: FeeStyle = feeStyle) => roundedTable(t, (n) => roundFee(n, look.rounding));
+
+export function proposalHtml(table: ProposalTable, look: FeeStyle = feeStyle): string {
+  const t = proposalRounded(table, look);
   const below = t.belowLine ?? [];
   if (!t.total && !below.length && !t.expenses) return `<p class="none">Add hours, rates or consultant fees to fill in the table.</p>`;
   const PT = feeTableCss(look);
-  const ptMoney = feeMoney;
+  const ptMoney = (n: number) => feeMoney(n, look.rounding);
+  const belowLineValue = (b: { basis: BelowLineBasis; amount: number | null }) => belowLineText(b, look.rounding === 0.01 ? 0.01 : 1);
   const th = (style: string, html: string) => `<th style="${PT.border} ${style}">${html}</th>`;
   const td = (style: string, html: string, span = 1) => `<td style="${PT.border} ${style}"${span > 1 ? ` colspan="${span}"` : ""}>${html}</td>`;
   const head = t.columns
@@ -799,10 +814,13 @@ function byOptions(f: SavedFee, by: string | undefined): string {
   return opts.map(([v, label]) => `<option value="${esc(v)}" ${v === (by ?? "") ? "selected" : ""}>${esc(label)}</option>`).join("");
 }
 
-/** "$ 12,000", "$ 175/hr", "Not to exceed $ 8,000", "$ 5,000 allowance", "Upon request". */
-function belowLineValue(b: { basis: BelowLineBasis; amount: number | null }): string {
+/**
+ * "$ 12,000", "$ 175/hr", "Not to exceed $ 8,000", "$ 5,000 allowance", "Upon request". Typed amounts, so shown in
+ * whole dollars (or cents, when the organization shows cents), never rounded further.
+ */
+function belowLineText(b: { basis: BelowLineBasis; amount: number | null }, to: FeeRounding): string {
   if (b.basis === "request" || b.amount == null) return "Upon request";
-  const amt = feeMoney(b.amount);
+  const amt = feeMoney(b.amount, to);
   if (b.basis === "hourly") return `${amt}/hr`;
   if (b.basis === "nte") return `Not to exceed ${amt}`;
   if (b.basis === "allowance") return `${amt} allowance`;
@@ -810,9 +828,11 @@ function belowLineValue(b: { basis: BelowLineBasis; amount: number | null }): st
 }
 
 /** Plain-text version (tab-separated) for apps that don't take formatted text. */
-function proposalText(t: ProposalTable): string {
+function proposalText(source: ProposalTable): string {
+  const t = proposalRounded(source);
   const head = ["Phase", ...t.columns.map((c) => (c.firm ? `${c.firm} (${c.discipline})` : c.discipline)), "Total Fee"];
-  const ptMoney = feeMoney;
+  const ptMoney = (n: number) => feeMoney(n, feeStyle.rounding);
+  const belowLineValue = (b: { basis: BelowLineBasis; amount: number | null }) => belowLineText(b, feeStyle.rounding === 0.01 ? 0.01 : 1);
   const rows = t.rows.map((r) => [r.label, ...r.amounts.map(ptMoney), ptMoney(r.total)]);
   const expenses = t.expenses ? [["Reimbursable Expenses (not included in the total fee)", ...t.columns.map((_, col) => (col === 0 ? ptMoney(t.expenses!) : "")), ptMoney(t.expenses)]] : [];
   const table = [head, ...rows, [feeStyle.capitals ? "TOTAL" : "Total", ...t.totals.map(ptMoney), ptMoney(t.total)], ...expenses].map((r) => r.join("\t")).join("\n");

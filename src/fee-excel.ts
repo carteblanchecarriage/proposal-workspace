@@ -3,8 +3,8 @@
 // when hours or rates change; each also carries its current value, for previews that don't calculate. ExcelJS is
 // loaded only when a fee is exported.
 import type { Cell, Worksheet } from "exceljs";
-import { budgetOf, consultantPhase, proposalTable, taskCost, taskHours, totals } from "./fee-calc";
-import { textOn, type FeeFont, type FeeStyle } from "./fee-style";
+import { budgetOf, consultantPhase, proposalTable, roundedTable, taskCost, taskHours, totals } from "./fee-calc";
+import { roundFee, textOn, type FeeFont, type FeeStyle } from "./fee-style";
 import type { SavedFee } from "./store";
 
 const MONEY = '"$"#,##0';
@@ -186,7 +186,11 @@ function addProposalSheet(
   font: string,
   ref: { laborRows: number[]; costCol: string; consRows: number[]; markup: string; expenses: string },
 ) {
-  const t = proposalTable(f);
+  // Rounded as the organization rounds its fee table: each amount's formula rounds, and the totals add rounded cells.
+  const t = roundedTable(proposalTable(f), (x) => roundFee(x, style.rounding));
+  const to = style.rounding;
+  const R = (expr: string) => (to === 0.01 ? `ROUND(${expr},2)` : to === 1 ? `ROUND(${expr},0)` : `ROUND((${expr})/${to},0)*${to}`);
+  const FMT = to === 0.01 ? '"$"#,##0.00' : MONEY;
   const W = "'Fee worksheet'!";
   // Only consultants with a fee are columns (as on the page); their worksheet rows, by the same order.
   const withFee = f.consultants.map((c, i) => ({ c, row: ref.consRows[i] })).filter(({ c }) => f.phases.some((p) => consultantPhase(c, p.id) > 0));
@@ -213,16 +217,16 @@ function addProposalSheet(
     row.getCell(1).font = { name: font, bold: true };
     const phaseCol = col(pi + 2);
     const quoted = withFee.map(({ row: cr }) => `${W}${phaseCol}${cr}`);
-    formula(row.getCell(2), `${W}${ref.costCol}${ref.laborRows[pi]}${quoted.length ? `+(${quoted.join("+")})*${W}${ref.markup}/100` : ""}`, tr?.amounts[0] ?? 0);
-    withFee.forEach(({ row: cr }, i) => formula(row.getCell(i + 3), `${W}${phaseCol}${cr}`, tr?.amounts[i + 1] ?? 0));
-    formula(row.getCell(totalCol), `SUM(B${r}:${col(n + 1)}${r})`, tr?.total ?? 0);
+    formula(row.getCell(2), R(`${W}${ref.costCol}${ref.laborRows[pi]}${quoted.length ? `+(${quoted.join("+")})*${W}${ref.markup}/100` : ""}`), tr?.amounts[0] ?? 0, FMT);
+    withFee.forEach(({ row: cr }, i) => formula(row.getCell(i + 3), R(`${W}${phaseCol}${cr}`), tr?.amounts[i + 1] ?? 0, FMT));
+    formula(row.getCell(totalCol), `SUM(B${r}:${col(n + 1)}${r})`, tr?.total ?? 0, FMT);
     row.getCell(totalCol).fill = fill(style.totalColumn);
     row.getCell(totalCol).font = { name: font, color: { argb: argb(textOn(style.totalColumn)) } };
   });
   const total = sheet.getRow(++r);
   total.getCell(1).value = caps("Total");
   for (let c = 2; c <= totalCol; c++)
-    formula(total.getCell(c), rows.length ? `SUM(${col(c)}${rows[0]}:${col(c)}${rows[rows.length - 1]})` : "0", c === totalCol ? t.total : t.totals[c - 2]);
+    formula(total.getCell(c), rows.length ? `SUM(${col(c)}${rows[0]}:${col(c)}${rows[rows.length - 1]})` : "0", c === totalCol ? t.total : t.totals[c - 2], FMT);
   for (let c = 1; c <= totalCol; c++) {
     total.getCell(c).fill = fill(style.totalRow);
     total.getCell(c).font = { name: font, bold: true, color: { argb: argb(textOn(style.totalRow)) } };

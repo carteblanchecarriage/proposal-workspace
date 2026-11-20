@@ -1,6 +1,6 @@
 // The fee worksheet's side of the AI assistant (the panel is assistant.ts, wired up in fee.ts): the team asks about
-// the fee or asks for changes to its tasks and hours. Claude gets a compact copy of the worksheet with short ids (P1,
-// P1-T2) and returns a list of edits; they're checked here against the worksheet before anything changes, applied as
+// the fee or asks for changes to its tasks, hours and consultants. Claude gets a compact copy of the worksheet with
+// short ids (P1, P1-T2, C1) and returns a list of edits; they're checked here against the worksheet before anything changes, applied as
 // one step (one Undo reverses them), and saved like any other edit.
 import type { FeeChat } from "../lib/claude";
 import { budgetOf, taskCost, taskHours, totals } from "./fee-calc";
@@ -41,7 +41,13 @@ export function worksheetFor(f: SavedFee) {
     summary: { budget_basis: f.draft?.basis ?? "", assumptions: (f.draft?.assumptions ?? []).filter((a) => a.trim()) },
     roles: f.roles.map((r) => ({ id: r.id, name: r.name, short: r.short ?? "", rate: r.rate, hours: round(t.roleHours[r.id] ?? 0) })),
     phases,
-    consultants: f.consultants.map((c) => ({ discipline: c.discipline, firm: c.firm, fee: round(f.phases.reduce((s, p) => s + (c.byPhase?.[p.id] ?? 0), 0)) })),
+    consultants: f.consultants.map((c, i) => ({
+      id: `C${i + 1}`,
+      discipline: c.discipline,
+      firm: c.firm,
+      by_phase: f.phases.flatMap((p, j) => (c.byPhase?.[p.id] ? [{ phase_id: `P${j + 1}`, amount: round(c.byPhase[p.id]) }] : [])),
+      fee: round(f.phases.reduce((s, p) => s + (c.byPhase?.[p.id] ?? 0), 0)),
+    })),
     totals: {
       labor_hours: round(t.laborHours),
       labor: round(t.labor),
@@ -56,6 +62,8 @@ export function worksheetFor(f: SavedFee) {
 }
 
 const cleanHours = (h: number) => Math.min(10_000, Math.max(0, Math.round(h * 2) / 2));
+/** A consultant's fee on one phase: whole dollars, up to $100M. */
+const cleanFee = (n: number) => Math.min(100_000_000, Math.max(0, Math.round(n)));
 
 /**
  * Applies Claude's edits to the fee, checking each against it first: ids must exist, hours are whole or half hours
@@ -71,6 +79,21 @@ export function applyFeeChanges(f: SavedFee, changes: Change[]): { applied: numb
   // Task ids refer to the worksheet as sent, so they're resolved before anything moves.
   const taskIds = new Map<string, { phase: SavedFee["phases"][number]; task: SavedFee["phases"][number]["tasks"][number] }>();
   f.phases.forEach((phase, i) => phase.tasks.forEach((task, j) => taskIds.set(`P${i + 1}-T${j + 1}`, { phase, task })));
+  // Consultant ids too (C1, C2…), as sent.
+  const consultantIds = new Map(f.consultants.map((c, i) => [`C${i + 1}`, c]));
+  /** Sets fees by phase; an amount of 0 takes the consultant off that phase. False when no phase id was valid. */
+  const setFees = (byPhase: Record<string, number>, list: Change["fees"]) => {
+    let ok = !list.length;
+    for (const x of list) {
+      const phase = phaseOf(x.phase_id);
+      if (!phase || !Number.isFinite(x.amount)) continue;
+      const v = cleanFee(x.amount);
+      if (v > 0) byPhase[phase.id] = v;
+      else delete byPhase[phase.id];
+      ok = true;
+    }
+    return ok;
+  };
   const setHours = (hours: Record<string, number>, list: Change["hours"]) => {
     for (const h of list) {
       if (!roles.has(h.role_id) || !Number.isFinite(h.hours)) continue;
@@ -137,6 +160,33 @@ export function applyFeeChanges(f: SavedFee, changes: Change[]): { applied: numb
       else {
         skipped++;
         continue;
+      }
+    } else if (c.op === "add_consultant") {
+      const discipline = c.discipline.trim().slice(0, 100);
+      const firm = c.firm.trim().slice(0, 200);
+      const byPhase: Record<string, number> = {};
+      if ((!discipline && !firm) || !setFees(byPhase, c.fees)) {
+        skipped++;
+        continue;
+      }
+      f.consultants.push({ id: crypto.randomUUID(), discipline, firm, byPhase });
+    } else if (c.op === "update_consultant" || c.op === "delete_consultant") {
+      const cons = consultantIds.get(c.consultant_id.trim());
+      if (!cons || !f.consultants.includes(cons)) {
+        skipped++;
+        continue;
+      }
+      if (c.op === "delete_consultant") {
+        f.consultants.splice(f.consultants.indexOf(cons), 1);
+        // A scope item it was to provide goes back to "not assigned".
+        for (const b of f.belowLine ?? []) if (b.by === cons.id) b.by = undefined;
+      } else {
+        if (!setFees((cons.byPhase ??= {}), c.fees)) {
+          skipped++;
+          continue;
+        }
+        if (c.discipline.trim()) cons.discipline = c.discipline.trim().slice(0, 100);
+        if (c.firm.trim()) cons.firm = c.firm.trim().slice(0, 200);
       }
     } else {
       skipped++;
