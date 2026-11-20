@@ -8,7 +8,9 @@ import { roundFee, textOn, type FeeFont, type FeeStyle } from "./fee-style";
 import type { SavedFee } from "./store";
 
 const MONEY = '"$"#,##0';
-const HOURS = "#,##0.##";
+// Hours are whole or half hours. "General" shows 12 and 7.5 as they are; "#,##0.##" would show 12 as "12." (Excel
+// keeps the decimal point when there are no decimals), and Excel has no format that drops it only for whole numbers.
+const HOURS = "General";
 const PERCENT = '0.0"%"';
 const RATIO = "0.0%";
 /**
