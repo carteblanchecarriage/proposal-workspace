@@ -8,9 +8,10 @@ import { SCHEDULE_TEMPLATES } from "./schedule/lib/data/templates.js";
 import { blockedInDemo, post, postJson } from "./api";
 import { type Usage } from "../lib/cost";
 import type { Comparison, Proposal, ScheduleDraft } from "../lib/claude";
-import { consultantTotal, proposalTable, totals } from "./fee-calc";
+import { consultantTotal, proposalTable, roundedTable, totals } from "./fee-calc";
+import { DEFAULT_FEE_STYLE, roundFee, type FeeRounding } from "./fee-style";
 import { feeStatusHtml, setFeeStatus } from "./fee-status";
-import { deleteProject, listFees, saveFee, type SavedFee, projectLabel, listComparisons, listProjects, listSchedules, getScheduleStyle, type ScheduleStyle, savesShared, listRfps, saveComparison, saveProject, saveRfp, saveSchedule, listConsultants, type SavedConsultant, type SavedComparison, type SavedProject, type SavedRfp, type SavedSchedule, type ProjectFirm, type ReceivedProposal } from "./store";
+import { deleteProject, listFees, saveFee, type SavedFee, projectLabel, listComparisons, listProjects, listSchedules, getScheduleStyle, type ScheduleStyle, savesShared, listRfps, getFeeStyle, saveComparison, saveProject, saveRfp, saveSchedule, listConsultants, type SavedConsultant, type SavedComparison, type SavedProject, type SavedRfp, type SavedSchedule, type ProjectFirm, type ReceivedProposal } from "./store";
 import { addAddendum, docKindLabel, docTitle, formatWhen, physicalSubmission, printBy, parseDay, projectDisciplines, proposalDue, verdictPill } from "./rfp";
 import { setPendingProject } from "./pending";
 import { adoptFromComparisons, onProposalsChange, proposalsHeadHtml, proposalsHtml, qaqcHtml, type ProposalsContext } from "./project-proposals";
@@ -86,11 +87,13 @@ export async function openProject(id: string) {
 
 /** The organization's schedule style (colors, font, Today line), for the schedule snapshot. */
 let scheduleStyle: ScheduleStyle = { colors: {} };
+/** The organization's fee rounding (Organization settings), so the dashboard's fee matches the Proposal table. */
+let feeRounding: FeeRounding = DEFAULT_FEE_STYLE.rounding;
 
 async function load() {
   if (!project) return;
   const id = project.id;
-  const [rfps, cmps, scheds, fs, dir, style] = await Promise.all([
+  const [rfps, cmps, scheds, fs, dir, style, feeStyle] = await Promise.all([
     listRfps(),
     listComparisons(),
     listSchedules(),
@@ -98,10 +101,12 @@ async function load() {
     listConsultants().catch(() => [] as SavedConsultant[]),
     // The organization's schedule colors and font, so the snapshot matches the schedule maker.
     getScheduleStyle().catch(() => ({ colors: {} }) as ScheduleStyle),
+    getFeeStyle().catch(() => DEFAULT_FEE_STYLE),
   ]);
   if (project?.id !== id) return; // another project opened meanwhile; its own load fills these in
   directory = dir;
   scheduleStyle = style;
+  feeRounding = feeStyle.rounding;
   setScheduleNotes(style.notes);
   rfp = rfps.find((r) => r.id === project!.rfpId) ?? rfps.find((r) => r.projectId === id);
   comparisons = cmps.filter((c) => c.projectId === id);
@@ -294,9 +299,12 @@ function feeSummaryHtml(f: SavedFee | undefined): string {
   if (!f) return `<p class="none">None yet.</p><div class="actions"><button class="btn" data-make-fee>Make fee</button></div>`;
   // The firm's own fee only: the proposal table's Architecture column (its labor and markup on consultants;
   // reimbursable expenses are listed below, not in it). Consultant fees are worked on in the fee itself.
-  const table = proposalTable(f);
+  // Rounded as the organization rounds its fee table, so it shows the same amounts as the Proposal table.
+  const table = roundedTable(proposalTable(f), (n) => roundFee(n, feeRounding));
   const t = totals(f);
   const arch = table.totals[0] ?? 0;
+  const cents = feeRounding === 0.01;
+  const amount = (n: number) => (cents ? n.toLocaleString("en-US", { style: "currency", currency: "USD" }) : money(n));
   const href = `#fee/${encodeURIComponent(f.id)}`;
   const firms = f.consultants.filter((c) => consultantTotal(c, f.phases) > 0).length;
   const consultantsNote = `<p class="proj-fee-note">${
@@ -306,13 +314,13 @@ function feeSummaryHtml(f: SavedFee | undefined): string {
   }</p>`;
   if (!arch) return `<p class="none">${esc(f.title || "Untitled fee")} has no amounts yet. <a class="link" href="${href}">Open it</a>.</p>${consultantsNote}`;
   return `<a class="proj-fee-link" href="${href}" aria-label="Open the fee">
-      <p class="proj-fee-total">${money(arch)}</p>
+      <p class="proj-fee-total">${amount(arch)}</p>
       ${t.budget ? `<p class="proj-fee-pct">${((arch / t.budget) * 100).toFixed(1)}% of a ${money(t.budget)} construction budget</p>` : ""}
     </a>
     ${consultantsNote}
     <a class="proj-fee-link" href="${href}" tabindex="-1" aria-hidden="true">
       <table class="proj-fee-table">
-        <tbody>${table.rows.map((r) => `<tr><th scope="row">${esc(r.label)}</th><td class="num">${money(r.amounts[0] ?? 0)}</td></tr>`).join("")}${
+        <tbody>${table.rows.map((r) => `<tr><th scope="row">${esc(r.label)}</th><td class="num">${amount(r.amounts[0] ?? 0)}</td></tr>`).join("")}${
           table.expenses ? `<tr class="proj-fee-expenses"><th scope="row">Reimbursable expenses <span class="note">not in total</span></th><td class="num">${money(table.expenses)}</td></tr>` : ""
         }</tbody>
       </table>
