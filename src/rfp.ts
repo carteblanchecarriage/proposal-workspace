@@ -4,13 +4,13 @@ import { reviewContext } from "./worldview";
 import { DISCIPLINES, toDisciplines, type Discipline } from "../lib/disciplines";
 import { type Usage } from "../lib/cost";
 import { post, postJson, postPdf } from "./api";
-import { deleteRfp, listProjects, listRfps, projectLabel, saveProject, saveRfp, savesShared, type SavedProject, type SavedRfp, RFP_DOC_KINDS, type RfpDocKind } from "./store";
+import { deleteRfp, isDemo, listProjects, listRfps, projectLabel, saveProject, saveRfp, savesShared, type SavedProject, type SavedRfp, RFP_DOC_KINDS, type RfpDocKind } from "./store";
 import { clearPendingProject, pendingProject } from "./pending";
 import { askProjectName, confirmDelete, confirmModal, formModal, noticeModal } from "./modal";
-import { copyShareLink } from "./share";
 import { esc } from "./table";
 import { askProjectAssistant, assistantButton, setAssistantPage } from "./assistant";
 import { dateText } from "../lib/format";
+import { DEMO_RFP_ID } from "./demo/ids";
 
 // Vercel rejects request bodies over 4.5 MB, so larger PDFs go straight to storage first (see uploadRfpPdf).
 // Locally there's no limit. Storage takes up to 50 MB per file.
@@ -202,11 +202,62 @@ export const rfpBusy = () => busy;
 /** On the upload page, names the project the review is for (it's always started from a project page). */
 export function showRfpIntakeProject() {
   const p = pendingProject();
-  // No project, no upload: a review is always made for a project.
-  $("rfp-drop").hidden = !p;
+  // No project, no upload: a review is always made for a project. The demo can't read files, so it offers the sample.
+  $("rfp-drop").hidden = !p || isDemo();
+  showSampleOffer(!!p && isDemo());
   $("rfp-intake-project").innerHTML = p
     ? `For project <a class="link" href="#project/${encodeURIComponent(p.id)}"><b>${esc(p.name)}</b></a>`
     : `RFP reviews start from a project. <a class="link" href="#project">Go to Projects</a>, open one (or make a new one), and choose Review the RFP.`;
+}
+
+// ---------- The demo's sample RFP ----------
+// The demo can't read files or use AI, so its upload page offers the sample RFP instead: a short "Reading…" with the
+// steps a real review goes through, then the sample review (already in the demo's data), linked to the project as a
+// real one would be. The tour points at this button.
+
+const SAMPLE_STEPS = ["Reading Maple Hollow Library RFP.pdf", "Finding every date that matters", "Checking which consultants it calls for", "Looking for watch-outs and disqualifiers", "Weighing the fit against your world view"];
+
+function showSampleOffer(show: boolean) {
+  let box = document.getElementById("rfp-sample-box");
+  if (!show) return void box?.remove();
+  if (box) return;
+  box = document.createElement("div");
+  box.id = "rfp-sample-box";
+  box.className = "rfp-sample";
+  box.innerHTML = `<p>In your account, you'd drop the owner's RFP and any addenda here. In the demo, try it with a sample RFP for a library renovation.</p>
+    <button class="btn primary" type="button" id="rfp-sample">Review the sample RFP</button>
+    <span class="status" id="rfp-sample-status"></span>`;
+  $("rfp-drop").insertAdjacentElement("afterend", box);
+  box.querySelector("#rfp-sample")!.addEventListener("click", () => void runSampleReview());
+}
+
+async function runSampleReview() {
+  const linkTo = pendingProject();
+  const button = document.getElementById("rfp-sample") as HTMLButtonElement | null;
+  const status = document.getElementById("rfp-sample-status");
+  if (!linkTo || busy || !button || !status) return;
+  busy = true;
+  button.disabled = true;
+  try {
+    for (const step of SAMPLE_STEPS) {
+      status.textContent = `${step}…`;
+      await new Promise((r) => setTimeout(r, 750));
+    }
+    const review = (await listRfps()).find((r) => r.id === DEMO_RFP_ID);
+    const project = (await listProjects()).find((p) => p.id === linkTo.id);
+    if (!review) throw new Error("The sample isn't available. Reload the demo.");
+    await saveRfp({ ...review, savedAt: Date.now(), projectId: linkTo.id, project: linkTo.name });
+    if (project && !project.rfpId) await saveProject({ ...project, rfpId: review.id });
+    clearPendingProject();
+    busy = false;
+    location.hash = `#rfp/${encodeURIComponent(review.id)}`;
+  } catch (err) {
+    status.textContent = (err as Error).message;
+    status.classList.add("error");
+  } finally {
+    busy = false;
+    button.disabled = false;
+  }
 }
 
 /** The RFP tab's first page: the upload and the saved reviews (also where clicking the tab goes). */
@@ -419,7 +470,7 @@ function showResults() {
       <span class="tools">${current.projectId ? "" : '<button class="btn" data-start-project>Start project</button>'}${
         // The original RFP (the first file), while it's kept; opens the whole PDF in a new tab.
         isKept(current.stored?.[0]) ? `<button class="btn" data-open-file="0" title="Open ${esc(current.stored![0].name)}">View RFP</button>` : ""
-      }${assistantButton()}<button class="btn" data-share>Share</button><button class="btn" data-print>Print</button><button class="btn" data-delete-rfp>Delete</button></span>
+      }${assistantButton()}<button class="btn" data-print>Print</button><button class="btn" data-delete-rfp>Delete</button></span>
     </div>
     ${
       editing === "header"
@@ -695,8 +746,6 @@ async function onResultsClick(e: Event) {
     await startProject(current);
   } else if (t.closest("[data-delete-rfp]") && current) {
     await deleteCurrentRfp();
-  } else if (t.closest("[data-share]") && current) {
-    await copyShareLink("rfp", current.id, t.closest("[data-share]") as HTMLElement);
   } else if (t.closest("[data-remove-q]") && current) {
     // Answered or not useful: drop it from the saved review, after a warning that it can't come back.
     const i = Number(t.closest("[data-remove-q]")!.getAttribute("data-remove-q"));

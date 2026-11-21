@@ -79,7 +79,7 @@ export function proposalsHeadHtml(p: SavedProject): string {
   return `<span class="proj-card-links proposals-actions">
       <button class="link" data-add-firm>+ Add consultant</button>
       <label class="link received-new" title="Upload proposals from firms that aren't on the list yet">Upload from a new firm<input type="file" accept="application/pdf,.pdf" multiple hidden data-add-proposals /></label>
-      ${withProposals ? `<a class="link" href="#project/${encodeURIComponent(p.id)}/consultants">Compare all</a>` : ""}
+      ${withProposals ? `<a class="link" href="#project/${encodeURIComponent(p.id)}/consultants">See detailed comparison</a>` : ""}
     </span>`;
 }
 // The project's firms (the same ones as the consultant matrix): add the ones you're waiting on, then upload each

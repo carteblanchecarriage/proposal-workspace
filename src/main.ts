@@ -30,11 +30,12 @@ import { assistantBusy, setAssistantPage, type AssistantPage, type Reply, type T
 import { showWorldView } from "./worldview";
 import { showOrg } from "./org-page";
 import { showAdmin } from "./admin-page";
+import { DEMO_PROJECT_ID, DEMO_RFP_ID, clearRevealed, demoRevealed } from "./demo/ids";
 import { typeSplash } from "./splash";
 import { clearPendingProject, initProject, openProject, pendingProject, showProjectList } from "./project";
 import { setPrintName } from "./print";
 import { initTooltips } from "./tooltip";
-import { copyShareLink, parseHash } from "./share";
+import { parseHash } from "./share";
 import { briefingHtml, comparisonTitle, esc, feeTable, firmName, glanceHtml, notesHtml, scopeTable, type Sourced } from "./table";
 import { dateText, plural } from "../lib/format";
 
@@ -307,7 +308,6 @@ function setBackLink() {
 
 const scopeEl = $<HTMLTableElement>("scope");
 $("print").addEventListener("click", () => window.print());
-$("share").addEventListener("click", (e) => current && copyShareLink("proposals", current.id, e.currentTarget as HTMLElement));
 $("delete-comparison").addEventListener("click", async () => {
   const c = current;
   if (!c || busy || assistantBusy() || !(await confirmDelete("comparison"))) return;
@@ -573,7 +573,10 @@ async function enterDemo(page?: string) {
   const { demoSeed } = await import("./demo/data");
   // The firm's name first: the sample schedule's notes name it.
   setOrgName("Demo Architects");
-  startDemo(demoSeed());
+  // A reload starts the demo fresh, but the tour remembers its step: past the sample review (or reloading on the
+  // review itself), start with the review already done, so the tour and the data agree.
+  const tourStep = Number(session.get("demo_tour_step") ?? 0);
+  startDemo(demoSeed({ reviewed: tourStep >= 2 || location.hash.startsWith(`#rfp/${DEMO_RFP_ID}`), revealed: demoRevealed() }));
   session.set(DEMO_FLAG, "1");
   gate.hidden = true;
   landing.hidden = true;
@@ -581,10 +584,11 @@ async function enterDemo(page?: string) {
   demoBanner.hidden = false;
   orgName.textContent = "Demo Architects";
   orgName.hidden = false;
-  // Open on the page asked for, or the projects list, like the app.
+  // Open on the page asked for, or straight on the sample project, where the guided tour starts.
   if (page) history.replaceState(null, "", page);
-  else if (!started && !parseHash().tab) history.replaceState(null, "", "#project");
+  else if (!started && !parseHash().tab) history.replaceState(null, "", `#project/${DEMO_PROJECT_ID}`);
   start();
+  void import("./demo/tour").then((t) => t.startTour());
 }
 
 /** "Request access" (while sign-ups are invite-only): a short form, saved for the team to review and invite from. */
@@ -616,6 +620,8 @@ async function requestAccess() {
 /** Leaves the demo (its data goes with it), optionally straight to the sign-up or sign-in form. */
 function leaveDemo(then?: "signup" | "signin") {
   session.del(DEMO_FLAG);
+  session.del("demo_tour_step"); // the next demo starts the tour again
+  clearRevealed();
   if (then) session.set(AFTER_DEMO, then);
   // Drop the #page and reload (changing only the # wouldn't reload, and the demo's data would stay).
   history.replaceState(null, "", location.pathname);
@@ -636,6 +642,16 @@ document.addEventListener("click", (e) => {
   else showGate(mode);
 });
 $("demo-exit").addEventListener("click", () => leaveDemo());
+// The guided tour again, from the sample project as it started (so its first step, reviewing the RFP, is there to do).
+$("demo-tour").addEventListener("click", async () => {
+  const [t, { demoSeed }] = await Promise.all([import("./demo/tour"), import("./demo/data")]);
+  clearRevealed();
+  startDemo(demoSeed());
+  t.startTour(true);
+  const home = `#project/${DEMO_PROJECT_ID}`;
+  if (location.hash === home) showTab(); // already there: show the fresh data
+  else location.hash = home;
+});
 
 setDemoBlockedHandler(async () => {
   if (isInviteOnly()) {

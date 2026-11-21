@@ -11,11 +11,11 @@ import type { Comparison, Proposal, ScheduleDraft } from "../lib/claude";
 import { consultantTotal, proposalTable, roundedTable, totals } from "./fee-calc";
 import { DEFAULT_FEE_STYLE, roundFee, type FeeRounding } from "./fee-style";
 import { feeStatusHtml, setFeeStatus } from "./fee-status";
-import { deleteProject, listFees, saveFee, type SavedFee, projectLabel, listComparisons, listProjects, listSchedules, getScheduleStyle, type ScheduleStyle, savesShared, listRfps, getFeeStyle, saveComparison, saveProject, saveRfp, saveSchedule, listConsultants, type SavedConsultant, type SavedComparison, type SavedProject, type SavedRfp, type SavedSchedule, type ProjectFirm, type ReceivedProposal } from "./store";
+import { deleteProject, isDemo, listFees, saveFee, type SavedFee, projectLabel, listComparisons, listProjects, listSchedules, getScheduleStyle, type ScheduleStyle, savesShared, listRfps, getFeeStyle, saveComparison, saveProject, saveRfp, saveSchedule, listConsultants, type SavedConsultant, type SavedComparison, type SavedProject, type SavedRfp, type SavedSchedule, type ProjectFirm, type ReceivedProposal } from "./store";
 import { addAddendum, docKindLabel, docTitle, formatWhen, physicalSubmission, printBy, parseDay, projectDisciplines, proposalDue, verdictPill } from "./rfp";
 import { setPendingProject } from "./pending";
+import { markRevealed, type DemoPart } from "./demo/ids";
 import { adoptFromComparisons, onProposalsChange, proposalsHeadHtml, proposalsHtml, qaqcHtml, type ProposalsContext } from "./project-proposals";
-import { copyShareLink } from "./share";
 import { AI_MARK, briefingDetails, esc, feeTable, firmName, glanceHtml, scopeTable, statedTotal, type Sourced } from "./table";
 import { contactsHtml, copyEmail, keyOf, siteLink } from "./consultants";
 import { parseContacts } from "./contacts";
@@ -205,7 +205,7 @@ function render() {
         <h1 class="headline">${esc(projectLabel(p))}</h1>
         ${sub ? `<p class="proj-sub">${sub}</p>` : ""}
       </div>
-      <span class="tools">${assistantButton()}<button class="btn" data-rename>Edit</button><button class="btn" data-share>Share</button><button class="btn" data-delete-project="${esc(p.id)}">Delete</button></span>
+      <span class="tools">${assistantButton()}<button class="btn" data-rename>Edit</button><button class="btn" data-delete-project="${esc(p.id)}">Delete</button></span>
     </div>
 
     <div class="proj-grid">
@@ -238,7 +238,9 @@ function render() {
             sched
               ? scheduleSnapshotHtml(sched, scheduleStyle) ||
                 `<p class="none">${esc(String(sched.title || "Untitled schedule"))} has no dated tasks yet. <a class="link" href="#schedule/${encodeURIComponent(sched.id)}">Open it</a>.</p>`
-              : `<p class="none">None yet.</p><div class="actions"><button class="btn" data-make-schedule>Make schedule</button></div>`
+              : isDemo()
+                ? demoRevealHtml("schedule", "Draft the schedule")
+                : `<p class="none">None yet.</p><div class="actions"><button class="btn" data-make-schedule>Make schedule</button></div>`
           }
         </div>
       </div>
@@ -250,17 +252,15 @@ function render() {
         <div class="proj-card-body">${fee ? feeStatusHtml(fee, true) : ""}${feeSummaryHtml(fee)}</div>
       </div>
 
-      <div class="proj-card proj-proposals saved">
-        <div class="proj-card-head"><h2 class="label">${cardTitle("Consultant proposals", `#project/${encodeURIComponent(p.id)}/consultants`)}</h2>${proposalsHeadHtml(p)}</div>
-        <div class="proj-card-body">${proposalsHtml(p, comparisons)}</div>
-      </div>
-
-      <div class="proj-card proj-consultants">
-        <div class="proj-card-head"><h2 class="label">${cardTitle("Consultant matrix", `#project/${encodeURIComponent(p.id)}/consultants`)}</h2><span class="proj-card-links"><span class="m-key" title="Solid dots: in the firm's proposal. Hollow: expected, no proposal yet. Green: a firm you're using. While editing, click a cell to cycle through them."><i class="m-key-prop"></i>In proposal<i class="m-key-exp"></i>Expected<i class="m-key-using"></i>Using</span>${
-          // Once the consultants have been compared, the card says so (its title opens the page either way).
-          comparisons.some((c) => c.group) ? `<a class="link" href="#project/${encodeURIComponent(p.id)}/consultants">See comparison</a>` : ""
-        }<button class="link" data-matrix-edit>${matrixEditing ? "Done" : "Edit"}</button></span></div>
-        <div class="proj-card-body">${consultantsHtml(p)}</div>
+      <div class="proj-card proj-team saved">
+        <div class="proj-card-head"><h2 class="label">${cardTitle("Consultants", `#project/${encodeURIComponent(p.id)}/consultants`)}</h2>${proposalsHeadHtml(p)}</div>
+        <div class="proj-card-body proj-team-body">
+          <div class="proj-team-list">${isDemo() && !(p.consultants ?? []).length ? demoRevealHtml("proposals", "Add the sample MEP proposals") : proposalsHtml(p, comparisons)}</div>
+          <div class="proj-team-matrix">
+            <div class="proj-team-sub"><span class="m-key" title="A green row: a chosen firm covers that discipline. While editing, click a cell to cycle: empty, waiting on a proposal, in their proposal."><i class="m-key-prop"></i>In their proposal<i class="m-key-exp"></i>Waiting on a proposal<i class="m-key-using"></i>Discipline covered</span><button class="link" data-matrix-edit>${matrixEditing ? "Done" : "Edit"}</button></div>
+            ${consultantsHtml(p)}
+          </div>
+        </div>
       </div>
     </div>
 
@@ -274,6 +274,51 @@ function render() {
 
 
 /** A card's title: a link to that section's page when there is one. */
+// ---------- The demo's one-click parts ----------
+// The demo's sample project starts with only its RFP to review. Its schedule, fee and consultant proposals are each
+// one click: a few seconds of what a real draft works from, then the sample (demo/data.ts, demoPart). The tour points
+// at these buttons.
+
+const DEMO_STEPS: Record<DemoPart, string[]> = {
+  schedule: ["Reading the RFP's dates", "Laying out design phases and owner reviews", "Adding permitting, bidding and construction"],
+  fee: ["Reading the construction budget", "Starting from your fee curve", "Estimating hours by phase and role"],
+  proposals: ["Reading Copperleaf Engineering's proposal", "Reading Halvorsen Lake Engineers' proposal", "Reading Twin Spruce MEP's proposal", "Lining up scope and fees"],
+};
+const DEMO_NOTE: Record<DemoPart, string> = {
+  schedule: "In your account, AI drafts it from the RFP review, or you start from a template.",
+  fee: "In your account, AI drafts the hours from the RFP review and your fee curve.",
+  proposals: "In your account, you drop in each consultant's proposal PDF as it arrives.",
+};
+
+function demoRevealHtml(part: DemoPart, label: string): string {
+  return `<p class="none">${esc(DEMO_NOTE[part])}</p><div class="actions"><button class="btn primary" data-demo-reveal="${part}">${esc(label)}</button><span class="status" data-demo-status="${part}"></span></div>`;
+}
+
+async function revealDemoPart(part: DemoPart) {
+  const p = project;
+  const button = document.querySelector<HTMLButtonElement>(`[data-demo-reveal="${part}"]`);
+  const status = document.querySelector<HTMLElement>(`[data-demo-status="${part}"]`);
+  if (!p || !button || button.disabled) return;
+  button.disabled = true;
+  for (const step of DEMO_STEPS[part]) {
+    if (status) status.textContent = `${step}…`;
+    await new Promise((r) => setTimeout(r, 650));
+  }
+  const { demoPart } = await import("./demo/data");
+  const made = demoPart(part);
+  if (made.schedule) await saveSchedule({ ...made.schedule, workspaceProjectId: p.id });
+  if (made.fee) await saveFee({ ...made.fee, workspaceProjectId: p.id });
+  if (made.comparison) {
+    await saveComparison({ ...made.comparison, projectId: p.id });
+    await saveProject({ ...p, consultants: made.consultants ?? [] });
+  }
+  markRevealed(part);
+  if (project?.id !== p.id) return;
+  if (made.consultants) project = { ...p, consultants: made.consultants };
+  await load();
+  render();
+}
+
 const cardTitle = (text: string, href: string) => (href ? `<a class="card-title-link" href="${href}">${esc(text)}</a>` : esc(text));
 
 /** What the RFP review is built from: the RFP itself, then each document added since (newest last). */
@@ -296,7 +341,7 @@ function rfpSourcesHtml(r: SavedRfp): string {
 
 /** The fee in brief: each phase's total, the fee, and how it compares with the construction budget. Opens the fee. */
 function feeSummaryHtml(f: SavedFee | undefined): string {
-  if (!f) return `<p class="none">None yet.</p><div class="actions"><button class="btn" data-make-fee>Make fee</button></div>`;
+  if (!f) return isDemo() ? demoRevealHtml("fee", "Draft the fee") : `<p class="none">None yet.</p><div class="actions"><button class="btn" data-make-fee>Make fee</button></div>`;
   // The firm's own fee only: the proposal table's Architecture column (its labor and markup on consultants;
   // reimbursable expenses are listed below, not in it). Consultant fees are worked on in the fee itself.
   // Rounded as the organization rounds its fee table, so it shows the same amounts as the Proposal table.
@@ -653,7 +698,7 @@ function consultantsHtml(p: SavedProject): string {
       editing ? "Add the firms you're using or getting fees from." : "Choose Edit to add the firms you're using or getting fees from."
     }</p>${actions}`;
   const dec = (c: ProjectFirm) => decisionOf(c);
-  const STATUS = { using: "Using", fee: "Getting a fee" } as const;
+  const STATUS = { using: "Chosen", fee: "Getting a fee" } as const;
   const head = firms
     .map(
       (c) => `<th scope="col" class="m-firm dec-${dec(c)}">
@@ -666,7 +711,7 @@ function consultantsHtml(p: SavedProject): string {
             .join("")}
         </select><button class="link m-remove" data-remove-firm="${esc(c.id!)}" aria-label="Remove ${esc(c.name)}" title="Remove ${esc(c.name)}">×</button>`
             : dec(c) === "using"
-              ? `<span class="m-using-tag">Using</span>`
+              ? `<span class="m-using-tag">Chosen</span>`
               : `<span class="visually-hidden">${STATUS[dec(c)]}</span>`
         }${(() => {
           const f = firmProposals(p, c);
@@ -883,7 +928,7 @@ function renderConsultantsPage() {
     </div>
     <details class="block cpage-matrix" data-part="matrix" ${openParts.has("matrix-closed") ? "" : "open"}>
       <summary class="cgroup-summary"><span class="cgroup-title">Who covers what</span><span class="cgroup-line">${plural((p.consultants ?? []).length, "firm")} across ${plural(groups.length, "discipline")}</span></summary>
-      <div class="cgroup-body"><div class="cpage-matrix-tools"><span class="m-key" title="Solid dots: in the firm's proposal. Hollow: expected, no proposal yet. Green: a firm you're using. While editing, click a cell to cycle through them."><i class="m-key-prop"></i>In proposal<i class="m-key-exp"></i>Expected<i class="m-key-using"></i>Using</span><button class="link" data-matrix-edit>${matrixEditing ? "Done" : "Edit"}</button></div>${consultantsHtml(p)}</div>
+      <div class="cgroup-body"><div class="cpage-matrix-tools"><span class="m-key" title="A green row: a chosen firm covers that discipline. While editing, click a cell to cycle: empty, waiting on a proposal, in their proposal."><i class="m-key-prop"></i>In their proposal<i class="m-key-exp"></i>Waiting on a proposal<i class="m-key-using"></i>Discipline covered</span><button class="link" data-matrix-edit>${matrixEditing ? "Done" : "Edit"}</button></div>${consultantsHtml(p)}</div>
     </details>
     <h2 class="cpage-h2">By discipline</h2>
     ${withProposals.length ? withProposals.map(section).join("") : `<p class="none">No proposals yet. Upload them on the project page's Consultant proposals card.</p>`}
@@ -1196,8 +1241,8 @@ async function onClick(e: Event) {
   if (contact) return openContactCard(contact);
   const del = t.closest("[data-delete-project]")?.getAttribute("data-delete-project");
   if (del) await remove(del);
-  else if (t.closest("[data-share]") && project) await copyShareLink("project", project.id, t.closest("[data-share]") as HTMLElement);
   else if (t.closest("[data-remove-discipline]")) await removeDiscipline(t.closest("[data-remove-discipline]")!.getAttribute("data-remove-discipline")!);
+  else if (t.closest("[data-demo-reveal]")) await revealDemoPart(t.closest("[data-demo-reveal]")!.getAttribute("data-demo-reveal") as DemoPart);
   else if (t.closest("[data-make-schedule]")) await makeSchedule();
   else if (t.closest("[data-make-fee]") && project) await makeFee(project);
   else if (t.closest("[data-add-discipline]")) await addDiscipline();

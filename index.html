@@ -213,9 +213,9 @@
       <section class="landing-private">
         <h2>Your fees stay private.</h2>
         <ul class="landing-points landing-points-row">
-          <li><b>Encrypted before it's stored.</b> Your RFP reviews, comparisons, fees and schedules are encrypted with a key unique to your organization, so the database holds only scrambled data.</li>
-          <li><b>Only your team.</b> Each organization's work is kept separate, and only people signed in to it can open it.</li>
-          <li><b>Never used for training.</b> Your documents are read only when you run a feature, and they're never used to train AI models.</li>
+          <li><b>Encrypted.</b> Your RFP reviews, comparisons, fees and schedules are encrypted before they're stored.</li>
+          <li><b>Private by default.</b> Your data is never sold, and it's only used to run your workspace.</li>
+          <li><b>Never used for training.</b> Your documents go to the AI only when you run a feature, and they're never used to train AI models.</li>
         </ul>
       </section>
 
@@ -237,6 +237,14 @@
       </footer>
     </div>
 
+    <!-- The demo banner sits above everything, so it's always clear you're in the demo. -->
+    <div id="demo-banner" class="demo-banner" hidden>
+      <span>You're exploring a demo with sample data. AI features and file uploads aren't available in the demo, and changes reset when you leave.<span class="invite-note"> Accounts are invite only for now.</span></span>
+      <button class="btn primary" type="button" data-landing="signup">Create an account</button>
+      <button class="btn primary request-access" type="button" data-landing="request">Request access</button>
+      <button class="link" type="button" id="demo-tour">Take the tour</button>
+      <button class="link" type="button" id="demo-exit">Exit demo</button>
+    </div>
     <header class="site">
       <a class="mark" href="#project">Proposal Workspace</a>
       <nav class="tabs">
@@ -250,12 +258,6 @@
       <a class="org-name admin-link" id="admin-link" href="#admin" data-tab="admin" title="Site activity (only you see this)" hidden>Activity</a>
       <button class="link signout" id="signout" type="button" hidden>Sign out</button>
     </header>
-    <div id="demo-banner" class="demo-banner" hidden>
-      <span>You're exploring a demo with sample data. AI features and file uploads aren't available in the demo, and changes reset when you leave.<span class="invite-note"> Accounts are invite only for now.</span></span>
-      <button class="btn primary" type="button" data-landing="signup">Create an account</button>
-      <button class="btn primary request-access" type="button" data-landing="request">Request access</button>
-      <button class="link" type="button" id="demo-exit">Exit demo</button>
-    </div>
 
     <main>
       <div id="tab-rfp" class="tab" hidden>
@@ -350,7 +352,6 @@
           <a id="cmp-back" class="link" href="#project">← Projects</a>
           <span class="tools">
             <button class="btn" type="button" data-assistant>Ask AI</button>
-            <button id="share" class="btn">Share</button>
             <button id="print" class="btn">Print / PDF</button>
             <button id="delete-comparison" class="btn">Delete</button>
           </span>

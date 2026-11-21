@@ -2,6 +2,7 @@
 // (township, firms, people, numbers). Loaded only when someone opens the demo, and kept in memory: nothing is saved.
 // Dates are set relative to today so the demo always looks current.
 
+import { DEMO_PROJECT_ID, DEMO_RFP_ID, type DemoPart } from "./ids";
 import type { Comparison, Proposal, Rfp } from "../../lib/claude";
 import { DISCIPLINES } from "../../lib/disciplines";
 import { DEFAULT_PHASES, DEFAULT_SECTIONS, type Pursuit, type WorldView } from "../../lib/worldview";
@@ -22,8 +23,8 @@ export const weekdayIn = (n: number) => {
 };
 const say = (d: Date) => d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 
-const PROJECT_ID = "demo-project-library";
-const RFP_ID = "demo-rfp-library";
+const PROJECT_ID = DEMO_PROJECT_ID;
+const RFP_ID = DEMO_RFP_ID;
 const CMP_ID = "demo-cmp-mep";
 const PROJECT_NAME = "Maple Hollow Library Renovation + Addition";
 
@@ -359,10 +360,35 @@ const worldView: WorldView = {
   proposalSections: DEFAULT_SECTIONS,
 };
 
+/** A past RFP for a sample pursuit: the sample RFP's shape, with its own project, client, budget and size. */
+const pastRfp = (o: { name: string; client: string; summary: string; location: string; budget: string; size: string }): Rfp => ({
+  ...rfp,
+  project_name: o.name,
+  client: o.client,
+  summary: o.summary,
+  facts: {
+    ...(rfp.facts as Record<string, { value: string; page: number }>),
+    location: { value: o.location, page: 1 },
+    construction_budget: { value: o.budget, page: 2 },
+    building_size: { value: o.size, page: 2 },
+  } as Rfp["facts"],
+  dates: [],
+  watch_outs: [],
+  questions: [],
+});
+
 const pursuits: Pursuit[] = [
   {
     id: "demo-pursuit-1",
     savedAt: now - 120 * DAY,
+    rfp: pastRfp({
+      name: "Cedar Falls Branch Library Renovation",
+      client: "Cedar Falls Public Library",
+      summary: "Renovation of a 14,000 SF branch library that stays open during construction, with a new teen room and accessible entrance.",
+      location: "Cedar Falls",
+      budget: "$5.4M construction",
+      size: "14,000 SF",
+    }),
     outcome: "won",
     ourProposal: "Led with a phasing plan that kept the branch open; brought our library planner to the interview.",
     debrief: "Committee said phasing and community engagement set us apart. Fee was second lowest.",
@@ -371,12 +397,54 @@ const pursuits: Pursuit[] = [
   },
   {
     id: "demo-pursuit-2",
+    savedAt: now - 200 * DAY,
+    rfp: pastRfp({
+      name: "Riverside Community Center Addition",
+      client: "City of Riverside Parks & Recreation",
+      summary: "A 9,000 SF addition to a 1970s community center: gym, multipurpose rooms and a new lobby, built while the center stays open.",
+      location: "Riverside",
+      budget: "$8.2M construction",
+      size: "9,000 SF addition",
+    }),
+    outcome: "shortlisted",
+    ourProposal: "Community workshops during design; a phased plan to keep programs running.",
+    debrief: "Interviewed; lost to the incumbent firm. Scored well on approach, lower on recent recreation projects.",
+    budget: 8_200_000,
+    ourFee: 690_000,
+  },
+  {
+    id: "demo-pursuit-3",
     savedAt: now - 260 * DAY,
+    rfp: pastRfp({
+      name: "Northgate Middle School Classroom Wing",
+      client: "Northgate School District",
+      summary: "A new 22,000 SF classroom wing and renovation of the existing science labs, built over two summers.",
+      location: "Northgate",
+      budget: "$12M construction",
+      size: "22,000 SF",
+    }),
     outcome: "lost",
     ourProposal: "Emphasized sustainability; fee at 9%.",
     debrief: "Lost to a firm with more K-12 experience. Fee was 15% above the winner.",
     budget: 12_000_000,
     ourFee: 1_080_000,
+  },
+  {
+    id: "demo-pursuit-4",
+    savedAt: now - 330 * DAY,
+    rfp: pastRfp({
+      name: "Harbor Point Office Fit-Out",
+      client: "Harbor Point Holdings",
+      summary: "Interior fit-out of three office floors for a private developer, design-build with a contractor-led team.",
+      location: "Harbor Point",
+      budget: "$3.1M construction",
+      size: "36,000 SF",
+    }),
+    outcome: "no bid",
+    ourProposal: "",
+    debrief: "Passed: contractor-led design-build, and fee weighted at 50% of the scoring.",
+    budget: null,
+    ourFee: null,
   },
 ];
 
@@ -408,7 +476,8 @@ const project: SavedProject = {
   savedAt: now - 2 * DAY,
   name: PROJECT_NAME,
   number: "2611",
-  rfpId: RFP_ID,
+  // No RFP review yet: the tour starts by reviewing the sample RFP, which links it (rfp.ts, runSampleReview).
+  // Its consultants are added when the visitor adds the sample proposals (demoPart("proposals")).
   consultants: [
     { name: "Granite Ridge Structural", disciplines: ["Structural"], statuses: { Structural: "teaming" } },
     { name: "Bluestem Civil + Landscape", disciplines: ["Civil", "Landscape"], statuses: { Civil: "teaming", Landscape: "asked" } },
@@ -419,10 +488,9 @@ const project: SavedProject = {
   qaqc: {
     fileName: "Maple Hollow Library - Proposal DRAFT.pdf",
     checkedAt: now - DAY / 2,
-    summary: "Close to ready. Two things must be fixed before it goes out: a missing required form and a fee total that doesn't add up.",
+    summary: "Close to ready. One thing must be fixed before it goes out: a missing required form.",
     flags: [
       { kind: "brief", severity: "fix", issue: "The RFP requires a signed Non-Collusion Affidavit (Form B), and it isn't included.", page: 0, fix: "Add the signed Form B behind the cover letter." },
-      { kind: "mistake", severity: "fix", issue: "The fee table's phases add up to $664,270, but the total reads “$670,270”.", page: 18, fix: "Correct the total or the phase that's off by $6,000." },
       { kind: "mistake", severity: "check", issue: "The cover letter is addressed to “Township of Maple Grove”; the rest of the proposal says Maple Hollow.", page: 1, fix: "Change it to Township of Maple Hollow." },
       { kind: "brief", severity: "check", issue: "The RFP limits the response to 20 pages excluding resumes; this one runs 22.", page: 0, fix: "Trim two pages or move project sheets to an appendix." },
       { kind: "mistake", severity: "check", issue: "“Schematic Desgin” in the schedule heading.", page: 15, fix: "Spell it “Schematic Design”." },
@@ -526,14 +594,18 @@ const scheduleStyle = {
 
 // ---------- Everything, by table ----------
 
-export function demoSeed() {
+/**
+ * The demo's data. reviewed: the sample RFP has already been reviewed in this tab (the tour went past it, or a review
+ * page was open), so the review starts linked to its project, as reviewing it left it. Otherwise a reload partway
+ * through the tour would show the review with nowhere to go back to.
+ */
+export function demoSeed({ reviewed = false, revealed = [] as DemoPart[] } = {}) {
   const savedRfp: SavedRfp = {
     id: RFP_ID,
     savedAt: now - 4 * DAY,
     files: ["Maple Hollow Library RFP.pdf", "Walkthrough sign-in and minutes.pdf"],
     rfp,
-    project: PROJECT_NAME,
-    projectId: PROJECT_ID,
+    // Not linked to the project until the sample is "reviewed" in the demo (rfp.ts, runSampleReview).
     costUsd: null,
     // A document added after the RFP, as the project page lists it.
     addenda: [
@@ -568,15 +640,29 @@ export function demoSeed() {
       },
     ],
   };
+  // The schedule, fee and consultants start empty: the visitor fills each in with one click (project.ts, revealDemoPart).
+  const has = (part: DemoPart) => revealed.includes(part);
+  const startProject = { ...project, ...(has("proposals") ? {} : { consultants: [] }), ...(reviewed ? { rfpId: RFP_ID } : {}) };
   return {
-    rfps: [savedRfp],
-    comparisons: [comparison],
+    rfps: [reviewed ? { ...savedRfp, projectId: PROJECT_ID, project: PROJECT_NAME } : savedRfp],
+    comparisons: has("proposals") ? [comparison] : [],
     readings: [],
-    projects: [project],
+    projects: [startProject],
     consultants,
-    schedules: [schedule()],
-    fees: [fee()],
+    schedules: has("schedule") ? [schedule()] : [],
+    fees: has("fee") ? [fee()] : [],
     settings: [worldView, { id: "open-calls", savedAt: now - 10 * DAY, sources: callSources }, scheduleStyle],
     pursuits,
   };
+}
+
+/**
+ * One part of the sample project, as the visitor fills it in from the dashboard: the records to save. "proposals"
+ * also gives the project's consultant list (the firms it's waiting on), which joins the project.
+ */
+export function demoPart(part: DemoPart): { schedule?: SavedSchedule; fee?: SavedFee; comparison?: SavedComparison; consultants?: SavedProject["consultants"] } {
+  if (part === "schedule") return { schedule: { ...schedule(), savedAt: Date.now(), createdAt: Date.now() } };
+  if (part === "fee") return { fee: { ...fee(), savedAt: Date.now() } };
+  const seed = demoSeed({ revealed: ["proposals"] });
+  return { comparison: seed.comparisons[0] as SavedComparison, consultants: project.consultants };
 }

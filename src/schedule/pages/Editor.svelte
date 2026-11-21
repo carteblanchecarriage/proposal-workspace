@@ -446,17 +446,6 @@
   let hideLegendPrint = $state(false);
   let printMultiPage  = $state(false);
 
-  let shareCopied = $state(false);
-  let shareCopiedTimer = null;
-  function shareProject() {
-    const url = `${window.location.origin}${window.location.pathname}#schedule-share/${encodeURIComponent(data.id)}`;
-    navigator.clipboard.writeText(url).then(() => {
-      shareCopied = true;
-      clearTimeout(shareCopiedTimer);
-      shareCopiedTimer = setTimeout(() => { shareCopied = false; }, 2000);
-    });
-  }
-
   let footerH = $state(null); // null = auto height
 
   function startFooterResize(e) {
@@ -596,9 +585,6 @@
         </button>
         <button class="action-btn" onclick={openPrintPanel} title="Download a PDF">
           PDF
-        </button>
-        <button class="action-btn action-btn-share" onclick={shareProject} title="Copy shareable link">
-          {shareCopied ? 'Copied!' : 'Share'}
         </button>
         <button class="action-btn action-btn-delete" onclick={deleteSchedule} title="Delete this schedule">
           Delete

@@ -581,7 +581,8 @@ function pursuitsHtml(): string {
       const r = rfpOf(p, rfps);
       // The fee chart plots a pursuit only with both numbers; say which is missing rather than leave it off silently.
       const missing = [!p.budget && "budget", !p.ourFee && "our fee"].filter(Boolean).join(" and ");
-      const pct = missing ? ` · <span class="note">add ${missing} to show it on the chart</span>` : ` · ${((p.ourFee! / p.budget!) * 100).toFixed(1)}%`;
+      // A pursuit the firm didn't bid has no fee to plot, so nothing to add.
+      const pct = p.outcome === "no bid" ? "" : missing ? ` · <span class="note">add ${missing} to show it on the chart</span>` : ` · ${((p.ourFee! / p.budget!) * 100).toFixed(1)}%`;
       return `<li>
         <span><b>${esc(r?.project_name ?? "RFP missing")}</b> <span>${esc(r?.client ?? "")}</span></span>
         <span class="when">${OUTCOME_LABEL[p.outcome]}${pct}</span>
