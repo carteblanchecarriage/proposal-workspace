@@ -20,7 +20,7 @@ import { startAnalytics } from "./analytics";
 // The current year in the footers; cookie-free page-view analytics (src/analytics.ts).
 document.querySelectorAll("[data-year]").forEach((el) => (el.textContent = String(new Date().getFullYear())));
 startAnalytics();
-import { authEnabled, currentEmail, hasSession, initAuth, isInviteOnly, isRecovering, sendPasswordReset, sendSignInLink, setNewPassword, signInWithPassword, signOut, signUp } from "./auth";
+import { authEnabled, clearEmailLinkProblem, currentEmail, emailLinkProblem, hasSession, initAuth, isInviteOnly, isRecovering, sendPasswordReset, sendSignInLink, setNewPassword, signInWithPassword, signOut, signUp } from "./auth";
 import { confirmDelete, confirmModal, formModal, noticeModal } from "./modal";
 import { getCurrentRfp, initRfp, openRfp, rfpBusy, showRfpIntakeProject, showRfpStart } from "./rfp";
 import { showCalls } from "./calls";
@@ -29,6 +29,7 @@ import { flushFee, showFee } from "./fee";
 import { assistantBusy, setAssistantPage, type AssistantPage, type Reply, type Turn } from "./assistant";
 import { showWorldView } from "./worldview";
 import { showOrg } from "./org-page";
+import { showAdmin } from "./admin-page";
 import { typeSplash } from "./splash";
 import { clearPendingProject, initProject, openProject, pendingProject, showProjectList } from "./project";
 import { setPrintName } from "./print";
@@ -480,7 +481,8 @@ const gateLink = $<HTMLButtonElement>("gate-link");
 const gateError = $<HTMLSpanElement>("gate-error");
 const signoutBtn = $<HTMLButtonElement>("signout");
 const orgName = $<HTMLSpanElement>("org-name");
-type Me = { ok: boolean; email: string | null; org: { name: string; role: string } | null };
+const adminLink = $<HTMLAnchorElement>("admin-link");
+type Me = { ok: boolean; email: string | null; org: { name: string; role: string } | null; /** may open the activity page */ admin?: boolean };
 let me: Me | null = null;
 
 // The schedule print page only shows the schedule handed to it in this browser (it's what the server opens to make a
@@ -496,17 +498,23 @@ const GATE: Record<GateMode, { title: string; submit: string; password: string |
 };
 let gateMode: GateMode = "signin";
 
+/** Signing in from the activity page's address (#admin): the form says so, and looks different from everyone's. */
+const adminEntry = () => location.hash.startsWith("#admin");
+
 function setGateMode(mode: GateMode) {
   gateMode = mode;
   const m = GATE[mode];
-  gateTitle.textContent = m.title;
+  const admin = adminEntry() && mode === "signin";
+  gate.classList.toggle("admin-gate", admin);
+  $("gate-admin-note").hidden = !admin;
+  gateTitle.textContent = admin ? "Site owner sign-in" : m.title;
   gateSubmit.textContent = m.submit;
   gatePasswordLabel.textContent = m.password ?? "";
   gatePassword.autocomplete = mode === "signin" ? "current-password" : "new-password";
   gateForm.querySelectorAll<HTMLElement>("[data-show]").forEach((el) => {
     const modes = el.dataset.show!.split(" ");
     // "forgot" shows the email field only.
-    el.hidden = !(modes.includes(mode) || (mode === "forgot" && el.contains(gateEmail)));
+    el.hidden = !(modes.includes(mode) || (mode === "forgot" && el.contains(gateEmail))) || (admin && el.hasAttribute("data-not-admin"));
   });
   setGateMessage("");
 }
@@ -516,6 +524,7 @@ function showGate(mode: GateMode = gateMode) {
   document.documentElement.classList.remove("gate-checking");
   signoutBtn.hidden = true;
   orgName.hidden = true;
+  adminLink.hidden = true;
   landing.hidden = true;
   gate.hidden = false;
   setGateMode(mode);
@@ -688,6 +697,7 @@ async function enter() {
     orgName.textContent = me?.org?.name ?? "";
     orgName.title = `${me?.org?.name ?? ""}: organization settings`;
     orgName.hidden = !me?.org;
+    adminLink.hidden = !me?.admin;
   }
   start();
 }
@@ -714,7 +724,7 @@ gateForm.addEventListener("submit", async (e) => {
   try {
     if (gateMode === "forgot") {
       const err = await sendPasswordReset(email);
-      return err ? setGateMessage(friendly(err)) : setGateMessage(`Check ${email} for a link to choose a new password.`, false);
+      return err ? setGateMessage(friendly(err)) : setGateMessage(`Check ${email} for a link to choose a new password. Open it in this browser.`, false);
     }
     if (gateMode === "signup") {
       const { error, confirm } = await signUp(email, password);
@@ -777,6 +787,13 @@ signoutBtn.addEventListener("click", async () => {
     document.documentElement.classList.toggle("invite-only", isInviteOnly());
     // Opened from a password-reset email: choose a new password before going in.
     if (isRecovering()) return showGate("reset");
+    // Opened from an emailed link that didn't work: say so on the sign-in form, rather than show the landing page.
+    const problem = emailLinkProblem();
+    if (problem && !hasSession()) {
+      clearEmailLinkProblem();
+      showGate("signin");
+      return setGateMessage(problem);
+    }
     if (!loginOn || hasSession()) {
       const result = await confirmSignIn();
       if (result === "ok") return enter();
@@ -835,7 +852,7 @@ function start() {
 
 // ---------- Tabs ----------
 
-const TABS = ["rfp", "proposals", "fee", "project", "consultants", "calls", "worldview", "org"];
+const TABS = ["rfp", "proposals", "fee", "project", "consultants", "calls", "worldview", "org", "admin"];
 // The schedule screens (#schedule, #schedule/<id>, …) are loaded only when first opened.
 type ScheduleModule = typeof import("./schedule/mount");
 let schedule: ScheduleModule | null = null;
@@ -878,6 +895,9 @@ function showTab() {
     if (tab === "rfp") showRfpStart();
     if (tab === "proposals") resetProposals();
   }
+  // "Review the RFP" on a project page opens the start page for that project. The review last open on this page
+  // (another project's, possibly) must not stay on screen.
+  else if (started && tab === "rfp" && !id && pendingProject()) showRfpStart();
   if (tab === "proposals") showIntakeProject();
   if (tab === "rfp") showRfpIntakeProject();
   // A shared link (#rfp/<id> or #proposals/<id>) opens that item once signed in.
@@ -887,6 +907,7 @@ function showTab() {
   if (tab === "calls" && started) showCalls();
   if (tab === "worldview" && started) showWorldView();
   if (tab === "org" && started) showOrg();
+  if (tab === "admin" && started) void showAdmin();
   if (tab === "fee" && started) showFee(id);
   else flushFee();
 }

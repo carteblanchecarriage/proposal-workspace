@@ -93,6 +93,10 @@ body > main section { padding-top: 40px; }
 /* Access code */
 .gate { position: fixed; inset: 0; z-index: 100; background: var(--bg); display: flex; align-items: center; justify-content: center; padding: 16px; }
 .gate[hidden] { display: none; }
+/* Signing in from #admin (the site owner's activity page): the colors flip, so it's never mistaken for the usual form. */
+.gate.admin-gate { --bg: #141414; --ink: #ffffff; --muted: #ffffff; --rule: #555555; background: var(--bg); color: var(--ink); }
+.gate.admin-gate input { background: var(--bg); color: var(--ink); border-color: var(--ink); }
+.gate .gate-admin-note { margin: -8px 0 0; font-size: 13px; }
 .gate-checking .gate form { visibility: hidden; }
 .gate form { width: 100%; max-width: 320px; display: flex; flex-direction: column; gap: 20px; }
 .gate .field { margin: 0; }
@@ -1369,3 +1373,21 @@ table.matrix { border: 1px solid var(--ink); }
 .card-title-link:hover, .card-title-link:focus-visible { text-decoration: underline; text-underline-offset: 3px; }
 .card-title-link::after { content: " →"; font-weight: 400; opacity: .5; }
 .proj-fee-table tr.proj-fee-expenses th, .proj-fee-table tr.proj-fee-expenses td { border-top: 1.5px solid var(--ink); }
+
+/* ---------- Site activity (#admin, the site owner only) ---------- */
+header.site .admin-link { margin-left: 0; }
+.admin-summary { display: flex; flex-wrap: wrap; gap: 12px 36px; }
+.admin-summary > div { display: flex; flex-direction: column; }
+.admin-num { font-size: 26px; font-weight: 700; line-height: 1.2; }
+.admin-cap { font-size: 13px; color: var(--muted, inherit); }
+table.admin-orgs { table-layout: auto; min-width: 960px; }
+.admin-orgs td { vertical-align: middle; }
+.admin-meter { display: inline-block; width: 70px; height: 8px; background: var(--rule); vertical-align: middle; margin-right: 6px; }
+.admin-meter > span { display: block; height: 100%; background: var(--ink); }
+.admin-flag { display: inline-block; font-size: 12px; padding: 1px 6px; border: 1px solid var(--ink); white-space: nowrap; margin: 1px 0; }
+.admin-flag.bad { background: var(--bad); border-color: var(--bad); color: #fff; }
+table.admin-features { max-width: 640px; table-layout: auto; }
+.admin-days { display: flex; align-items: flex-end; gap: 3px; height: 120px; max-width: 760px; border-bottom: 1px solid var(--ink); }
+.admin-day { flex: 1; height: 100%; display: flex; align-items: flex-end; }
+.admin-day > span { display: block; width: 100%; min-height: 1px; background: var(--ink); }
+.admin-days-axis { display: flex; justify-content: space-between; max-width: 760px; font-size: 12px; margin-top: 4px; }

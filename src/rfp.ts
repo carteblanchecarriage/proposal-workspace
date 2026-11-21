@@ -23,6 +23,8 @@ const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as 
 let entries: Entry[] = [];
 let busy = false;
 let current: SavedRfp | null = null;
+/** The project the files waiting in the upload were added for: they never carry over to another project. */
+let entriesFor: string | null = null;
 
 export function initRfp() {
   const drop = $<HTMLLabelElement>("rfp-drop");
@@ -59,6 +61,7 @@ export function initRfp() {
 // ---------- Intake ----------
 
 function addFiles(list: FileList) {
+  entriesFor = pendingProject()?.id ?? null;
   for (const file of Array.from(list)) {
     const isPdf = file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
     const entry: Entry = { file };
@@ -94,6 +97,8 @@ function setStatus(msg: string, isError = false) {
 async function run() {
   const usable = entries.filter((e) => !e.error);
   if (!usable.length || busy) return;
+  // The review is for the project it was started from, even if another project's Review the RFP is clicked while it runs.
+  const linkTo = pendingProject();
   busy = true;
   renderFiles();
   const started = Date.now();
@@ -108,7 +113,6 @@ async function run() {
     const context = await reviewContext();
     const res = await postJson<{ rfp: Rfp; usage: Usage }>("/api/rfp", { files, worldView: context.worldView, pursuits: context.pursuits, sections: context.sections });
     // Started from a project page: the review is that project's RFP review.
-    const linkTo = pendingProject();
     current = {
       id: reviewId,
       savedAt: Date.now(),
@@ -127,8 +131,10 @@ async function run() {
     await saveRfp(current).catch((err) =>
       $("rfp-results").insertAdjacentHTML("afterbegin", `<p class="status error">Not saved: ${esc((err as Error).message)}</p>`),
     );
+    // The address names the review, so a reload or the Back button comes back to it (not to an empty start page).
+    if (location.hash === "#rfp") history.replaceState(null, "", `#rfp/${encodeURIComponent(reviewId)}`);
     if (linkTo) {
-      clearPendingProject();
+      if (pendingProject()?.id === linkTo.id) clearPendingProject();
       const project = (await listProjects()).find((p) => p.id === linkTo.id);
       if (project && !project.rfpId) await saveProject({ ...project, rfpId: reviewId }).catch(() => {});
     }
@@ -208,6 +214,12 @@ export function showRfpStart() {
   if (busy) return; // a review is running; it shows itself when done
   editing = null;
   current = null;
+  // Files added for another project don't carry over.
+  if ((pendingProject()?.id ?? null) !== entriesFor) {
+    entries = [];
+    entriesFor = pendingProject()?.id ?? null;
+    renderFiles();
+  }
   history.replaceState(null, "", "#rfp");
   $("rfp-results").hidden = true;
   $("rfp-intake").hidden = false;

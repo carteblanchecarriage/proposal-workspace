@@ -1,3 +1,4 @@
+import { adminOverview, isAdmin } from "../lib/admin.js";
 import { forgetOrgs, inviteOnly, publicAuthConfig, route, whoAmI } from "../lib/auth.js";
 import { errorResponse, UserFacingError } from "../lib/claude.js";
 import { requestContext } from "../lib/context.js";
@@ -11,7 +12,8 @@ export async function GET(): Promise<Response> {
   return Response.json({ auth: publicAuthConfig(), inviteOnly: inviteOnly() }, { headers: { "cache-control": "no-store" } });
 }
 
-// The organization page (x-action: org-info | org-rename | org-export | org-delete | billing-checkout | billing-portal). Kept in this function because
+// The organization page (x-action: org-info | org-rename | org-export | org-delete | billing-checkout | billing-portal), and the
+// site owner's activity page (admin-overview, ADMIN_EMAILS only). Kept in this function because
 // the Vercel Hobby plan allows 12 per deployment.
 const orgAction = route(async (request) => {
   const ctx = requestContext();
@@ -35,6 +37,9 @@ const orgAction = route(async (request) => {
       forgetOrgs();
       return Response.json({ url });
     }
+    case "admin-overview":
+      if (!isAdmin(ctx.email)) throw new UserFacingError("Not available.", 403);
+      return Response.json(await adminOverview(), { headers: { "cache-control": "no-store" } });
     case "org-delete":
       await deleteOrg(ctx.orgId, ctx.userId, name);
       forgetOrgs();
@@ -65,6 +70,8 @@ export async function POST(request: Request): Promise<Response> {
       ok: true,
       email,
       org: org && { name: org.name, role: org.role },
+      // Shows the activity page's link; the page's data is checked again on the server.
+      ...(isAdmin(email) ? { admin: true } : {}),
     });
   } catch (err) {
     return errorResponse(err);

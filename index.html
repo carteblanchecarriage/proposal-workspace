@@ -36,6 +36,7 @@
       <form id="gate-form" data-mode="signin">
         <span class="mark">Proposal Workspace</span>
         <h2 class="gate-title" id="gate-title">Sign in</h2>
+        <p class="gate-admin-note" id="gate-admin-note" hidden>For the site's activity dashboard. Only the site owner can open it.</p>
         <label class="field" data-show="signin signup">
           <span class="label">Email</span>
           <input id="gate-email" type="email" autocomplete="username" autofocus />
@@ -49,7 +50,7 @@
           <button class="link" type="button" data-show="signin signup forgot" data-go="landing">← Back</button>
           <button class="link" type="button" data-show="signin" data-go="forgot">Forgot password?</button>
           <button class="link" type="button" data-show="signin" id="gate-link">Email me a sign-in link</button>
-          <button class="link" type="button" data-show="signin" data-go="signup">New here? Create an account</button>
+          <button class="link" type="button" data-show="signin" data-go="signup" data-not-admin>New here? Create an account</button>
           <button class="link" type="button" data-show="signup" data-go="signin">Have an account? Sign in</button>
         </div>
         <span id="gate-error" class="status error"></span>
@@ -246,6 +247,7 @@
       </nav>
       <a class="worldview-link" href="#worldview" data-tab="worldview">World view</a>
       <a class="org-name" id="org-name" href="#org" data-tab="org" title="Organization" hidden></a>
+      <a class="org-name admin-link" id="admin-link" href="#admin" data-tab="admin" title="Site activity (only you see this)" hidden>Activity</a>
       <button class="link signout" id="signout" type="button" hidden>Sign out</button>
     </header>
     <div id="demo-banner" class="demo-banner" hidden>
@@ -280,6 +282,10 @@
 
       <div id="tab-org" class="tab" hidden>
         <section id="org-page"></section>
+      </div>
+
+      <div id="tab-admin" class="tab" hidden>
+        <section id="admin-page"></section>
       </div>
 
       <div id="tab-worldview" class="tab" hidden>

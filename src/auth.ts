@@ -9,6 +9,9 @@ let client: SupabaseClient | null = null;
 let token = "";
 /** Set when the page was opened from a password-reset email: the person should choose a new password. */
 let recovering = false;
+/** Set when the page was opened from an emailed link that didn't work (expired, used, or opened in another browser). */
+let linkProblem: string | null = null;
+export const emailLinkProblem = () => linkProblem;
 
 export const authEnabled = () => !!client;
 
@@ -27,6 +30,11 @@ export async function initAuth(): Promise<boolean> {
   // (#access_token=…&refresh_token=…&type=invite), not the ?code=… this app's own links use. Taken out of the address
   // before anything reads it as a page name.
   const fragment = new URLSearchParams(location.hash.slice(1));
+  // An emailed link (sign-in, password reset) comes back as ?code=…, or as ?error=… when Supabase refused it.
+  const query = new URLSearchParams(location.search);
+  const cameWithCode = query.has("code");
+  const linkError = query.get("error_description") ?? fragment.get("error_description");
+  if (query.has("error") || query.has("error_description")) history.replaceState(null, "", location.pathname + location.hash);
   const linked = fragment.get("access_token") && fragment.get("refresh_token")
     ? { access_token: fragment.get("access_token")!, refresh_token: fragment.get("refresh_token")!, type: fragment.get("type") }
     : null;
@@ -46,6 +54,14 @@ export async function initAuth(): Promise<boolean> {
   }
   const { data } = await client.auth.getSession();
   token = data.session?.access_token ?? "";
+  // Supabase announces a password-reset link a moment after the session is in (on a timer), so wait for that turn;
+  // otherwise the page goes straight in and never asks for the new password.
+  if (cameWithCode) await new Promise((r) => setTimeout(r, 0));
+  if (linkError) linkProblem = linkError;
+  else if (cameWithCode && !token) {
+    linkProblem = "That link didn't work. It may have expired or been used already, or been opened in a different browser from the one you asked for it in. Ask for a new one here.";
+    history.replaceState(null, "", location.pathname + location.hash); // a reload doesn't try it again
+  }
   // A sign-in link leaves ?code=… in the address; tidy it once the session is in.
   if (token && new URLSearchParams(location.search).has("code")) history.replaceState(null, "", location.pathname + location.hash);
   return true;
@@ -96,6 +112,8 @@ export async function sendSignInLink(email: string): Promise<string | null> {
 }
 
 export const isRecovering = () => recovering;
+/** After a link problem has been shown once. */
+export const clearEmailLinkProblem = () => (linkProblem = null);
 
 /** Back to this page after an emailed link (sign-up confirmation, sign-in, password reset). */
 const returnTo = () => location.origin + location.pathname;
