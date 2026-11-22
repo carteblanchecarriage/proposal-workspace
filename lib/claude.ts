@@ -2,6 +2,7 @@ import Anthropic, { toFile } from "@anthropic-ai/sdk";
 import { betaZodOutputFormat } from "@anthropic-ai/sdk/helpers/beta/zod";
 import { z } from "zod";
 import { costOf, type Usage } from "./cost.js";
+import { ATTEMPT_TIMEOUT_MS, withFallback } from "./ai-fallback.js";
 import { recordFile, recordUsage } from "./usage-hook.js";
 import { DISCIPLINES, toDisciplines } from "./disciplines.js";
 import { mergeExtension } from "./comparison-edit.js";
@@ -250,8 +251,24 @@ export function getClient(): Anthropic {
   if (!process.env.ANTHROPIC_API_KEY) {
     throw new UserFacingError("ANTHROPIC_API_KEY is not set on the server. Add it to .env.local (local) or the Vercel project settings.", 500);
   }
-  client ??= new Anthropic();
+  // Two retries for overload, rate limits and dropped connections; each attempt ends well inside Vercel's limit, so
+  // a slow answer gets a clear message instead of being cut off.
+  client ??= new Anthropic({ maxRetries: 2, timeout: ATTEMPT_TIMEOUT_MS });
   return client;
+}
+
+type StreamParams = Parameters<Anthropic["beta"]["messages"]["stream"]>[0];
+
+/**
+ * A streamed AI call, used like getClient().beta.messages.stream(params): its finalMessage() runs the call on
+ * params.model, and once more on the fallback model if that model is down or overloaded (lib/ai-fallback.ts).
+ */
+function aiStream<P extends StreamParams>(params: P) {
+  const started = Date.now();
+  return {
+    finalMessage: () =>
+      withFallback(params.model, (model, options) => getClient().beta.messages.stream({ ...params, model } as P, options).finalMessage(), { started }),
+  };
 }
 
 export class UserFacingError extends Error {
@@ -346,7 +363,7 @@ export async function uploadPdf(pdf: Buffer, filename: string): Promise<string> 
 
 export async function extractProposal(pdf: Buffer, filename: string): Promise<{ proposal: Proposal; file_id: string; usage: Usage }> {
   const file = { id: await uploadPdf(pdf, filename) };
-  const stream = getClient().beta.messages.stream({
+  const stream = aiStream({
     ...BASE,
     system: withContext(EXTRACT_SYSTEM),
     output_config: { effort: "high", format: betaZodOutputFormat(ProposalSchema) },
@@ -383,7 +400,7 @@ export async function compareProposals(
     const { hourly_rates, ...rest } = p;
     return { firm_index, ...rest };
   });
-  const stream = getClient().beta.messages.stream({
+  const stream = aiStream({
     ...BASE,
     system: withContext(COMPARE_SYSTEM, firm),
     output_config: { effort: "high", format: betaZodOutputFormat(ComparisonSchema) },
@@ -431,7 +448,7 @@ export async function extendComparison(
 ): Promise<{ comparison: Comparison; usage: Usage }> {
   const strip = (ps: Proposal[], from: number) => ps.map((p, i) => ({ firm_index: from + i, ...{ ...p, hourly_rates: undefined } }));
   const focusText = focus ? `Discipline focus: ${focus.label} (${focus.disciplines.join(", ")}). Follow the discipline-focus rules.\n\n` : "";
-  const stream = getClient().beta.messages.stream({
+  const stream = aiStream({
     ...BASE,
     system: withContext(`${COMPARE_SYSTEM}\n\n${EXTEND_SYSTEM}`, firm),
     output_config: { effort: "high", format: betaZodOutputFormat(ExtensionSchema) },
@@ -454,7 +471,7 @@ export async function extendComparison(
 const withContext = (system: string, context = "") => [system, US_ENGLISH, context.trim()].filter(Boolean).join("\n\n");
 
 export async function reviewRfp(files: { file_id: string; filename: string }[], context = ""): Promise<{ rfp: Rfp; usage: Usage }> {
-  const stream = getClient().beta.messages.stream({
+  const stream = aiStream({
     ...BASE,
     system: withContext(RFP_SYSTEM, context),
     output_config: { effort: "high", format: betaZodOutputFormat(RfpWireSchema) },
@@ -496,7 +513,7 @@ export async function applyAddendum(
   doc: { kind: keyof typeof DOC_KIND; title: string } = { kind: "addendum", title: "" },
 ): Promise<AddendumResult & { usage: Usage }> {
   const name = doc.title || (doc.kind === "addendum" ? `Addendum ${number}` : `Document ${number}`);
-  const stream = getClient().beta.messages.stream({
+  const stream = aiStream({
     ...BASE,
     system: withContext(`${RFP_SYSTEM}\n\n${ADDENDUM_SYSTEM}`, context),
     output_config: { effort: "high", format: betaZodOutputFormat(AddendumWireSchema) },
@@ -535,7 +552,7 @@ export type ScheduleDraft = z.infer<typeof ScheduleDraftSchema>;
 
 /** A preliminary schedule drafted from an RFP review (JSON only, no PDFs). */
 export async function draftSchedule(rfp: unknown, context = ""): Promise<{ draft: ScheduleDraft; usage: Usage }> {
-  const stream = getClient().beta.messages.stream({
+  const stream = aiStream({
     ...BASE,
     system: withContext(SCHEDULE_DRAFT_SYSTEM, context),
     output_config: { effort: "medium", format: betaZodOutputFormat(ScheduleDraftSchema) },
@@ -549,7 +566,7 @@ export async function draftSchedule(rfp: unknown, context = ""): Promise<{ draft
 
 /** The pursue / consider / pass verdict for a saved RFP review, from its JSON alone (no PDFs). */
 export async function fitCheck(rfp: unknown, context: string): Promise<{ fit: Fit; usage: Usage }> {
-  const stream = getClient().beta.messages.stream({
+  const stream = aiStream({
     ...BASE,
     system: withContext(FIT_CHECK_SYSTEM, context),
     output_config: { effort: "medium", format: betaZodOutputFormat(FitSchema) },
@@ -563,8 +580,7 @@ export async function fitCheck(rfp: unknown, context: string): Promise<{ fit: Fi
 
 /** Suggested edits to the world view, from how its verdicts compared with real outcomes. Plain text. */
 export async function suggestWorldView(worldView: string, results: unknown[]): Promise<{ text: string; usage: Usage }> {
-  const msg = await getClient().beta.messages
-    .stream({
+  const msg = await aiStream({
       ...BASE,
       max_tokens: 4000,
       system: withContext(SUGGEST_SYSTEM),
@@ -621,8 +637,7 @@ export async function draftWorldViewFromSite(site: URL): Promise<{ draft: SiteDr
   let msg: Anthropic.Beta.BetaMessage | undefined;
   // Fetching runs in a server-side loop that can pause (stop_reason "pause_turn"); sending the turn back resumes it.
   for (let round = 0; round < 4; round++) {
-    msg = await getClient()
-      .beta.messages.stream({ ...BASE, max_tokens: 16000, system: withContext(WEBSITE_SYSTEM), output_config: { effort: "medium" }, tools, messages })
+    msg = await aiStream({ ...BASE, max_tokens: 16000, system: withContext(WEBSITE_SYSTEM), output_config: { effort: "medium" }, tools, messages })
       .finalMessage();
     usages.push(usageOf(msg));
     if (msg.stop_reason !== "pause_turn") break;
@@ -679,8 +694,7 @@ export async function checkOwnProposal(
   files: { file_id: string; filename: string }[],
   rfp: unknown | null,
 ): Promise<{ qa: QaResult; usage: Usage }> {
-  const msg = await getClient()
-    .beta.messages.stream({
+  const msg = await aiStream({
       ...BASE,
       system: withContext(QAQC_SYSTEM),
       output_config: { effort: "medium", format: betaZodOutputFormat(QaSchema) },
@@ -707,8 +721,7 @@ export async function checkOwnProposal(
 
 /** About 150 words on what a proposal the firm submitted emphasized. */
 export async function summarizeOwnProposal(fileId: string, filename: string): Promise<{ summary: string; usage: Usage }> {
-  const msg = await getClient().beta.messages
-    .stream({
+  const msg = await aiStream({
       ...BASE,
       max_tokens: 2000,
       system: withContext(OWN_PROPOSAL_SYSTEM),
@@ -764,7 +777,7 @@ export async function draftFee(
   roles: { id: string; name: string; rate: number | null }[],
   context = "",
 ): Promise<{ draft: FeeDraft; usage: Usage }> {
-  const stream = getClient().beta.messages.stream({
+  const stream = aiStream({
     ...BASE,
     system: withContext(FEE_DRAFT_SYSTEM, context),
     output_config: { effort: "high", format: betaZodOutputFormat(FeeDraftSchema) },
@@ -816,7 +829,7 @@ export async function askFeeAssistant(
 ): Promise<{ answer: FeeChat; usage: Usage }> {
   const last = turns[turns.length - 1];
   const state = `${digest ? `The rest of the project (digest):\n${digest}\n\n` : ""}${rfp ? `RFP review (JSON):\n${JSON.stringify(rfp)}\n\n` : ""}Current fee worksheet (JSON):\n${JSON.stringify(worksheet)}`;
-  const stream = getClient().beta.messages.stream({
+  const stream = aiStream({
     ...BASE,
     system: withContext(FEE_CHAT_SYSTEM, context),
     // The instructions and earlier turns repeat each message, so they're cached.
@@ -852,7 +865,7 @@ export async function chat(
   const context = `${projectName ? `Project: ${projectName}\n\n` : ""}${digest ? `The rest of the project (digest):\n${digest}\n\n` : ""}Extracted data (JSON):\n${JSON.stringify(extractions)}\n\nCurrent analysis (JSON):\n${JSON.stringify(comparison)}`;
 
   const [first, ...rest] = turns;
-  const stream = getClient().beta.messages.stream({
+  const stream = aiStream({
     ...BASE,
     system: withContext(withPdfs ? CHAT_SYSTEM : `${CHAT_SYSTEM}\n\n${CHAT_NO_PDFS}`, firm),
     // Most chat turns are lookups; medium effort keeps them cheaper and faster than the high used for reading.
@@ -929,6 +942,14 @@ export function errorResponse(err: unknown): Response {
     status = 400;
     message = "The AI couldn't handle this request. Try again, or try a smaller file.";
     detail = `request rejected: ${err.message}`;
+  } else if (err instanceof Anthropic.APIConnectionTimeoutError) {
+    status = 504;
+    message = "The AI took too long to answer. Try again; for a long document, leave out pages you don't need.";
+    detail = "timed out";
+  } else if (err instanceof Anthropic.APIError && err.status === 529) {
+    status = 503;
+    message = "The AI service is overloaded right now. Try again in a few minutes.";
+    detail = "overloaded (529), fallback model too";
   } else if (err instanceof Anthropic.APIError) {
     status = 502;
     message = "The AI service had a problem. Try again.";

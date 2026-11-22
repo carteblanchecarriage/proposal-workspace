@@ -213,12 +213,13 @@ function addProposalSheet(
 
   let r = 1;
   const rows: number[] = [];
-  f.phases.forEach((p, pi) => {
-    if (!p.name.trim()) return;
+  // The same phases as the proposal table on the page (proposalTable decides which show), in the same order.
+  t.rows.forEach((tr) => {
+    const pi = f.phases.findIndex((x) => x.id === tr.phaseId);
+    if (pi < 0) return;
     const row = sheet.getRow(++r);
     rows.push(r);
-    const tr = t.rows[rows.length - 1];
-    row.getCell(1).value = p.name;
+    row.getCell(1).value = tr.label;
     row.getCell(1).font = { name: font, bold: true };
     const phaseCol = col(pi + 2);
     const quoted = withFee.map(({ row: cr }) => `${W}${phaseCol}${cr}`);

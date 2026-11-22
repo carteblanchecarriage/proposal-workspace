@@ -111,7 +111,8 @@ export function totals(f: SavedFee): FeeTotals {
  */
 export type ProposalTable = {
   columns: { firm: string; discipline: string }[];
-  rows: { label: string; amounts: number[]; total: number }[];
+  /** phaseId: the worksheet phase each row comes from, in the fee's phase order (none on a sample table) */
+  rows: { phaseId?: string; label: string; amounts: number[]; total: number }[];
   totals: number[];
   total: number;
   /** reimbursable expenses (the architect's), shown below the total and not included in it */
@@ -126,6 +127,9 @@ export type ProposalTable = {
   belowLineTotal?: number;
 };
 
+/** How a phase without a name yet is labelled in the proposal table and its Excel sheet. */
+export const UNNAMED_PHASE = "Unnamed phase";
+
 export function proposalTable(f: SavedFee): ProposalTable {
   const markup = num(f.markupPercent) / 100;
   const consultants = f.consultants.filter((c) => consultantTotal(c, f.phases) > 0);
@@ -135,10 +139,13 @@ export function proposalTable(f: SavedFee): ProposalTable {
       const labor = p.tasks.reduce((s, t) => s + taskCost(t, f.roles), 0);
       const architecture = labor + quoted.reduce((s, x) => s + x, 0) * markup;
       const amounts = [architecture, ...quoted];
-      return { label: p.name, amounts, total: amounts.reduce((s, x) => s + x, 0) };
+      return { phaseId: p.id, label: p.name.trim() || UNNAMED_PHASE, named: !!p.name.trim(), amounts, total: amounts.reduce((s, x) => s + x, 0) };
     })
     // Every phase on the fee, in order (one without an amount yet shows "-"), so a phase added or moved shows here too.
-    .filter((r) => r.label.trim());
+    // A phase not named yet is left out only while it's empty: one with hours or fees always shows, so the table never
+    // totals less than the fee.
+    .filter((r) => r.named || r.amounts.some((a) => a !== 0))
+    .map(({ named: _named, ...r }) => r);
   const totals = [0, ...consultants.map(() => 0)].map((_, i) => rows.reduce((s, r) => s + r.amounts[i], 0));
   return {
     // Shown below the total, not in it.

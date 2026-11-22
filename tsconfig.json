@@ -13,5 +13,5 @@
     "allowImportingTsExtensions": false,
     "isolatedModules": true
   },
-  "include": ["src", "api", "lib", "*.ts"]
+  "include": ["src", "api", "lib", "test", "*.ts"]
 }

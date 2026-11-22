@@ -149,6 +149,7 @@ export async function adminOverview(now = new Date()): Promise<AdminOverview> {
     },
     orgs: rows,
     days,
-    features: [...features.entries()].map(([endpoint, f]) => ({ endpoint, ...f })).sort((a, b) => b.calls - a.calls),
+    // Most used first; ties by cost, then name, so the order never depends on how the rows arrived.
+    features: [...features.entries()].map(([endpoint, f]) => ({ endpoint, ...f })).sort((a, b) => b.calls - a.calls || b.costUsd - a.costUsd || a.endpoint.localeCompare(b.endpoint)),
   };
 }

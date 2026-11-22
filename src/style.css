@@ -1391,6 +1391,9 @@ table.admin-features { max-width: 640px; table-layout: auto; }
 .admin-days { display: flex; align-items: flex-end; gap: 3px; height: 120px; max-width: 760px; border-bottom: 1px solid var(--ink); }
 .admin-day { flex: 1; height: 100%; display: flex; align-items: flex-end; }
 .admin-day > span { display: block; width: 100%; min-height: 1px; background: var(--ink); }
+.admin-day { cursor: default; }
+.admin-day:hover > span, .admin-day.on > span { background: var(--site-blue, #2b5fd9); }
+.admin-day-readout { margin: 0 0 8px; font-size: 14px; font-variant-numeric: tabular-nums; }
 .admin-days-axis { display: flex; justify-content: space-between; max-width: 760px; font-size: 12px; margin-top: 4px; }
 
 /* ---------- The demo's guided tour (src/demo/tour.ts) ---------- */

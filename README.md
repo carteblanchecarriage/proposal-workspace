@@ -31,6 +31,29 @@ Open http://localhost:5173.
 
 Run `bash scripts/install-hooks.sh` once per clone: it adds git hooks that block commits and pushes containing secrets (API keys, `.env` files and similar). The repo is public.
 
+## Tests
+
+```
+npm test            # run every test once
+npm run test:watch  # rerun as files change
+npm run coverage    # with a coverage report
+```
+
+Tests live in `test/` (Vitest). They cover the fee math (checked against a hand-worked fee, and with property tests that check thousands of random worksheets), fee rounding, the fee assistant's edits, encryption, AI pricing, the activity page and schedule conventions. They need no keys or network: encryption uses a fixed test key, and the database is mocked.
+
+`npm run build` runs the tests before building, so on Vercel a failing test stops the deploy and the live site keeps its last good version.
+
+## When things fail
+
+What the app does on its own, and what to do:
+
+- **The AI is overloaded, erroring or rate limited.** Each call is retried twice, then tried once on a fallback model (`lib/ai-fallback.ts`: Opus 5.5 → Opus 5, Sonnet 4.6 → Sonnet 5.5), if there's time left in the request. Fallback calls are priced and count against allowances like any other. The server log shows `[ai] … trying …` when it happens. If both fail, people see "The AI service is overloaded right now. Try again in a few minutes." Check status.anthropic.com.
+- **The AI declines a request.** The main features retry on another model automatically (the API's server-side fallback); the assistants say "The AI declined to answer that."
+- **An answer is too slow.** Each attempt stops at 4 minutes, inside Vercel's 5-minute limit, with "The AI took too long to answer." If Vercel cuts a request off anyway, the page says so in plain words.
+- **The connection drops.** The page says "Couldn't reach the server." AI requests are never retried automatically, so nothing is charged twice; people choose to try again.
+- **A deploy breaks something.** In Vercel, Deployments → the last good one → Promote (instant rollback). Failing tests already stop a deploy.
+- **The AI API key or credits run out.** People see "The AI service isn't available right now"; the server log names the cause. Fix the key or add credits in the Anthropic Console.
+
 ## Supabase
 
 1. In the Supabase SQL Editor, run `supabase/schema.sql` once.

@@ -1,5 +1,6 @@
 import type { MessageParam } from "@anthropic-ai/sdk/resources/messages";
-import { getClient, usageOf } from "./claude.js";
+import { getClient, UserFacingError, usageOf } from "./claude.js";
+import { withFallback } from "./ai-fallback.js";
 import { SCHEDULE_PROMPT } from "./schedule-prompt.js";
 import { US_ENGLISH } from "./prompts.js";
 import type { Usage } from "./cost.js";
@@ -22,13 +23,16 @@ export async function askScheduleAssistant(
 
 ## Current Project
 ${JSON.stringify(project ?? null, null, 2)}`;
-  const msg = await getClient().messages.create({
-    model: SCHEDULE_MODEL,
-    max_tokens: MAX_TOKENS,
-    system,
-    // Content is passed through as the editor built it (text, or a file block plus text).
-    messages: messages.map(({ role, content }) => ({ role, content })) as MessageParam[],
-  });
+  // Content is passed through as the editor built it (text, or a file block plus text).
+  const turns = messages.map(({ role, content }) => ({ role, content })) as MessageParam[];
+  const msg = await withFallback(SCHEDULE_MODEL, (model, options) =>
+    getClient().messages.create(
+      // The fallback thinks before it answers: room for that, at low effort (as lib/assist.ts).
+      { model, system, messages: turns, ...(model === SCHEDULE_MODEL ? { max_tokens: MAX_TOKENS } : { max_tokens: 8_000, output_config: { effort: "low" as const } }) },
+      options,
+    ),
+  );
+  if (msg.stop_reason === "refusal") throw new UserFacingError("The AI declined to answer that. Try asking another way.", 422);
   const text = msg.content
     .filter((b) => b.type === "text")
     .map((b) => (b as { text: string }).text)

@@ -26,6 +26,12 @@ function ago(iso: string | null): string {
   return days <= 0 ? "Today" : days === 1 ? "Yesterday" : days < 30 ? `${days} days ago` : day(iso);
 }
 
+/** "Fri, Nov 20: 12 AI calls, $1.23" (with "Today" for today). */
+function dayText(d: { date: string; calls: number; costUsd: number }, today = false): string {
+  const when = new Date(d.date + "T12:00:00Z").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+  return `${today ? "Today, " : ""}${when}: ${d.calls.toLocaleString("en-US")} AI call${d.calls === 1 ? "" : "s"}, ${usd(d.costUsd)}`;
+}
+
 export async function showAdmin() {
   const page = $("admin-page");
   page.innerHTML = `<h1 class="headline">Activity</h1><span class="status">Loading…</span>`;
@@ -90,10 +96,11 @@ export async function showAdmin() {
 
     <div class="block">
       <h2 class="label">AI calls, last 30 days</h2>
+      <p class="admin-day-readout" id="admin-day-readout">${esc(dayText(data.days[data.days.length - 1], true))}</p>
       <div class="admin-days" role="img" aria-label="AI calls per day over the last 30 days">${data.days
         .map(
-          (d) =>
-            `<span class="admin-day" title="${esc(day(d.date + "T12:00:00Z"))}: ${d.calls} call${d.calls === 1 ? "" : "s"}, ${esc(usd(d.costUsd))}"><span style="height:${((d.calls / maxCalls) * 100).toFixed(1)}%"></span></span>`,
+          (d, i) =>
+            `<span class="admin-day" data-day="${i}" title="${esc(dayText(d))}"><span style="height:${((d.calls / maxCalls) * 100).toFixed(1)}%"></span></span>`,
         )
         .join("")}</div>
       <div class="admin-days-axis"><span>${esc(day(data.days[0].date + "T12:00:00Z"))}</span><span>Today</span></div>
@@ -110,4 +117,18 @@ export async function showAdmin() {
       }
     </div>`;
   page.querySelector("[data-admin-refresh]")?.addEventListener("click", () => void showAdmin());
+  // Hovering (or tapping) a day shows its date, calls and cost above the chart; leaving the chart goes back to today.
+  const chart = page.querySelector<HTMLElement>(".admin-days");
+  const readout = page.querySelector<HTMLElement>("#admin-day-readout");
+  const showDay = (i: number | null) => {
+    chart?.querySelectorAll(".admin-day.on").forEach((el) => el.classList.remove("on"));
+    const d = data.days[i ?? data.days.length - 1];
+    if (i != null) chart?.querySelector(`[data-day="${i}"]`)?.classList.add("on");
+    if (readout) readout.textContent = dayText(d, i == null);
+  };
+  chart?.addEventListener("pointerover", (e) => {
+    const el = (e.target as HTMLElement).closest<HTMLElement>("[data-day]");
+    if (el) showDay(Number(el.dataset.day));
+  });
+  chart?.addEventListener("pointerleave", () => showDay(null));
 }
