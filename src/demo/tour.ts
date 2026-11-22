@@ -198,8 +198,11 @@ export function startTour(restart = false) {
 
 /** Ends the tour for this tab. */
 export function endTour() {
+  const wasOn = step >= 0;
   write(STEPS.length);
   step = -1;
+  // The app fills in the rest of the sample project, so whoever leaves the tour can explore all of it (main.ts).
+  if (wasOn) dispatchEvent(new Event("demo-tour-ended"));
   spot?.remove();
   tip?.remove();
   spot = tip = null;

@@ -19,6 +19,10 @@ export function markRevealed(part: DemoPart) {
     sessionStorage.setItem(REVEALED, JSON.stringify([...new Set([...demoRevealed(), part])]));
   } catch {}
 }
+/** Every part filled in: the tour is over, so the sample project is complete. */
+export function revealAll() {
+  for (const part of ["schedule", "fee", "proposals"] as DemoPart[]) markRevealed(part);
+}
 export function clearRevealed() {
   try {
     sessionStorage.removeItem(REVEALED);

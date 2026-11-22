@@ -7,11 +7,21 @@ import {
   hashFile,
   isDemo,
   listComparisons,
+  listProjects,
+  listRfps,
   startDemo,
   saveComparison,
+  saveFee,
+  saveProject,
   saveReading,
+  saveRfp,
+  saveSchedule,
   type ChatMessage,
   type SavedComparison,
+  type SavedFee,
+  type SavedProject,
+  type SavedRfp,
+  type SavedSchedule,
 } from "./store";
 import { post, postJson, setDemoBlockedHandler, setUnauthorizedHandler } from "./api";
 import { setOrgName } from "./org";
@@ -30,7 +40,7 @@ import { assistantBusy, setAssistantPage, type AssistantPage, type Reply, type T
 import { showWorldView } from "./worldview";
 import { showOrg } from "./org-page";
 import { showAdmin } from "./admin-page";
-import { DEMO_PROJECT_ID, DEMO_RFP_ID, clearRevealed, demoRevealed } from "./demo/ids";
+import { DEMO_PROJECT_ID, DEMO_RFP_ID, clearRevealed, demoRevealed, revealAll } from "./demo/ids";
 import { typeSplash } from "./splash";
 import { clearPendingProject, initProject, openProject, pendingProject, showProjectList } from "./project";
 import { setPrintName } from "./print";
@@ -643,6 +653,34 @@ document.addEventListener("click", (e) => {
 });
 $("demo-exit").addEventListener("click", () => leaveDemo());
 // The guided tour again, from the sample project as it started (so its first step, reviewing the RFP, is there to do).
+// Leaving the tour, at any step (Skip, Escape, a click outside, or its last note): the sample project fills in the
+// rest (its RFP review, schedule, fee and consultants), so it's complete to explore. Kept for the tab, so a reload
+// stays complete. Changes made so far in the demo are kept: only the missing parts are added.
+addEventListener("demo-tour-ended", async () => {
+  if (!isDemo()) return;
+  const before = demoRevealed();
+  const { demoSeed } = await import("./demo/data");
+  const full = demoSeed({ reviewed: true, revealed: ["schedule", "fee", "proposals"] });
+  revealAll();
+  const [rfps, projects] = await Promise.all([listRfps(), listProjects()]);
+  const review = (full.rfps as SavedRfp[])[0];
+  const project = projects.find((p) => p.id === DEMO_PROJECT_ID);
+  const linked = rfps.find((r) => r.id === review.id)?.projectId;
+  if (!linked) await saveRfp(review);
+  if (project) {
+    const sample = (full.projects as SavedProject[])[0];
+    await saveProject({
+      ...project,
+      rfpId: project.rfpId ?? sample.rfpId,
+      consultants: before.includes("proposals") ? project.consultants : sample.consultants,
+    });
+  }
+  if (!before.includes("schedule")) await Promise.all((full.schedules as SavedSchedule[]).map((s) => saveSchedule(s)));
+  if (!before.includes("fee")) await Promise.all((full.fees as SavedFee[]).map((f) => saveFee(f)));
+  if (!before.includes("proposals")) await Promise.all((full.comparisons as SavedComparison[]).map((c) => saveComparison(c)));
+  showTab();
+});
+
 $("demo-tour").addEventListener("click", async () => {
   const [t, { demoSeed }] = await Promise.all([import("./demo/tour"), import("./demo/data")]);
   clearRevealed();
