@@ -237,6 +237,12 @@
       </footer>
     </div>
 
+    <!-- Shown when something couldn't be loaded, so an incomplete page is never mistaken for "nothing saved". -->
+    <div id="load-problem" class="load-problem" role="alert" hidden>
+      <span>Some of your work couldn't be loaded, so this page may be incomplete. Don't redo anything yet: reload to try again.</span>
+      <button class="btn" type="button" id="load-problem-reload">Reload</button>
+      <button class="link" type="button" id="load-problem-close">Dismiss</button>
+    </div>
     <!-- The demo banner sits above everything, so it's always clear you're in the demo. -->
     <div id="demo-banner" class="demo-banner" hidden>
       <span>You're exploring a demo with sample data. AI features and file uploads aren't available in the demo, and changes reset when you leave.<span class="invite-note"> Accounts are invite only for now.</span></span>

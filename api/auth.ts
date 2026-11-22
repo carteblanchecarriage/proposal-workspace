@@ -39,7 +39,7 @@ const orgAction = route(async (request) => {
     }
     case "admin-overview":
       if (!isAdmin(ctx.email)) throw new UserFacingError("Not available.", 403);
-      return Response.json(await adminOverview(), { headers: { "cache-control": "no-store" } });
+      return Response.json(await adminOverview(new Date(), ctx.orgId), { headers: { "cache-control": "no-store" } });
     case "org-delete":
       await deleteOrg(ctx.orgId, ctx.userId, name);
       forgetOrgs();

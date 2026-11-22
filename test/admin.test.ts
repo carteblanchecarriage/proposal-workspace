@@ -20,6 +20,7 @@ vi.mock("../lib/db.js", () => ({
 }));
 
 const { adminOverview, isAdmin } = await import("../lib/admin");
+const { usageFor } = await import("../lib/admin-usage");
 
 const NOW = new Date("2026-11-21T12:00:00Z");
 const daysAgo = (n: number) => new Date(NOW.getTime() - n * 86_400_000).toISOString();
@@ -101,5 +102,23 @@ describe("adminOverview", () => {
     expect(o.days.at(-1)?.date).toBe("2026-11-21");
     expect(o.days.find((d) => d.date === "2026-11-20")).toMatchObject({ calls: 1, costUsd: 10 });
     expect(o.days.reduce((s, d) => s + d.calls, 0)).toBe(5); // the October call is 27 days back; the 100-day one isn't
+  });
+
+  it("breaks usage down by organization, so the owner's own testing can be left out", async () => {
+    const o = await adminOverview(NOW, "firm");
+    expect(o.yourOrgId).toBe("firm");
+    // Everyone: the same totals as the summary.
+    const all = usageFor(o, () => true);
+    expect([all.callsMonth, all.costMonth]).toEqual([o.summary.callsMonth, o.summary.costMonth]);
+    expect(all.days.map((d) => d.calls)).toEqual(o.days.map((d) => d.calls));
+    // All but the owner's: only the paying firm's two calls this month.
+    const others = usageFor(o, (id) => id !== "firm");
+    expect([others.callsMonth, others.costMonth]).toEqual([2, 11]);
+    expect(others.features).toEqual([{ endpoint: "/api/fee-draft", calls: 2, costUsd: 11 }]);
+    expect(others.days.reduce((s, d) => s + d.calls, 0)).toBe(2);
+    // One organization.
+    const firm = usageFor(o, (id) => id === "firm");
+    expect(firm.features.map((f) => f.endpoint)).toEqual(["/api/rfp", "/api/chat"]);
+    expect(firm.days.find((d) => d.date === "2026-11-20")).toMatchObject({ calls: 1, costUsd: 10 });
   });
 });

@@ -1,4 +1,5 @@
 import { query } from "./db.js";
+import { sortFeatures } from "./admin-usage.js";
 
 // The site owner's activity page (#admin): every organization's plan, members and AI use, and the site's activity
 // over the last 30 days. Account and usage data only: nothing from inside an organization's records (those are
@@ -50,13 +51,20 @@ export type AdminOverview = {
   days: { date: string; calls: number; costUsd: number }[];
   /** this calendar month, by endpoint, most used first */
   features: { endpoint: string; calls: number; costUsd: number }[];
+  /** the signed-in owner's own organization, so the page can leave its testing out */
+  yourOrgId: string | null;
+  /**
+   * The same usage, by organization, so the page can show any one of them, or all but the owner's: per day (the 30
+   * days above, in the same order) and per feature this month.
+   */
+  byOrg: Record<string, { days: { calls: number; costUsd: number }[]; features: Record<string, { calls: number; costUsd: number }> }>;
 };
 
 const DAY = 86_400_000;
 const PAYING = new Set(["active", "trialing", "past_due"]);
 
 /** Everything on the activity page, worked out from three tables. */
-export async function adminOverview(now = new Date()): Promise<AdminOverview> {
+export async function adminOverview(now = new Date(), yourOrgId: string | null = null): Promise<AdminOverview> {
   const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
   const since = new Date(now.getTime() - 30 * DAY);
   // Usage from whichever is earlier: 30 days back, or the start of the earliest window in use (a billing period).
@@ -118,14 +126,19 @@ export async function adminOverview(now = new Date()): Promise<AdminOverview> {
   for (let i = 29; i >= 0; i--) days.push({ date: new Date(now.getTime() - i * DAY).toISOString().slice(0, 10), calls: 0, costUsd: 0 });
   const byDay = new Map(days.map((d) => [d.date, d]));
   const features = new Map<string, { calls: number; costUsd: number }>();
+  const dayIndex = new Map(days.map((d, i) => [d.date, i]));
+  const byOrg: AdminOverview["byOrg"] = Object.fromEntries(orgs.map((o) => [o.id, { days: days.map(() => ({ calls: 0, costUsd: 0 })), features: {} }]));
   let callsMonth = 0;
   let costMonth = 0;
   for (const u of usage) {
     const t = new Date(u.created_at);
     const d = byDay.get(u.created_at.slice(0, 10));
+    const mine = byOrg[u.org_id];
     if (d && t >= since) {
       d.calls++;
       d.costUsd += cost(u);
+      const od = mine?.days[dayIndex.get(d.date)!];
+      if (od) (od.calls++, (od.costUsd += cost(u)));
     }
     if (t >= monthStart) {
       callsMonth++;
@@ -135,6 +148,11 @@ export async function adminOverview(now = new Date()): Promise<AdminOverview> {
       f.calls++;
       f.costUsd += cost(u);
       features.set(key, f);
+      if (mine) {
+        const of = (mine.features[key] ??= { calls: 0, costUsd: 0 });
+        of.calls++;
+        of.costUsd += cost(u);
+      }
     }
   }
   const weekAgo = now.getTime() - 7 * DAY;
@@ -150,6 +168,9 @@ export async function adminOverview(now = new Date()): Promise<AdminOverview> {
     orgs: rows,
     days,
     // Most used first; ties by cost, then name, so the order never depends on how the rows arrived.
-    features: [...features.entries()].map(([endpoint, f]) => ({ endpoint, ...f })).sort((a, b) => b.calls - a.calls || b.costUsd - a.costUsd || a.endpoint.localeCompare(b.endpoint)),
+    features: sortFeatures([...features.entries()].map(([endpoint, f]) => ({ endpoint, ...f }))),
+    yourOrgId,
+    byOrg,
   };
 }
+

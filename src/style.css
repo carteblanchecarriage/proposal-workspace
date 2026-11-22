@@ -1409,3 +1409,12 @@ table.admin-features { max-width: 640px; table-layout: auto; }
 .rfp-sample { border: 1px dashed var(--ink); padding: 20px; margin: 0 0 16px; max-width: 640px; }
 .rfp-sample p { margin: 0 0 14px; }
 .rfp-sample .status { margin-left: 12px; }
+
+/* "Some of your work couldn't be loaded": at the very top, until reloaded or dismissed. */
+.load-problem { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding: 10px 32px; background: #fdecea; color: var(--bad); border-bottom: 1px solid var(--bad); font-size: 14px; }
+.load-problem[hidden] { display: none; }
+.load-problem span { flex: 1 1 260px; }
+@media (max-width: 640px) { .load-problem { padding: 10px 16px; } }
+.admin-usage { margin-bottom: 32px; }
+.admin-scope { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; margin: 0 0 14px; font-size: 14px; }
+.admin-scope select { font: inherit; padding: 5px 8px; border: 1px solid var(--ink); background: var(--bg); max-width: 100%; }

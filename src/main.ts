@@ -9,6 +9,7 @@ import {
   listComparisons,
   listProjects,
   listRfps,
+  setLoadProblemHandler,
   startDemo,
   saveComparison,
   saveFee,
@@ -652,6 +653,13 @@ document.addEventListener("click", (e) => {
   else showGate(mode);
 });
 $("demo-exit").addEventListener("click", () => leaveDemo());
+
+// Something couldn't be loaded (store.ts): say so at the top until it's reloaded or dismissed, so a page missing
+// records is never taken for "none yet" (and work isn't redone, or duplicated, because of it).
+const loadProblem = $<HTMLDivElement>("load-problem");
+setLoadProblemHandler(() => (loadProblem.hidden = false));
+$("load-problem-reload").addEventListener("click", () => location.reload());
+$("load-problem-close").addEventListener("click", () => (loadProblem.hidden = true));
 // The guided tour again, from the sample project as it started (so its first step, reviewing the RFP, is there to do).
 // Leaving the tour, at any step (Skip, Escape, a click outside, or its last note): the sample project fills in the
 // rest (its RFP review, schedule, fee and consultants), so it's complete to explore. Kept for the tab, so a reload

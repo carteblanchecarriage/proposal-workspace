@@ -3,6 +3,7 @@
 
 import { postJson } from "./api";
 import type { AdminOverview } from "../lib/admin";
+import { usageFor } from "../lib/admin-usage";
 import { esc } from "./table";
 
 const $ = (id: string) => document.getElementById(id)!;
@@ -32,6 +33,22 @@ function dayText(d: { date: string; calls: number; costUsd: number }, today = fa
   return `${today ? "Today, " : ""}${when}: ${d.calls.toLocaleString("en-US")} AI call${d.calls === 1 ? "" : "s"}, ${usd(d.costUsd)}`;
 }
 
+/** Whose usage the summary, chart and features show: everyone, everyone but the owner's own testing, or one org. */
+type Scope = "all" | "others" | `org:${string}`;
+const SCOPE_KEY = "admin_usage_scope";
+const readScope = (): Scope | null => {
+  try {
+    return localStorage.getItem(SCOPE_KEY) as Scope | null;
+  } catch {
+    return null;
+  }
+};
+const writeScope = (s: Scope) => {
+  try {
+    localStorage.setItem(SCOPE_KEY, s);
+  } catch {}
+};
+
 export async function showAdmin() {
   const page = $("admin-page");
   page.innerHTML = `<h1 class="headline">Activity</h1><span class="status">Loading…</span>`;
@@ -45,8 +62,21 @@ export async function showAdmin() {
     }</p>`;
     return;
   }
+  render(data);
+}
+
+function render(data: AdminOverview) {
+  const page = $("admin-page");
   const s = data.summary;
-  const maxCalls = Math.max(1, ...data.days.map((d) => d.calls));
+  const you = data.yourOrgId && data.byOrg[data.yourOrgId] ? data.yourOrgId : null;
+  // Leaving out the owner's own organization is the default, so testing never mixes with real use.
+  let scope: Scope = readScope() ?? (you ? "others" : "all");
+  if ((scope === "others" && !you) || (scope.startsWith("org:") && !data.byOrg[scope.slice(4)])) scope = you ? "others" : "all";
+  const include = (id: string) => (scope === "all" ? true : scope === "others" ? id !== you : id === scope.slice(4));
+  const usage = usageFor(data, include);
+  const maxCalls = Math.max(1, ...usage.days.map((d) => d.calls));
+  const scopeName =
+    scope === "all" ? "all organizations" : scope === "others" ? "all organizations except yours" : (data.orgs.find((o) => o.id === scope.slice(4))?.name ?? "one organization");
   page.innerHTML = `
     <h1 class="headline">Activity</h1>
     <p class="wv-intro">Every organization's plan and AI use. Account and usage data only, never what's inside anyone's projects. Updated ${esc(
@@ -58,8 +88,6 @@ export async function showAdmin() {
         ["Organizations", String(s.orgs)],
         ["People", String(s.people)],
         ["Active in the last 7 days", String(s.active7)],
-        ["AI calls this month", s.callsMonth.toLocaleString("en-US")],
-        ["AI cost this month", usd(s.costMonth)],
       ]
         .map(([label, value]) => `<div><span class="admin-num">${esc(value)}</span><span class="admin-cap">${esc(label)}</span></div>`)
         .join("")}
@@ -72,7 +100,7 @@ export async function showAdmin() {
         <tbody>${data.orgs
           .map(
             (o) => `<tr>
-              <td><b>${esc(o.name)}</b></td>
+              <td><b>${esc(o.name)}</b>${o.id === you ? ' <span class="admin-cap">(you)</span>' : ""}</td>
               <td>${esc(o.plan)}${o.status ? ` <span class="admin-cap">${esc(o.status)}</span>` : ""}</td>
               <td class="num">${o.members}</td>
               <td>${esc(day(o.createdAt))}</td>
@@ -94,35 +122,59 @@ export async function showAdmin() {
       <p class="admin-cap">AI calls and cost are for each organization's current period: its billing period when it's subscribed, else this calendar month.</p>
     </div>
 
+    <div class="block admin-usage">
+      <div class="admin-scope">
+        <label for="admin-scope"><b>Show usage for</b></label>
+        <select id="admin-scope" aria-label="Whose usage to show">
+          <option value="all" ${scope === "all" ? "selected" : ""}>All organizations</option>
+          ${you ? `<option value="others" ${scope === "others" ? "selected" : ""}>All except yours (leaves out your own testing)</option>` : ""}
+          ${data.orgs.map((o) => `<option value="org:${esc(o.id)}" ${scope === `org:${o.id}` ? "selected" : ""}>${esc(o.name)}${o.id === you ? " (you)" : ""}</option>`).join("")}
+        </select>
+      </div>
+      <div class="admin-summary">
+        ${[
+          ["AI calls this month", usage.callsMonth.toLocaleString("en-US")],
+          ["AI cost this month", usd(usage.costMonth)],
+        ]
+          .map(([label, value]) => `<div><span class="admin-num">${esc(value)}</span><span class="admin-cap">${esc(label)}</span></div>`)
+          .join("")}
+      </div>
+      <p class="admin-cap">Showing ${esc(scopeName)}.</p>
+    </div>
+
     <div class="block">
       <h2 class="label">AI calls, last 30 days</h2>
-      <p class="admin-day-readout" id="admin-day-readout">${esc(dayText(data.days[data.days.length - 1], true))}</p>
-      <div class="admin-days" role="img" aria-label="AI calls per day over the last 30 days">${data.days
+      <p class="admin-day-readout" id="admin-day-readout">${esc(dayText(usage.days[usage.days.length - 1], true))}</p>
+      <div class="admin-days" role="img" aria-label="AI calls per day over the last 30 days">${usage.days
         .map(
           (d, i) =>
             `<span class="admin-day" data-day="${i}" title="${esc(dayText(d))}"><span style="height:${((d.calls / maxCalls) * 100).toFixed(1)}%"></span></span>`,
         )
         .join("")}</div>
-      <div class="admin-days-axis"><span>${esc(day(data.days[0].date + "T12:00:00Z"))}</span><span>Today</span></div>
+      <div class="admin-days-axis"><span>${esc(day(usage.days[0].date + "T12:00:00Z"))}</span><span>Today</span></div>
     </div>
 
     <div class="block">
       <h2 class="label">Features used this month</h2>
       ${
-        data.features.length
-          ? `<table class="grid admin-features"><thead><tr><th>Feature</th><th class="num">AI calls</th><th class="num">AI cost</th></tr></thead><tbody>${data.features
+        usage.features.length
+          ? `<table class="grid admin-features"><thead><tr><th>Feature</th><th class="num">AI calls</th><th class="num">AI cost</th></tr></thead><tbody>${usage.features
               .map((f) => `<tr><td>${esc(FEATURES[f.endpoint] ?? f.endpoint)}</td><td class="num">${f.calls.toLocaleString("en-US")}</td><td class="num">${usd(f.costUsd)}</td></tr>`)
               .join("")}</tbody></table>`
-          : `<p class="none">No AI use yet this month.</p>`
+          : `<p class="none">No AI use this month for ${esc(scopeName)}.</p>`
       }
     </div>`;
+  page.querySelector<HTMLSelectElement>("#admin-scope")?.addEventListener("change", (e) => {
+    writeScope((e.target as HTMLSelectElement).value as Scope);
+    render(data);
+  });
   page.querySelector("[data-admin-refresh]")?.addEventListener("click", () => void showAdmin());
   // Hovering (or tapping) a day shows its date, calls and cost above the chart; leaving the chart goes back to today.
   const chart = page.querySelector<HTMLElement>(".admin-days");
   const readout = page.querySelector<HTMLElement>("#admin-day-readout");
   const showDay = (i: number | null) => {
     chart?.querySelectorAll(".admin-day.on").forEach((el) => el.classList.remove("on"));
-    const d = data.days[i ?? data.days.length - 1];
+    const d = usage.days[i ?? usage.days.length - 1];
     if (i != null) chart?.querySelector(`[data-day="${i}"]`)?.classList.add("on");
     if (readout) readout.textContent = dayText(d, i == null);
   };

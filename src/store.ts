@@ -228,22 +228,31 @@ export const isDemo = () => demo !== null;
 async function remote<T>(method: string, kind: Kind, opts: { key?: string; body?: unknown; keepalive?: boolean } = {}): Promise<T | undefined> {
   if (local || demo) return undefined;
   const q = new URLSearchParams({ table: kind, ...(opts.key ? { key: opts.key } : {}) });
-  const send = async () => fetch(`/api/db?${q}`, {
-    method,
-    headers: { ...(opts.keepalive ? authHeadersNow() : await authHeaders()), ...(opts.body ? { "content-type": "application/json" } : {}) },
-    body: opts.body ? JSON.stringify(opts.body) : undefined,
-    // Lets a save started as the page closes finish after it's gone.
-    keepalive: opts.keepalive,
-  });
+  const verb = method === "GET" ? "load" : method === "DELETE" ? "delete" : "save";
+  const send = async () => {
+    try {
+      return await fetch(`/api/db?${q}`, {
+        method,
+        headers: { ...(opts.keepalive ? authHeadersNow() : await authHeaders()), ...(opts.body ? { "content-type": "application/json" } : {}) },
+        body: opts.body ? JSON.stringify(opts.body) : undefined,
+        // Lets a save started as the page closes finish after it's gone.
+        keepalive: opts.keepalive,
+      });
+    } catch {
+      throw new Error(`Couldn't ${verb}: the server can't be reached. Check your connection and try again.`);
+    }
+  };
   let res = await send();
   if (res.status === 401 && !opts.keepalive && (await refreshAuth())) res = await send();
-  if (res.status === 503) {
+  if (res.status === 401) unauthorized();
+  const data = await res.json().catch(() => ({}));
+  // Only the server's explicit "no database here" (local development) switches to saving in this browser. Any other
+  // failure, a 503 from a passing outage included, is an error: saves never quietly go somewhere else.
+  if (res.status === 503 && (data as { storage?: string }).storage === "browser") {
     local = true;
     return undefined;
   }
-  if (res.status === 401) unauthorized();
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error ?? `Couldn't save (${res.status}).`);
+  if (!res.ok) throw new Error((data as { error?: string }).error ?? `Couldn't ${verb} (the server returned ${res.status}). Try again in a moment.`);
   return data as T;
 }
 
@@ -258,13 +267,24 @@ async function saveRecord(kind: Kind, record: object, keepalive = false): Promis
   } catch {} // storage can be unavailable (private windows, blocked site data)
 }
 
-async function listRecords<T extends { savedAt: number }>(kind: Kind): Promise<T[]> {
+/** Told when something couldn't be loaded, so the page can say it may be incomplete (main.ts shows a banner). */
+let onLoadProblem: (message: string) => void = () => {};
+export const setLoadProblemHandler = (fn: (message: string) => void) => (onLoadProblem = fn);
+
+/**
+ * Every saved record of a kind, newest first. A load that fails is never passed off as "nothing saved": the page is
+ * told (a banner), and strict loads throw, for settings, where showing the defaults and then saving them would
+ * overwrite the real ones.
+ */
+async function listRecords<T extends { savedAt: number }>(kind: Kind, { strict = false } = {}): Promise<T[]> {
   if (demo) return ([...demo.get(kind)!.values()].map(copy) as T[]).sort((a, b) => b.savedAt - a.savedAt);
   try {
     const rows = (await remote<T[]>("GET", kind)) ?? (await run<T[]>("readonly", (s) => s.getAll(), LOCAL[kind]));
     return rows.sort((a, b) => b.savedAt - a.savedAt);
   } catch (err) {
     console.error(err);
+    onLoadProblem((err as Error).message);
+    if (strict) throw err;
     return [];
   }
 }
@@ -413,7 +433,7 @@ export async function hashFile(file: File): Promise<string | null> {
 
 /** The team's world view, or the starting one (empty text, placeholder fee curve) until someone saves it. */
 export async function getWorldView(): Promise<WorldView> {
-  const saved = (await listRecords<WorldView>("settings")).find((r) => r.id === "worldview");
+  const saved = (await listRecords<WorldView>("settings", { strict: true })).find((r) => r.id === "worldview");
   return saved ? { ...emptyWorldView(), ...saved } : emptyWorldView();
 }
 export const saveWorldView = (w: WorldView, keepalive = false) => saveRecord("settings", w, keepalive);
@@ -431,7 +451,7 @@ export const saveWorldView = (w: WorldView, keepalive = false) => saveRecord("se
 export type ScheduleStyle = { colors: Record<string, string>; font?: string; showToday?: boolean; conventions?: string; notes?: string };
 type ScheduleStyleRecord = ScheduleStyle & { id: "schedule-style"; savedAt: number };
 export async function getScheduleStyle(): Promise<ScheduleStyle> {
-  const saved = (await listRecords<ScheduleStyleRecord>("settings")).find((r) => r.id === "schedule-style");
+  const saved = (await listRecords<ScheduleStyleRecord>("settings", { strict: true })).find((r) => r.id === "schedule-style");
   return { colors: saved?.colors ?? {}, font: saved?.font, showToday: saved?.showToday, conventions: saved?.conventions, notes: saved?.notes };
 }
 export const saveScheduleStyle = (style: ScheduleStyle) =>
@@ -440,7 +460,7 @@ export const saveScheduleStyle = (style: ScheduleStyle) =>
 /** The proposal fee table's look (one settings record per organization); the standard look until it's changed. */
 type FeeStyleRecord = Partial<FeeStyle> & { id: "fee-style"; savedAt: number };
 export async function getFeeStyle(): Promise<FeeStyle> {
-  return cleanFeeStyle((await listRecords<FeeStyleRecord>("settings")).find((r) => r.id === "fee-style"));
+  return cleanFeeStyle((await listRecords<FeeStyleRecord>("settings", { strict: true })).find((r) => r.id === "fee-style"));
 }
 export const saveFeeStyle = (style: FeeStyle) => saveRecord("settings", { id: "fee-style", savedAt: Date.now(), ...cleanFeeStyle(style) } satisfies FeeStyleRecord);
 
@@ -450,7 +470,7 @@ export const saveFeeStyle = (style: FeeStyle) => saveRecord("settings", { id: "f
 type QualificationsRecord = { id: "qualifications"; savedAt: number; items: string[] };
 /** The list; empty until the organization writes its own. */
 export async function getQualifications(): Promise<string[]> {
-  const saved = (await listRecords<QualificationsRecord>("settings")).find((r) => r.id === "qualifications");
+  const saved = (await listRecords<QualificationsRecord>("settings", { strict: true })).find((r) => r.id === "qualifications");
   return Array.isArray(saved?.items) ? saved.items.filter((i) => typeof i === "string" && i.trim()) : [];
 }
 export const saveQualifications = (items: string[]) => saveRecord("settings", { id: "qualifications", savedAt: Date.now(), items } satisfies QualificationsRecord);
@@ -463,7 +483,7 @@ type CallSources = { id: "open-calls"; savedAt: number; sources: CallSource[] };
 
 /** The organization's own list of RFP sources (one settings record per organization); [] until it adds one. */
 export async function getCallSources(): Promise<CallSource[]> {
-  const saved = (await listRecords<CallSources>("settings")).find((r) => r.id === "open-calls");
+  const saved = (await listRecords<CallSources>("settings", { strict: true })).find((r) => r.id === "open-calls");
   return saved?.sources ?? [];
 }
 export const saveCallSources = (sources: CallSource[]) => saveRecord("settings", { id: "open-calls", savedAt: Date.now(), sources } satisfies CallSources);

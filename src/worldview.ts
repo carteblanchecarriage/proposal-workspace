@@ -138,7 +138,14 @@ export async function showWorldView() {
     // Closing the page with a box still being edited: send it in a way that survives the page going away.
     addEventListener("pagehide", () => void save(true));
   }
-  [wv, pursuits, rfps] = await Promise.all([getWorldView(), listPursuits(), listRfps()]);
+  try {
+    [wv, pursuits, rfps] = await Promise.all([getWorldView(), listPursuits(), listRfps()]);
+  } catch (err) {
+    // The real world view couldn't be read: show why, with no Edit, so the starting one can't be saved over it.
+    wv = null;
+    $("worldview-page").innerHTML = `<h1 class="headline">World view</h1><p class="status error">Couldn't load your world view: ${esc((err as Error).message)} Reload the page to try again.</p>`;
+    return;
+  }
   render();
 }
 
