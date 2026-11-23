@@ -43,6 +43,16 @@ Tests live in `test/` (Vitest). They cover the fee math (checked against a hand-
 
 `npm run build` runs the tests before building, so on Vercel a failing test stops the deploy and the live site keeps its last good version.
 
+## Writing guides
+
+The Guide (`/guide`) holds help and how-to articles as real pages that search engines and AI search can index.
+
+1. Copy `content/guides/_template.md` to `content/guides/<address>.md` and fill in its header (title, description, updated).
+2. Write in Markdown. With `npm run dev` running, it's at http://localhost:5173/guide/&lt;address&gt; and reloads as you save.
+3. Set `draft: false` to publish. Guides are drafts unless they say so; drafts only show on the dev server.
+
+Each published guide gets its own page with its title, description, canonical link and article data for search engines. It's added to `/guide`, `sitemap.xml` and `llms.txt`. The pages are generated into `guide/` (not committed) by `guide-plugin.ts`.
+
 ## When things fail
 
 What the app does on its own, and what to do:

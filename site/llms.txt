@@ -1,0 +1,16 @@
+# Proposal Workspace
+
+> Proposal tools for architecture firms. Level consultants' fees side by side, analyze the owner's RFP, and build the fee and schedule from it, all in one shared space. A lightweight web app: one person can start on their own, and the rest of the studio can join later.
+
+Proposal Workspace is for architects and the people who put together their proposals. It reads the documents a pursuit involves (the owner's RFP and addenda, and the consultants' fee proposals), and turns them into a structured RFP review, a side-by-side comparison of consultant fees and scope, a fee worksheet and a project schedule. AI features are tuned to each firm through its "world view": what work it wants, its red flags, its expected fees and its track record. Accounts are invite-only during the beta; a demo with sample data needs no sign-up.
+
+## Product
+
+- [Home](%SITE_URL%/): what the app does, with examples of each tool, and the demo
+- [Full description for AI tools](%SITE_URL%/llms-full.txt): every feature, how the AI is used, privacy and security, plans, and common questions, in one file
+
+%GUIDES%
+## Policies
+
+- [Privacy Policy](%SITE_URL%/privacy): what's collected, how documents are processed by AI (never used for training), encryption, retention and service providers
+- [Terms of Service](%SITE_URL%/terms): use of the service, plans and AI usage allowances, cancellation

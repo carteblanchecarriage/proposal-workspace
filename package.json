@@ -28,6 +28,7 @@
     "@vercel/node": "^23.0.0",
     "@vitest/coverage-v8": "5.0.5",
     "fast-check": "4.10.2",
+    "marked": "18.1.2",
     "svelte": "^5.57.3",
     "typescript": "^7.0.2",
     "vite": "^8.3.4",

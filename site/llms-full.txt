@@ -1,0 +1,122 @@
+# Proposal Workspace
+
+> Proposal tools for architecture firms. Level consultants' fees side by side, analyze the owner's RFP, and build the fee and schedule from it, all in one shared space.
+
+Website: %SITE_URL%/
+Privacy Policy: %SITE_URL%/privacy
+Terms of Service: %SITE_URL%/terms
+Operated by Proposal Workspace, LLC. In an invite-only beta.
+
+## What it is
+
+Proposal Workspace is a web app for architecture firms responding to requests for proposals (RFPs and RFQs). Firms don't get paid to write proposals, so the app's aim is to make them faster: reading the owner's RFP, comparing the engineering consultants' fee proposals, building the architecture fee, and planning the schedule, all within one project.
+
+It's simple and lightweight. It works for one person, needs no setup or training, and doesn't require a firm-wide commitment: one person can use it on their next RFP, and the rest of the studio can join when they see it work.
+
+## Who it's for
+
+- Architecture and interior design firms of any size that respond to public and private RFPs.
+- Principals deciding whether to pursue a project, project managers building fees and schedules, and proposal coordinators assembling the response.
+
+## Features
+
+### 1. Level your consultants' fees
+
+Drop in the MEP, structural or civil engineering proposals the firm has collected. The app reads each one and lines the fees up phase by phase. The scope of work becomes one checklist across firms, and gaps are flagged: for example, a fire protection (sprinkler) design one firm left out. It suggests the questions to send back to each engineer. A matrix shows which consultants cover which disciplines and which firms have been chosen.
+
+### 2. Analyze the owner's RFP
+
+Drop in the owner's RFP and any addenda. The review gives:
+
+- the key facts: location, building size, construction budget, delivery method, phases, fee format, contract, insurance, page limit and submission requirements;
+- every date that matters, with mandatory walkthroughs flagged and, for printed submissions, the date to send it to the printer;
+- which consultants and disciplines the project calls for;
+- the watch-outs: disqualifiers, risky contract terms and scope heavier than it looks, each with its page number;
+- questions to ask the owner, the scoring criteria, and a page-by-page outline for the proposal;
+- a go/no-go recommendation (pursue, consider or pass) for the firm, with its reasons.
+
+Addenda, answers to bidders' questions and meeting minutes can be added later; the review lists what each one changed.
+
+### 3. Build the fee, not another spreadsheet
+
+A fee worksheet replaces the copied-and-emailed fee spreadsheet:
+
+- hours × billing rates by phase and role, from programming through construction administration;
+- consultants with the firm's management markup;
+- every total worked out the same way, every time, so there are no broken formulas;
+- one fee per project, shared by the whole team;
+- a sanity check against the percent of construction the firm expects at that budget, from its own fee curve;
+- a proposal-ready fee table by phase and consultant, with the firm's colors, font and rounding, to copy into Word, Google Docs or InDesign, save as an image, or export to Excel.
+
+AI can draft the hours from the RFP review.
+
+### 4. Plan the schedule
+
+Draft the project schedule from the RFP's dates: schematic design, design development and construction document submissions, owner reviews, permitting, bidding and construction. It's ready to adjust in a Gantt editor and print at letter or tabloid size, in the firm's colors.
+
+### 5. Change it by asking
+
+The fee and the schedule each have an AI assistant. Tell it what changed, the way you'd tell a project manager ("Add weekly design meetings through DD, 1.5 hours for the PM and project architect", "Push construction start two weeks and add permitting"), and it edits the worksheet or the schedule, keeping totals and dates in step. One Undo takes the change back. The assistants never change the firm's billing rates.
+
+Every project page also has an assistant that answers questions about the project: the RFP, the fee, the schedule and the proposals.
+
+### World view: tuned to the firm, not generic AI
+
+Each firm describes itself once, and every AI tool reads it, so a go/no-go, a fee draft or an assistant's answer fits that firm:
+
+- its judgment: the project types and clients it wants, its red flags and deal-breakers (such as contract terms or fee-heavy scoring), how it weighs fee against fit, and market conditions;
+- its numbers: the fee it expects at each construction budget, its standard split of the fee by phase, and its usual proposal sections;
+- its track record: past pursuits, won or lost, with the debrief. The app checks the world view against how those pursuits turned out and suggests changes.
+
+## How AI is used
+
+AI features run only when a person runs them. The documents and records needed for that feature are sent to the app's AI provider, Anthropic, to produce the result. Under Anthropic's commercial terms that content isn't used to train AI models, and Proposal Workspace doesn't use it to train models either. AI output can be wrong or incomplete, so the app shows page references to check against the source documents, and people review and edit everything it produces.
+
+## Privacy and security
+
+- **Encrypted:** saved work (RFP reviews, comparisons, projects, consultants, schedules, fees and the world view) is encrypted before it's stored, with a key specific to each organization. Connections use HTTPS.
+- **Private by default:** data is never sold, and it's only used to run the workspace. There's no advertising or tracking.
+- **Never used for training:** documents go to the AI only when a feature is run, and aren't used to train AI models.
+- **Retention:** saved work is kept until it's deleted. Uploaded RFP PDFs are kept up to 30 days so page references can open the original, then deleted.
+- **Export and delete:** anyone in an organization can download all of its data, and the owner can delete the organization and everything in it.
+- **Service providers:** Anthropic (AI), Supabase (database, sign-in and file storage), Vercel (hosting), Stripe (payments) and an email provider.
+
+The full details are in the Privacy Policy: %SITE_URL%/privacy
+
+## Plans and access
+
+- Accounts are invite-only during the beta. People can request access from the home page, and the demo needs no account.
+- During the beta, access may be free. Paid plans, when offered, are billed monthly through Stripe at the price shown when subscribing.
+- Plans include a monthly allowance of AI use. When it's used up, AI features pause until the next billing period, and the rest of the app keeps working.
+- Plans can be cancelled at any time; cancellation takes effect at the end of the billing period.
+
+The full terms are in the Terms of Service: %SITE_URL%/terms
+
+## Common questions
+
+**What is Proposal Workspace?**
+A web app for architecture firms that analyzes the owner's RFP, compares consultants' fee proposals side by side, and builds the fee and schedule for a proposal, all in one project.
+
+**Who makes it?**
+Proposal Workspace, LLC.
+
+**Can I try it without an account?**
+Yes. The demo on the home page runs on a sample library renovation project and needs no sign-up or uploads. A short guided tour walks through reviewing the sample RFP, drafting the schedule and fee, and comparing the sample consultant proposals.
+
+**Does it work for one person?**
+Yes. One person can use it on their own, and others in the firm can join the same organization later.
+
+**What file types does it read?**
+PDFs: the owner's RFP and addenda, and consultants' fee proposals.
+
+**Does it replace our fee spreadsheet?**
+That's the intent. The fee worksheet does the arithmetic, keeps one current fee per project for the whole team, compares the fee with the firm's own fee curve, and produces a fee table for the proposal. It can also export to Excel.
+
+**Is our data used to train AI?**
+No. Documents go to the AI provider only when a feature is run, and aren't used to train models.
+
+**Can other firms see our fees?**
+No. Each organization's work is kept separate, and fees and other saved work are encrypted with a key specific to the organization.
+
+**How is it priced?**
+It's in an invite-only beta, and access may be free during the beta. Paid plans, when offered, are billed monthly and include a monthly allowance of AI use.

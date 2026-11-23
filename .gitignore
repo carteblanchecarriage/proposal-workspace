@@ -4,3 +4,5 @@ dist
 .env
 .env.*
 !.env.example
+# Guide pages, generated from content/guides by guide-plugin.ts
+/guide/
