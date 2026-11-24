@@ -37,9 +37,11 @@
     : 72);
   let contentW = $derived(TASK_COL_W + ganttMonths.length * colW);
 
-  // Measures the content at full size and sets the scale; again whenever the legend or markers change its height.
+  // Measures the content at full size and sets the scale; again when the schedule or options change. It must not depend
+  // on markerLanes: scaling changes the column width, which can change the lanes, so it would re-run itself forever and
+  // freeze the page. The lanes at full size are settled by the first tick, and wider columns need no more of them.
   $effect(() => {
-    void [project, showLegend, showToday, markerLanes];
+    void [project, showLegend, showToday];
     if (!contentEl) return;
     let cancelled = false;
     (async () => {
@@ -202,6 +204,9 @@
      matches the printed page: the timeline is sized to the area inside them. */
   @media screen {
     .preview-pg { box-sizing: border-box; padding: 0.4in 0.5in; }
+    /* Bars that run past the shown dates (either end) stop at the edge of the chart, as they do on paper. (clip, not hidden: no scroll box, and
+       the height measured for fitting is unchanged.) */
+    .preview-inner :global(.gantt-scroll) { overflow-x: clip; }
   }
 
   /* On paper, long legend names wrap onto a second line instead of being cut off with "…". */
