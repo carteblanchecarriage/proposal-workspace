@@ -1,6 +1,7 @@
 import { route } from "../lib/auth.js";
 import { errorResponse, UserFacingError } from "../lib/claude.js";
 import { appOrigin, schedulePdf, type Paper } from "../lib/schedule-pdf.js";
+import { isDay } from "../lib/dates.js";
 import { z } from "zod";
 
 // A schedule as a PDF, made on the server so it comes out the same for everyone (exact paper size, landscape,
@@ -10,6 +11,8 @@ const Body = z.object({
   schedule: z.object({ title: z.string().max(500).optional(), tasks: z.array(z.object({}).passthrough()).max(500) }).passthrough(),
   paper: z.enum(["letter", "tabloid"]),
   showToday: z.boolean(),
+  /** today where the person is */
+  today: z.string().refine(isDay).optional(),
   showLegend: z.boolean(),
   filename: z.string().max(200).default("Schedule"),
   /** the organization's schedule colors, by category (src/schedule/lib/palette.js) */
@@ -24,12 +27,13 @@ async function handle(request: Request): Promise<Response> {
     if (Number(request.headers.get("content-length") ?? 0) > MAX_BODY) throw new UserFacingError("That schedule is too large to print.", 413);
     const parsed = Body.safeParse(await request.json().catch(() => null));
     if (!parsed.success) throw new UserFacingError("Invalid PDF request.");
-    const { schedule, paper, showToday, showLegend, filename, palette, font } = parsed.data;
+    const { schedule, paper, today, showToday, showLegend, filename, palette, font } = parsed.data;
     const pdf = await schedulePdf({
       origin: appOrigin(request),
       schedule,
       paper: paper as Paper,
       showToday,
+      today,
       showLegend,
       palette: palette ?? {},
       font: font ?? "barlow",

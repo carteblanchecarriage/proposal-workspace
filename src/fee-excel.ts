@@ -3,7 +3,7 @@
 // when hours or rates change; each also carries its current value, for previews that don't calculate. ExcelJS is
 // loaded only when a fee is exported.
 import type { Cell, Worksheet } from "exceljs";
-import { budgetOf, consultantPhase, proposalTable, roundedTable, taskCost, taskHours, totals } from "./fee-calc";
+import { budgetOf, consultantPhase, hasFee, proposalTable, roundedTable, taskCost, taskHours, totals } from "./fee-calc";
 import { roundFee, textOn, type FeeFont, type FeeStyle } from "./fee-style";
 import type { SavedFee } from "./store";
 
@@ -198,7 +198,7 @@ function addProposalSheet(
   const FMT = to === 0.01 ? '"$"#,##0.00' : MONEY;
   const W = "'Fee worksheet'!";
   // Only consultants with a fee are columns (as on the page); their worksheet rows, by the same order.
-  const withFee = f.consultants.map((c, i) => ({ c, row: ref.consRows[i] })).filter(({ c }) => f.phases.some((p) => consultantPhase(c, p.id) > 0));
+  const withFee = f.consultants.map((c, i) => ({ c, row: ref.consRows[i] })).filter(({ c }) => hasFee(c, f.phases));
   const n = t.columns.length;
   const totalCol = n + 2;
   const caps = (s: string) => (style.capitals ? s.toUpperCase() : s);
@@ -249,7 +249,7 @@ function addProposalSheet(
     for (const b of t.belowLine) {
       const row = sheet.getRow(++r);
       row.getCell(1).value = [b.label, b.note].filter(Boolean).join(" — ");
-      number(row.getCell(totalCol), b.amount);
+      number(row.getCell(totalCol), b.basis === "request" ? null : b.amount);
       row.getCell(totalCol + 1).value = { lump: "Lump sum", hourly: "Hourly", nte: "Not to exceed", allowance: "Allowance", request: "Upon request" }[b.basis];
     }
   }

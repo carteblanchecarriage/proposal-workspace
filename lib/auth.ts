@@ -1,5 +1,5 @@
 import { aiBlocked } from "./ai-limits.js";
-import { errorResponse, UserFacingError } from "./claude.js";
+import { errorResponse, UserFacingError } from "./errors.js";
 import { requestContext, runWithContext, setFileSink, setUsageSink, type RequestContext } from "./context.js";
 import { dbConfigured, get, insertRow, query, rpc } from "./db.js";
 
@@ -97,7 +97,7 @@ async function orgFor(user: AuthUser, fresh: boolean): Promise<Org> {
     p_user: user.id,
     p_email: user.emailConfirmed ? user.email : null,
     p_name: user.email ? `${user.email}'s organization` : "My organization",
-    p_limit: Number.isFinite(limit) ? limit : 0,
+    p_limit: Number.isFinite(limit) && limit > 0 ? limit : 0,
   })) as { org_id: string; org_name: string; role: string; ai_monthly_limit_usd: number | null; spent_this_month: number }[];
   const r = rows[0];
   if (!r) throw new UserFacingError("Couldn't load your organization.", 500);

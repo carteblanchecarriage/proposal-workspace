@@ -5,6 +5,11 @@ const DOLLARS = new Intl.NumberFormat("en-US", { style: "currency", currency: "U
 /** Whole dollars, "$12,345"; "—" when there's no number. */
 export const money = (n: number | null | undefined): string => (n == null || !Number.isFinite(n) ? "—" : DOLLARS.format(n));
 
+const CENTS = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" });
+/** An amount as stated: "$12,345", or with its cents when it has them, "$132.50". */
+export const exactMoney = (n: number | null | undefined): string =>
+  n != null && Number.isFinite(n) && Math.round(n * 100) % 100 !== 0 ? CENTS.format(n) : money(n);
+
 /** A construction budget in few characters: "$1.2M", or whole dollars under a million. */
 export const shortMoney = (n: number): string =>
   n >= 1e6 ? `$${(n / 1e6).toLocaleString("en-US", { maximumFractionDigits: 1 })}M` : money(n);

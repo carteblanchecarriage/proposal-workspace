@@ -18,7 +18,7 @@ export const same = (a, b) => key(a) === key(b);
 const pick = (o, fields) => Object.fromEntries(fields.filter((f) => o?.[f] !== undefined).map((f) => [f, o[f]]));
 
 /** Merges the fields of one thing (a task, a legend item, the schedule itself). ask(field, mine, theirs) picks a side. */
-function mergeFields(base, mine, theirs, groups, ask, skip = new Set()) {
+export function mergeFields(base, mine, theirs, groups, ask, skip = new Set()) {
   const grouped = new Set(groups.flat());
   const names = new Set([base, mine, theirs].flatMap((o) => Object.keys(o ?? {})).filter((f) => !skip.has(f) && !grouped.has(f)));
   const out = {};
@@ -30,8 +30,8 @@ function mergeFields(base, mine, theirs, groups, ask, skip = new Set()) {
   return out;
 }
 
-/** Merges two lists of things with ids. */
-function mergeList({ base, mine, theirs, id, groups, ask, label, kind, newId }) {
+/** Merges two lists of things with ids. combine(id, base, mine, theirs) merges one thing (by its fields when not given). */
+export function mergeList({ base, mine, theirs, id, groups, ask, label, kind, newId, combine }) {
   const map = (list) => new Map((list ?? []).map((x) => [x[id], x]));
   const B = map(base), T = map(theirs);
   // Each side may have given a new item the same id: mine takes another, so both stay.
@@ -41,7 +41,7 @@ function mergeList({ base, mine, theirs, id, groups, ask, label, kind, newId }) 
   for (const k of new Set([...T.keys(), ...M.keys()])) {
     const b = B.get(k), m = M.get(k), t = T.get(k);
     if (m && t) {
-      result.set(k, mergeFields(b ?? {}, m, t, groups, (field, mv, tv) => ask(`${kind}:${k}:${field}`, `${label(b ?? t)}: ${GROUP_NAME[field] ?? field}`, mv, tv)));
+      result.set(k, combine ? combine(k, b, m, t) : mergeFields(b ?? {}, m, t, groups, (field, mv, tv) => ask(`${kind}:${k}:${field}`, `${label(b ?? t)}: ${GROUP_NAME[field] ?? field}`, mv, tv)));
     } else {
       const kept = m ?? t;
       if (!b) result.set(k, kept); // added by one side

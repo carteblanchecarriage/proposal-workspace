@@ -1,3 +1,6 @@
+import { isDay as isDate, isView, MAX_VIEW_YEARS } from '../../../../lib/dates';
+export { isDate, isView, MAX_VIEW_YEARS };
+
 export const MONTHS_SHORT = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
 /** Parse an ISO string (YYYY-MM-DD) or Date into a local-time Date */
@@ -8,23 +11,9 @@ export function parseDate(s) {
   return new Date(y, m - 1, d);
 }
 
-/** A real calendar day, YYYY-MM-DD, in a year a schedule could use (a mistyped year would draw thousands of columns). */
-export function isDate(s) {
-  if (typeof s !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(s)) return false;
-  const y = Number(s.slice(0, 4));
-  return y >= 1990 && y <= 2100 && toISO(parseDate(s)) === s;
-}
-
 /** Whether a task can be drawn: a milestone with its date, or a bar that doesn't end before it starts. */
 export function hasDates(t) {
   return t.type === 'milestone' ? isDate(t.date) : isDate(t.start) && isDate(t.end) && t.end >= t.start;
-}
-
-/** The longest timeline shown, in years. */
-export const MAX_VIEW_YEARS = 30;
-/** A timeline that can be drawn: it ends after it starts, within MAX_VIEW_YEARS. */
-export function isView(start, end) {
-  return isDate(start) && isDate(end) && end > start && Number(end.slice(0, 4)) - Number(start.slice(0, 4)) <= MAX_VIEW_YEARS;
 }
 
 /** iso moved by a number of days. */
@@ -43,6 +32,9 @@ export function toISO(d) {
   const dy = String(dt.getDate()).padStart(2, '0');
   return `${y}-${m}-${dy}`;
 }
+
+/** The first day of a date's month: where the timeline starts, at every zoom. */
+export const monthStart = (d) => new Date(d.getFullYear(), d.getMonth(), 1);
 
 /** Array of the first day of each month between viewStart and viewEnd */
 export function monthList(viewStart, viewEnd) {
@@ -99,14 +91,13 @@ export function pxToDateMonth(xPx, viewStart, colW) {
 export function dateToPxPeriod(dateStr, viewStart, colW, periodDays) {
   const d = parseDate(dateStr);
   if (!d) return 0;
-  return ((d - viewStart) / (periodDays * 864e5)) * colW;
+  // In whole days: a clock change between the two would otherwise shift everything after it by an hour.
+  return (Math.round((d - viewStart) / 864e5) / periodDays) * colW;
 }
 
 /** Inverse of dateToPxPeriod */
 export function pxToDatePeriod(xPx, viewStart, colW, periodDays) {
-  const ms = viewStart.getTime() + (xPx / colW) * periodDays * 864e5;
-  const d  = new Date(ms);
-  return toISO(new Date(d.getFullYear(), d.getMonth(), d.getDate()));
+  return toISO(new Date(viewStart.getFullYear(), viewStart.getMonth(), viewStart.getDate() + Math.floor((xPx / colW) * periodDays)));
 }
 
 /** The first day of the calendar quarter a date falls in. */
@@ -178,14 +169,27 @@ export function generateId() {
 /** Column width (px) for each zoom level */
 export const ZOOM_COL_W = { month: 72, biweek: 54, week: 40 };
 
+/**
+ * How many days a drag of dx pixels moves a date. Months are drawn equally wide whatever their days, so the date under
+ * the cursor is what counts, not an average number of pixels per day. viewStart: the first of its month.
+ */
+export function daysDragged(iso, dx, viewStart, colW, zoom) {
+  if (zoom === 'week' || zoom === 'biweek') return Math.round((dx / colW) * (zoom === 'week' ? 7 : 14));
+  const [toPx, toDate] = zoom === 'quarter' ? [dateToPxQuarter, pxToDateQuarter] : [dateToPxMonth, pxToDateMonth];
+  const to = parseDate(toDate(toPx(iso, viewStart, colW) + dx, viewStart, colW));
+  return Math.round((to - parseDate(iso)) / 864e5);
+}
+
 /** Array of column start Dates for the given zoom level */
 export function timeColumns(viewStart, viewEnd, zoom) {
   const cols = [];
-  const d = new Date(viewStart.getFullYear(), viewStart.getMonth(), viewStart.getDate());
+  // Whole months at every zoom, so weeks cover the same dates as months do (the last month included).
+  const d = monthStart(viewStart);
+  const after = new Date(viewEnd.getFullYear(), viewEnd.getMonth() + 1, 1);
   if (zoom === 'biweek') {
-    while (d < viewEnd) { cols.push(new Date(d)); d.setDate(d.getDate() + 14); }
+    while (d < after) { cols.push(new Date(d)); d.setDate(d.getDate() + 14); }
   } else if (zoom === 'week') {
-    while (d < viewEnd) { cols.push(new Date(d)); d.setDate(d.getDate() + 7); }
+    while (d < after) { cols.push(new Date(d)); d.setDate(d.getDate() + 7); }
   } else if (zoom === 'quarter') {
     const cur = quarterStart(viewStart);
     while (cur <= viewEnd) { cols.push(new Date(cur)); cur.setMonth(cur.getMonth() + 3); }

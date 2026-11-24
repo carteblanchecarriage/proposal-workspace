@@ -67,20 +67,28 @@ const cleanFee = (n: number) => Math.min(100_000_000, Math.max(0, Math.round(n))
 
 /**
  * Applies Claude's edits to the fee, checking each against it first: ids must exist, hours are whole or half hours
- * for roles on the fee, and values stay in range. Returns the phases it touched and how many edits were skipped.
+ * for roles on the fee, and values stay in range. Its ids are places on the worksheet as it was sent (`sent`), which may
+ * have been edited while Claude was answering: each is found on the fee by its own id, wherever it is now. Returns the phases it touched and how many edits were skipped.
  */
-export function applyFeeChanges(f: SavedFee, changes: Change[]): { applied: number; skipped: number; phases: Set<string> } {
+export function applyFeeChanges(f: SavedFee, changes: Change[], sent: SavedFee = f): { applied: number; skipped: number; phases: Set<string> } {
   const touched = new Set<string>();
   const roles = new Set(f.roles.map((r) => r.id));
   const phaseOf = (id: string) => {
     const m = /^P(\d+)$/.exec(id.trim());
-    return m ? f.phases[Number(m[1]) - 1] : undefined;
+    const was = m ? sent.phases[Number(m[1]) - 1] : undefined;
+    return was && f.phases.find((p) => p.id === was.id);
   };
   // Task ids refer to the worksheet as sent, so they're resolved before anything moves.
   const taskIds = new Map<string, { phase: SavedFee["phases"][number]; task: SavedFee["phases"][number]["tasks"][number] }>();
-  f.phases.forEach((phase, i) => phase.tasks.forEach((task, j) => taskIds.set(`P${i + 1}-T${j + 1}`, { phase, task })));
+  sent.phases.forEach((was, i) => {
+    const phase = f.phases.find((p) => p.id === was.id);
+    was.tasks.forEach((x, j) => {
+      const task = phase?.tasks.find((y) => y.id === x.id);
+      if (phase && task) taskIds.set(`P${i + 1}-T${j + 1}`, { phase, task });
+    });
+  });
   // Consultant ids too (C1, C2…), as sent.
-  const consultantIds = new Map(f.consultants.map((c, i) => [`C${i + 1}`, c]));
+  const consultantIds = new Map(sent.consultants.map((c, i) => [`C${i + 1}`, f.consultants.find((x) => x.id === c.id)]));
   /** Sets fees by phase; an amount of 0 takes the consultant off that phase. False when no phase id was valid. */
   const setFees = (byPhase: Record<string, number>, list: Change["fees"]) => {
     let ok = !list.length;
@@ -125,6 +133,10 @@ export function applyFeeChanges(f: SavedFee, changes: Change[]): { applied: numb
       }
       if (c.op === "delete_task") found.phase.tasks.splice(found.phase.tasks.indexOf(found.task), 1);
       else {
+        if (!c.name.trim() && !c.hours.some((h) => roles.has(h.role_id) && Number.isFinite(h.hours))) {
+          skipped++; // nothing in it that can be applied
+          continue;
+        }
         if (c.name.trim()) found.task.name = c.name.trim().slice(0, 200);
         setHours(found.task.hours, c.hours);
       }

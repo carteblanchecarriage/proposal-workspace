@@ -1,10 +1,10 @@
 import { feeStatusHtml, isFinal, setFeeStatus } from "./fee-status";
 import { DEFAULT_FEE_STYLE, FEE_ROUNDINGS, feeMoney, feeTableCss, roundFee, type FeeRounding, type FeeStyle } from "./fee-style";
-import { budgetBy, budgetOf, readAmount, readArea, consultantTotal, proposalTable, roundedTable, taskCost, taskHours, totals, type ProposalTable } from "./fee-calc";
+import { budgetBy, budgetOf, cleanNumber, readAmount, readArea, consultantTotal, hasFee, proposalTable, roundedTable, taskCost, taskHours, totals, type ProposalTable } from "./fee-calc";
 import { DEFAULT_ROLES, shortPhase, shortRole, TEMPLATES, templateFor, templatePhases } from "./fee-templates";
-import { confirmDelete, formModal, noticeModal } from "./modal";
+import { confirmDelete, confirmModal, formModal, noticeModal } from "./modal";
 import { projectDisciplines } from "./rfp";
-import { BELOW_LINE_BASIS, type BelowLineBasis, getFeeStyle, getWorldView, deleteFee, listComparisons, listFees, listProjects, listRfps, projectLabel, saveFee, savesShared, type SavedFee, type SavedProject } from "./store";
+import { BELOW_LINE_BASIS, type BelowLineBasis, getFeeStyle, getWorldView, deleteFee, listComparisons, listFees, listProjects, listRfps, projectLabel, createFee, type SavedFee, type SavedProject } from "./store";
 import { esc, firmName } from "./table";
 import { postJson } from "./api";
 import { feeCurveAt, type FeePoint } from "../lib/worldview";
@@ -16,6 +16,7 @@ import { assistantButton, setAssistantPage, type AssistantPage } from "./assista
 import type { FeeChat } from "../lib/claude";
 import { feeTimeHtml, hideFeeTimeTip, onFeeTimeMove } from "./fee-time";
 import { dateText, money, plural } from "../lib/format";
+import { flushFees, forgetFee, loadFees, queueFee, setFeeHooks, unforgetFee, watchFees } from "./fee-sync";
 
 // Fee builder: labor by phase (hours per role × the role's rate), consultants with a management markup, and a
 // construction budget to check the total against as a percentage. One fee per project; also usable on its own.
@@ -39,6 +40,7 @@ function checkpoint() {
     fee.status = "draft";
     delete fee.finalAt;
     now = JSON.stringify(fee);
+    queueFee(fee);
     const banner = document.querySelector("#fee-page .fee-state");
     if (banner) banner.outerHTML = feeStatusHtml(fee);
     scheduleStatusNote();
@@ -50,16 +52,7 @@ function checkpoint() {
 }
 
 /** Says, once, that editing a final fee made it a draft again. */
-function scheduleStatusNote() {
-  const el = document.getElementById("fee-save-error");
-  if (!el || el.textContent) return;
-  el.classList.remove("error");
-  el.textContent = "Edited, so it's a draft again.";
-  setTimeout(() => {
-    if (el.textContent === "Edited, so it's a draft again.") el.textContent = "";
-    el.classList.add("error");
-  }, 6000);
-}
+const scheduleStatusNote = () => say("Edited, so it's a draft again.");
 
 function updateUndo() {
   const b = document.querySelector<HTMLButtonElement>("#fee-page [data-undo]");
@@ -72,15 +65,14 @@ function undo() {
   checkpoint(); // an edit still being typed counts as finished
   const prev = undoStack.pop();
   if (!prev) return;
-  summaryBefore = null;
   fee = JSON.parse(prev) as SavedFee;
   committed = prev;
   rerender(false);
   changed();
 }
 
-/** The summary as it was when Edit was clicked (JSON; "" when there was none), while it's being edited; else null. */
-let summaryBefore: string | null = null;
+/** The summary's lines while they're being edited, apart from the fee until Save is clicked; else null. */
+let summaryEdit: { basis: string; assumptions: string[] } | null = null;
 
 /** phases whose task tables are open (the rest show one summary line each) */
 const openPhases = new Set<string>();
@@ -88,8 +80,8 @@ const openPhases = new Set<string>();
 let summaryOpen = false;
 let projects: SavedProject[] = [];
 let initialized = false;
-let saveTimer: ReturnType<typeof setTimeout> | undefined;
-let dirty = false;
+/** Which opening of the page is the latest: an earlier one still loading gives up. */
+let opening = 0;
 
 const hrs = (n: number) => (n ? n.toLocaleString("en-US", { maximumFractionDigits: 1 }) : "—");
 const pct = (n: number | null | undefined) => (n == null || !Number.isFinite(n) ? "—" : `${n.toLocaleString("en-US", { maximumFractionDigits: 1 })}%`);
@@ -98,6 +90,7 @@ const parseNum = (s: string) => {
   const n = parseFloat(s.replace(/[$,%\s]/g, ""));
   return Number.isFinite(n) ? n : null;
 };
+
 /** A number as shown in an input: with thousands commas ("4,500,000"), blank for none. */
 const numValue = (n: number | null | undefined) => (n == null ? "" : n.toLocaleString("en-US", { maximumFractionDigits: 2 }));
 
@@ -105,17 +98,16 @@ const numValue = (n: number | null | undefined) => (n == null ? "" : n.toLocaleS
  * Adds thousands commas to a number box while typing, keeping the caret beside the same digit. Whatever has been
  * typed after a decimal point is left alone, so "12." and "1.50" stay as typed.
  */
-function addCommas(el: HTMLInputElement) {
+function addCommas(el: HTMLInputElement, opts: { units?: boolean; negative?: boolean }) {
   const before = el.value;
   const caret = el.selectionStart ?? before.length;
   const digitsBefore = before.slice(0, caret).replace(/[^\d.]/g, "").length;
-  const clean = before.replace(/[^\d.-]/g, "");
-  const [int, ...dec] = clean.split(".");
-  const sign = int.startsWith("-") ? "-" : "";
-  const digits = int.replace(/-/g, "").replace(/^0+(?=\d)/, "");
-  const next = sign + digits.replace(/\B(?=(\d{3})+(?!\d))/g, ",") + (dec.length ? "." + dec.join("") : "");
+  const clean = cleanNumber(before, opts);
+  const [int, dec] = clean.split(".");
+  const next = int.replace(/\B(?=(\d{3})+(?!\d))/g, ",") + (dec != null ? "." + dec : "");
   if (next === before) return;
   el.value = next;
+  if (caret === before.length) return el.setSelectionRange(next.length, next.length);
   // Put the caret after the same number of digits (and decimal point) as before.
   let pos = 0;
   for (let seen = 0; pos < next.length && seen < digitsBefore; pos++) if (/[\d.]/.test(next[pos])) seen++;
@@ -141,12 +133,29 @@ function followCurve(f: SavedFee) {
 }
 
 export async function showFee(id: string | null) {
-  curve = (await getWorldView().catch(() => null))?.feeCurve ?? [];
-  feeStyle = await getFeeStyle().catch(() => DEFAULT_FEE_STYLE);
+  const mine = ++opening;
+  const [world, style] = await Promise.all([getWorldView().catch(() => null), getFeeStyle().catch(() => DEFAULT_FEE_STYLE)]);
+  if (mine !== opening) return; // another fee was opened, or the page left, while this was loading
+  curve = world?.feeCurve ?? [];
+  feeStyle = style;
   if (!initialized) {
     initialized = true;
     const page = $("fee-page");
     page.addEventListener("click", onClick);
+    setFeeHooks({
+      open: () => fee,
+      adopt: adoptFee,
+      gone: (id, why) => {
+        if (why) void noticeModal("This fee was replaced", why);
+        if (fee?.id !== id) return;
+        fee = null;
+        location.hash = "#project";
+      },
+      error: saveProblem,
+      notice: say,
+      typing: () => !!(document.activeElement as HTMLElement | null)?.matches?.("#fee-page .fee-in"),
+    });
+    watchFees();
     page.addEventListener("input", onInput);
     // "toggle" doesn't bubble, so it's caught on the way down.
     page.addEventListener("toggle", (e) => {
@@ -172,18 +181,49 @@ export async function showFee(id: string | null) {
     });
     page.addEventListener("keydown", (e) => {
       const el = e.target as HTMLInputElement;
-      if (e.key === "Escape" && summaryBefore !== null && !document.querySelector("dialog[open]")) return cancelSummaryEdit();
+      if (e.key === "Escape" && summaryEdit && !document.querySelector("dialog[open]")) return cancelSummaryEdit();
       if (e.key === "Enter" && el.matches(".fee-in")) {
         e.preventDefault(); // summary lines wrap but stay one line each
         el.blur();
       }
     });
-    addEventListener("pagehide", () => flushFee(true));
+    addEventListener("pagehide", () => {
+      checkpoint(); // an edit still being typed: a final fee it changes is a draft
+      void flushFees(true);
+    });
   }
-  if (fee && fee.id !== id) flushFee();
-  if (id) return openFee(id);
+  if (fee && fee.id !== id) closeFee();
+  if (id) return openFee(id, mine, world?.phaseShares ?? []);
+  closeFee(); // fees open by id, from their project (main.ts sends anyone else to Projects)
+}
+
+/** Leaves the fee page: saves what's unsaved, and forgets the fee, so coming back shows it as it is then. */
+export function leaveFee() {
+  opening++;
+  closeFee();
+}
+function closeFee() {
+  if (fee) finishTyping();
+  void flushFees();
   fee = null;
-  return showList();
+  summaryEdit = null;
+  undoStack = [];
+}
+/** A box still being typed in counts as finished. */
+function finishTyping() {
+  const el = document.activeElement as HTMLElement | null;
+  if (el?.matches?.("#fee-page .fee-in")) el.blur();
+  checkpoint();
+}
+
+/** Shows the open fee combined with someone else's changes. They go into the undo steps too: Undo reverses only yours. */
+function adoptFee(merged: SavedFee, rebase: (f: SavedFee) => SavedFee) {
+  if (!fee || fee.id !== merged.id) return;
+  const through = (s: string) => JSON.stringify(rebase(JSON.parse(s) as SavedFee));
+  undoStack = undoStack.map(through);
+  committed = through(committed);
+  fee = merged;
+  rerender(false);
 }
 
 /** The AI assistant on the open fee (see fee-chat.ts): its edits are one step, undone with one Undo, and saved. */
@@ -198,11 +238,12 @@ function feeAssistant(f: SavedFee): AssistantPage {
     part: "fee",
     ask: async (turns, { digest }) => {
       // The fee as it is now (Undo replaces the object, so it's read at the time of asking).
-      const now = fee?.id === f.id ? fee : f;
+      // A copy: the answer's ids are places on the worksheet as sent, even if it's edited meanwhile.
+      const now = structuredClone(fee?.id === f.id ? fee : f);
       const res = await postJson<{ answer: FeeChat; usage: Usage }>("/api/fee-draft", { worksheet: worksheetFor(now), rfp: await linkedRfp(now).catch(() => null), turns, digest }, "chat");
-      if (fee?.id !== f.id) return { text: res.answer.reply }; // the fee was closed while waiting
+      if (fee?.id !== f.id) return { text: res.answer.reply, meta: res.answer.changes.length ? "The fee was closed before the answer came, so nothing was changed" : "" };
       const { changes, assumptions } = res.answer;
-      const { applied, skipped } = changes.length || assumptions.length ? applyAssistant(changes, assumptions) : { applied: 0, skipped: 0 };
+      const { applied, skipped } = changes.length || assumptions.length ? applyAssistant(changes, assumptions, now) : { applied: 0, skipped: 0 };
       const meta = [applied ? `Worksheet updated (${plural(applied, "change")})` : "", skipped ? `${plural(skipped, "change")} couldn't be applied` : ""]
         .filter(Boolean)
         .join(" · ");
@@ -220,11 +261,11 @@ async function linkedRfp(f: SavedFee) {
   return (rfps.find((r) => r.id === project.rfpId) ?? rfps.find((r) => r.projectId === project.id))?.rfp ?? null;
 }
 
-function applyAssistant(changes: FeeChat["changes"], assumptions: string[]) {
+function applyAssistant(changes: FeeChat["changes"], assumptions: string[], sent: SavedFee) {
   if (!fee) return { applied: 0, skipped: changes.length };
-  if (summaryBefore !== null && assumptions.some((a) => a.trim())) cancelSummaryEdit(); // the assistant's list replaces an unsaved edit
+  if (summaryEdit && assumptions.some((a) => a.trim())) cancelSummaryEdit(); // the assistant's list replaces an unsaved edit
   checkpoint(); // anything typed before asking is its own step
-  const result = applyFeeChanges(fee, changes);
+  const result = applyFeeChanges(fee, changes, sent);
   result.phases.forEach((id) => openPhases.add(id)); // show what changed
   // The summary at the top, revised to match (same undo step).
   const lines = assumptions.map((a) => a.trim().slice(0, 500)).filter(Boolean).slice(0, 12);
@@ -237,26 +278,16 @@ function applyAssistant(changes: FeeChat["changes"], assumptions: string[]) {
   return result;
 }
 
-/** Saves the open fee now (when leaving it, or with keepalive when the page is closing). */
-export function flushFee(keepalive = false) {
-  clearTimeout(saveTimer);
-  if (!fee || !dirty) return;
-  dirty = false;
-  saveFee({ ...fee, savedAt: Date.now() }, keepalive).catch((err) => showSaveError((err as Error).message));
-}
-
 /**
- * Makes a fee and opens it. From a project, it's named after the project, starts with the RFP review's budget and
+ * Makes a project's fee and opens it. It's named after the project, starts with the RFP review's budget and
  * area (when they're plain numbers), the template that suits that budget, and a row per discipline it needs.
  * A project has at most one fee: if it already has one, that opens instead.
  */
-export async function makeFee(project?: SavedProject) {
-  const [fees, rfps, cmps] = await Promise.all([listFees(), project ? listRfps() : [], project ? listComparisons() : []]);
-  if (project) {
-    const existing = fees.find((f) => f.workspaceProjectId === project.id);
-    if (existing) return void (location.hash = `#fee/${encodeURIComponent(existing.id)}`);
-  }
-  const rfp = project && (rfps.find((r) => r.id === project.rfpId) ?? rfps.find((r) => r.projectId === project.id));
+export async function makeFee(project: SavedProject) {
+  const [fees, rfps, cmps] = await Promise.all([listFees(), listRfps(), listComparisons()]);
+  const existing = fees.find((f) => f.workspaceProjectId === project.id);
+  if (existing) return void (location.hash = `#fee/${encodeURIComponent(existing.id)}`);
+  const rfp = rfps.find((r) => r.id === project.rfpId) ?? rfps.find((r) => r.projectId === project.id);
   const budget = rfp ? readAmount(rfp.rfp.facts.construction_budget?.value ?? "") : null;
   const area = rfp ? readArea(rfp.rfp.facts.building_size?.value ?? "") : null;
 
@@ -275,19 +306,22 @@ export async function makeFee(project?: SavedProject) {
 
   // Firms already proposing on the project, by discipline.
   const firms = new Map<string, string>();
-  for (const c of cmps.filter((c) => project && c.projectId === project.id))
+  for (const c of cmps.filter((c) => c.projectId === project.id))
     for (const p of c.proposals) for (const d of p.disciplines ?? []) if (p.firm && !firms.has(d)) firms.set(d, firmName(p.firm));
   // Consultant rows for the disciplines the project needs, apart from the firm's own work.
   const IN_HOUSE: string[] = ["Architecture", "Interiors", "FF&E"];
-  const disciplines = project ? projectDisciplines(rfp?.rfp, project.disciplinesRemoved, project.disciplinesAdded).filter((d) => !IN_HOUSE.includes(d)) : [];
+  const disciplines = projectDisciplines(rfp?.rfp, project.disciplinesRemoved, project.disciplinesAdded).filter((d) => !IN_HOUSE.includes(d));
 
   const record: SavedFee = {
-    id: crypto.randomUUID(),
+    // A project's fee has the project's own id in it, so two people making it at once can't make two (createFee).
+    id: `fee-${project.id}`,
     savedAt: Date.now(),
-    title: project ? projectLabel(project) : "Untitled fee",
-    workspaceProjectId: project?.id,
+    createdAt: Date.now(),
+    title: projectLabel(project),
+    workspaceProjectId: project.id,
     template: template.key,
-    budget: { by: area ? "area" : "amount", amount: area ? null : budget, area, costPerSf: area && budget ? Math.round(budget / area) : null },
+    // The review's own budget when it has one (worked out from a rounded cost per SF, it would come out slightly off).
+    budget: { by: area && budget == null ? "area" : "amount", amount: budget, area, costPerSf: area && budget ? Math.round((budget / area) * 100) / 100 : null },
     // From the World view's fee curve when there's a budget, else the template's typical percent.
     targetPercent: curveTarget(budget) ?? template.targetPercent,
     targetFromCurve: curveTarget(budget) != null,
@@ -307,7 +341,14 @@ export async function makeFee(project?: SavedProject) {
     applyDraft(record, drafted.draft, drafted.usage);
   }
   try {
-    await saveFee(record);
+    let saved = await createFee(record);
+    if (saved.conflict && saved.record?.workspaceProjectId !== project.id) {
+      // That id is a fee that's no longer this project's: this one gets an id of its own.
+      record.id = crypto.randomUUID();
+      saved = await createFee(record);
+    }
+    if (saved.conflict) await noticeModal("This project already has a fee", "Someone else made one just now. It opens instead of making another.");
+    else unforgetFee(record.id); // a fee deleted here earlier may have had the same id
   } catch (err) {
     return noticeModal("Not saved", (err as Error).message);
   }
@@ -395,34 +436,11 @@ function fillRates(f: SavedFee): boolean {
   return true;
 }
 
-// ---------- List ----------
-
-async function showList() {
-  const [fees, ps] = await Promise.all([listFees(), listProjects()]);
-  projects = ps;
-  const items = [...fees]
-    .sort((a, b) => b.savedAt - a.savedAt)
-    .map((f) => {
-      const p = ps.find((x) => x.id === f.workspaceProjectId);
-      return `<li>
-        <a class="link open" href="#fee/${encodeURIComponent(f.id)}"><b>${esc(f.title || "Untitled fee")}</b></a>
-        <span class="when">${esc(money(totals(f).total))}</span>
-        <span>${p ? "" : `<span class="note">no project</span>`}</span>
-      </li>`;
-    })
-    .join("");
-  $("fee-page").innerHTML = `
-    <div class="saved"><h2 class="label">Fees</h2>
-      ${items ? `<ol>${items}</ol>` : `<p class="none">None yet. Make one from a project page, or start one here.</p>`}
-      <div class="actions"><button class="btn" data-new-fee>New fee</button></div>
-      ${savesShared() ? "" : `<p class="estimate">Saved in this browser only until the database is set up.</p>`}
-    </div>`;
-}
-
 // ---------- Editor ----------
 
-async function openFee(id: string) {
-  const [fees, ps] = await Promise.all([listFees(), listProjects()]);
+async function openFee(id: string, mine: number, split: { name: string; percent: number }[]) {
+  const [fees, ps] = await Promise.all([loadFees(), listProjects()]);
+  if (mine !== opening) return;
   projects = ps;
   const found = fees.find((f) => f.id === id);
   if (!found) {
@@ -432,13 +450,16 @@ async function openFee(id: string) {
   }
   if (fee?.id !== id) {
     fee = found;
-    summaryBefore = null;
+    summaryEdit = null;
     undoStack = [];
     // A fee with no hours yet opens every phase, ready to fill in; otherwise each phase is one line.
     openPhases.clear();
     if (!found.phases.some((p) => p.tasks.some((t) => Object.values(t.hours).some((h) => h > 0)))) found.phases.forEach((p) => openPhases.add(p.id));
-    if (fillRates(fee)) changed();
-    if (matchPhaseSplit(fee, (await getWorldView().catch(() => null))?.phaseShares ?? [])) changed();
+    // Never a final fee: opening it mustn't change what was marked final.
+    if (!isFinal(fee)) {
+      const rates = fillRates(fee);
+      if (matchPhaseSplit(fee, split) || rates) changed();
+    }
     committed = JSON.stringify(fee); // undo goes back no further than the fee as opened
   }
   render();
@@ -464,8 +485,8 @@ function render() {
     ${input('data-k="title" aria-label="Fee title"', f.title, "fee-title")}
     <p class="fee-project">${
       project
-        ? `For project <a class="link" href="#project/${encodeURIComponent(project.id)}">${esc(projectLabel(project))}</a> <button class="link" data-unlink-fee>Unlink</button>`
-        : `Not linked to a project. <button class="link" data-link-fee>Link to project</button>`
+        ? `For project <a class="link" href="#project/${encodeURIComponent(project.id)}">${esc(projectLabel(project))}</a>`
+        : "Its project was deleted."
     }</p>
     ${summaryHtml(f)}
 
@@ -493,7 +514,7 @@ function render() {
     <div class="block">
       <h2 class="label">Rates</h2>
       <div class="scroll"><table class="grid fee-table fee-rates">
-        <thead><tr><th>Role</th><th>Short</th><th class="num">Rate ($/hr)</th><th class="num">Hours</th><th class="num">Cost</th></tr></thead>
+        <thead><tr><th>Role</th><th>Short</th><th class="num">Rate ($/hr)</th><th class="num">Hours</th><th class="num">Cost</th><th></th></tr></thead>
         <tbody>${f.roles
           .map(
             (r) => `<tr>
@@ -502,6 +523,7 @@ function render() {
               <td class="num">${input(`data-role="${esc(r.id)}" data-f="rate" inputmode="decimal" aria-label="${esc(r.name)} rate"`, numValue(r.rate), "num")}</td>
               <td class="num" data-out="role-hours:${esc(r.id)}"></td>
               <td class="num" data-out="role-cost:${esc(r.id)}"></td>
+              <td><button class="link" data-remove-role="${esc(r.id)}" aria-label="Remove ${esc(r.name)}" title="Remove">×</button></td>
             </tr>`,
           )
           .join("")}</tbody>
@@ -525,7 +547,7 @@ function render() {
             (c) => `<tr>
               <td>${input(`data-cons="${esc(c.id)}" data-f="discipline" aria-label="Discipline"`, c.discipline)}</td>
               <td>${input(`data-cons="${esc(c.id)}" data-f="firm" aria-label="Firm"`, c.firm, "", "Firm")}</td>
-              ${f.phases.map((p) => `<td class="num">${input(`data-cons="${esc(c.id)}" data-f="p:${esc(p.id)}" inputmode="decimal" aria-label="${esc(c.discipline || "Consultant")} ${esc(p.name)} fee"`, numValue(c.byPhase[p.id] ?? null), "num", "$")}</td>`).join("")}
+              ${f.phases.map((p) => `<td class="num">${input(`data-cons="${esc(c.id)}" data-f="p:${esc(p.id)}" inputmode="decimal" aria-label="${esc(c.discipline || "Consultant")} ${esc(p.name)} fee"`, numValue(c.byPhase?.[p.id] ?? null), "num", "$")}</td>`).join("")}
               <td class="num" data-out="cons-total:${esc(c.id)}"></td>
               <td><button class="link" data-remove-cons="${esc(c.id)}" aria-label="Remove consultant" title="Remove">×</button></td>
             </tr>`,
@@ -595,13 +617,14 @@ function render() {
 function summaryHtml(f: SavedFee): string {
   const d = f.draft;
   const fromRfp = !!d && d.source !== "notes";
-  const editing = summaryBefore !== null;
+  const editing = !!summaryEdit;
   // Read as plain text; Edit (with Save / Cancel, Escape to cancel) makes the lines editable, so nothing changes by accident.
   const line = (key: string, value: string) =>
     editing
       ? `<li class="fee-sum-line"><textarea class="fee-in fee-sum-in" data-sum="${key}" rows="1" aria-label="Summary line" placeholder="Add a line">${esc(value)}</textarea><button class="link" data-del-sum="${key}" aria-label="Remove line" title="Remove">×</button></li>`
       : `<li>${esc(value)}</li>`;
-  const lines = d ? [...(d.basis ? [line("basis", d.basis)] : []), ...d.assumptions.map((a, i) => (editing || a.trim() ? line(`a:${i}`, a) : ""))].filter(Boolean) : [];
+  const shown = summaryEdit ?? d;
+  const lines = shown ? [...(shown.basis ? [line("basis", shown.basis)] : []), ...shown.assumptions.map((a, i) => (editing || a.trim() ? line(`a:${i}`, a) : ""))].filter(Boolean) : [];
   const notes = [
     fromRfp && f.lens
       ? `Drafted with the <a class="link" href="#worldview">world view</a>${f.lens.savedAt ? ` of ${esc(dateText(f.lens.savedAt))}` : ""}${f.lens.text ? "" : " (none written yet)"}`
@@ -722,25 +745,6 @@ function refresh() {
     </table>`;
 }
 
-/** Links an unlinked fee to a project that doesn't have a fee yet (a project has at most one). */
-async function linkToProject(f: SavedFee) {
-  const [fees, ps] = await Promise.all([listFees(), listProjects()]);
-  projects = ps;
-  const taken = new Set(fees.filter((x) => x.id !== f.id).map((x) => x.workspaceProjectId));
-  const free = ps.filter((p) => !taken.has(p.id)).sort((a, b) => projectLabel(a).localeCompare(projectLabel(b)));
-  if (!free.length) return noticeModal("No projects to link", ps.length ? "Every project already has a fee." : "There are no projects yet.");
-  const labels = free.map(projectLabel);
-  const picked = await formModal({
-    title: "Link to project",
-    fields: [{ label: "Project", value: "", options: labels, single: true, required: true }],
-    confirm: "Link",
-  });
-  const project = picked && free[labels.indexOf(picked[0])];
-  if (!project || fee?.id !== f.id) return;
-  f.workspaceProjectId = project.id;
-  rerender();
-}
-
 // ---------- Proposal table ----------
 // Laid out like the fee tables in proposals: a colored header, a dark Total Fee column and a dark Total row, in the
 // organization's colors and font (src/fee-style.ts; set on the Organization page). Styles are inline so the formatting
@@ -755,7 +759,7 @@ export const proposalRounded = (t: ProposalTable, look: FeeStyle = feeStyle) => 
 export function proposalHtml(table: ProposalTable, look: FeeStyle = feeStyle): string {
   const t = proposalRounded(table, look);
   const below = t.belowLine ?? [];
-  if (!t.total && !below.length && !t.expenses) return `<p class="none">Add hours, rates or consultant fees to fill in the table.</p>`;
+  if (!table.rows.some((r) => r.amounts.some((a) => a)) && !below.length && !t.expenses) return `<p class="none">Add hours, rates or consultant fees to fill in the table.</p>`;
   const PT = feeTableCss(look);
   const ptMoney = (n: number) => feeMoney(n, look.rounding);
   const belowLineValue = (b: { basis: BelowLineBasis; amount: number | null }) => belowLineText(b, look.rounding === 0.01 ? 0.01 : 1);
@@ -802,7 +806,7 @@ export function proposalHtml(table: ProposalTable, look: FeeStyle = feeStyle): s
  * while an item still points to them, marked so.
  */
 function byOptions(f: SavedFee, by: string | undefined): string {
-  const used = f.consultants.filter((c) => consultantTotal(c, f.phases) > 0);
+  const used = f.consultants.filter((c) => hasFee(c, f.phases));
   const name = (c: SavedFee["consultants"][number]) => [c.firm, c.discipline && `(${c.discipline})`].filter(Boolean).join(" ") || "Consultant";
   const stale = by && by !== "architecture" && !used.some((c) => c.id === by) ? f.consultants.find((c) => c.id === by) : undefined;
   const opts: [string, string][] = [
@@ -886,6 +890,7 @@ async function copyProposalTable() {
   const t = proposalTable(fee);
   const status = document.getElementById("fee-copy-status");
   const html = proposalHtml(t);
+  let copied = true;
   try {
     await navigator.clipboard.write([
       new ClipboardItem({
@@ -900,41 +905,52 @@ async function copyProposalTable() {
     range.selectNode(el);
     getSelection()?.removeAllRanges();
     getSelection()?.addRange(range);
-    document.execCommand("copy");
+    copied = document.execCommand("copy");
     getSelection()?.removeAllRanges();
   }
   if (status) {
-    status.textContent = "Copied";
-    setTimeout(() => (status.textContent = ""), 1500);
+    status.textContent = copied ? "Copied" : "Couldn't copy. Select the table and copy it.";
+    setTimeout(() => (status.textContent = ""), copied ? 1500 : 6000);
   }
 }
 
 function showSaveError(message: string) {
   const el = document.getElementById("fee-save-error");
-  if (el) el.textContent = message ? `Not saved: ${message}` : "";
+  if (!el || (!message && !el.textContent?.startsWith("Not saved"))) return; // a notice there stays
+  el.classList.add("error");
+  el.textContent = message ? `Not saved: ${message}` : "";
 }
 
 function changed() {
-  dirty = true;
-  clearTimeout(saveTimer);
-  saveTimer = setTimeout(() => {
-    if (!fee || !dirty) return;
-    dirty = false;
-    saveFee({ ...fee, savedAt: Date.now() })
-      .then(() => showSaveError(""))
-      .catch((err) => {
-        dirty = true; // try again with the next change
-        showSaveError((err as Error).message);
-      });
-  }, 800);
+  if (fee) queueFee(fee);
 }
 
-/** Puts the summary back as it was before Edit. */
+/** A save that failed (or, with "", one that worked). Said on the fee's page; in a dialog, once, when it isn't showing. */
+let problemShown = false;
+function saveProblem(message: string, f: SavedFee) {
+  if (fee?.id === f.id) return showSaveError(message);
+  if (!message) return void (problemShown = false);
+  if (problemShown) return;
+  problemShown = true;
+  void noticeModal("A fee wasn't saved", `“${f.title || "Untitled fee"}”: ${message} It's tried again every few seconds; keep this tab open until then, or open the fee to check it.`);
+}
+
+/** Says something briefly beside the fee's buttons, unless a problem is showing there. */
+function say(text: string) {
+  const el = document.getElementById("fee-save-error");
+  if (!el || el.textContent?.startsWith("Not saved")) return;
+  el.classList.remove("error");
+  el.textContent = text;
+  setTimeout(() => {
+    if (el.textContent === text) el.textContent = "";
+    el.classList.add("error");
+  }, 6000);
+}
+
+/** Leaves the summary as it was before Edit. */
 function cancelSummaryEdit() {
-  if (!fee || summaryBefore === null) return;
-  if (summaryBefore) fee.draft = JSON.parse(summaryBefore) as SavedFee["draft"];
-  else delete fee.draft;
-  summaryBefore = null;
+  if (!fee || !summaryEdit) return;
+  summaryEdit = null;
   rerender(false);
 }
 
@@ -955,7 +971,13 @@ function onInput(e: Event) {
     if (fee.targetFromCurve) followCurve(fee);
     return rerender();
   }
-  if (el.inputMode === "decimal") addCommas(el);
+  if (el.inputMode === "decimal") {
+    const k = el.dataset.k ?? "";
+    addCommas(el, {
+      units: k.startsWith("budget.") || k === "expenses" || !!el.dataset.cons || !!el.dataset.below,
+      negative: !!el.dataset.cons || !!el.dataset.below, // a consultant's or scope item's credit
+    });
+  }
   const f = fee;
   const v = el.value;
   const field = el.dataset.f ?? "";
@@ -977,10 +999,11 @@ function onInput(e: Event) {
     }
     // A target from the fee curve follows the budget.
     if (k.startsWith("budget.") && f.targetFromCurve) followCurve(f);
-  } else if (el.dataset.sum && f.draft) {
+  } else if (el.dataset.sum) {
     const key = el.dataset.sum;
-    if (key === "basis") f.draft.basis = v;
-    else if (key.startsWith("a:")) f.draft.assumptions[Number(key.slice(2))] = v;
+    if (!summaryEdit) return;
+    if (key === "basis") summaryEdit.basis = v;
+    else if (key.startsWith("a:")) summaryEdit.assumptions[Number(key.slice(2))] = v;
     return; // kept when Save is clicked
   } else if (el.dataset.role) {
     const r = f.roles.find((x) => x.id === el.dataset.role);
@@ -1029,6 +1052,7 @@ function onInput(e: Event) {
     else if (field === "firm") c.firm = v;
     else if (field.startsWith("p:")) {
       const n = parseNum(v);
+      c.byPhase ??= {};
       if (n == null) delete c.byPhase[field.slice(2)];
       else c.byPhase[field.slice(2)] = n;
     }
@@ -1038,11 +1062,28 @@ function onInput(e: Event) {
   changed();
 }
 
+/** The box being typed in, to go back to after the page is drawn again (same box, same place in it). */
+function focusedBox(): (() => void) | null {
+  const el = document.activeElement as HTMLInputElement | null;
+  if (!el?.matches?.("#fee-page .fee-in")) return null;
+  const attrs = ["k", "role", "phase", "task", "cons", "below", "sum", "f"].filter((a) => el.dataset[a] != null);
+  const selector = `#fee-page .fee-in${attrs.map((a) => `[data-${a}="${CSS.escape(el.dataset[a]!)}"]`).join("")}`;
+  const { selectionStart: from, selectionEnd: to, value } = el;
+  return () => {
+    const box = document.querySelector<HTMLInputElement>(selector);
+    if (!box || !attrs.length) return;
+    box.focus({ preventScroll: true });
+    if (box.value === value && from != null) box.setSelectionRange(from, to);
+  };
+}
+
 /** Re-renders after a structural change (rows added or removed), keeping the scroll position. */
 function rerender(save = true) {
   const y = scrollY;
+  const at = focusedBox();
   render();
   scrollTo(0, y);
+  at?.();
   if (save) {
     changed();
     checkpoint();
@@ -1053,7 +1094,6 @@ function rerender(save = true) {
 async function onClick(e: Event) {
   const t = e.target as HTMLElement;
   const attr = (name: string) => t.closest(`[${name}]`)?.getAttribute(name) ?? null;
-  if (t.closest("[data-new-fee]")) return makeFee();
   if (t.closest("[data-copy-table]")) return copyProposalTable();
   if (t.closest("[data-save-png]")) return saveTablePng(t.closest<HTMLButtonElement>("[data-save-png]")!);
   if (t.closest("[data-export-excel]")) return exportExcel(t.closest<HTMLButtonElement>("[data-export-excel]")!);
@@ -1064,27 +1104,19 @@ async function onClick(e: Event) {
     if (!next || !fee || next.id !== fee.id) return;
     fee = next;
     committed = JSON.stringify(fee); // a status change isn't an edit (and isn't undone by Undo)
-    try {
-      await saveFee({ ...fee, savedAt: Date.now() });
-    } catch (err) {
-      showSaveError((err as Error).message);
-    }
+    queueFee(fee, 0);
     return render();
   }
   const f = fee;
   let id: string | null;
-  if (t.closest("[data-link-fee]")) return linkToProject(f);
-  if (t.closest("[data-unlink-fee]")) {
-    f.workspaceProjectId = undefined;
-    return rerender();
-  }
   if (t.closest("[data-delete-fee]")) {
     if (!(await confirmDelete("fee"))) return;
-    clearTimeout(saveTimer);
-    dirty = false;
+    forgetFee(f.id);
     try {
       await deleteFee(f.id);
     } catch (err) {
+      unforgetFee(f.id);
+      if (fee) queueFee(fee); // still there: anything unsaved still counts
       return noticeModal("Couldn't delete", (err as Error).message);
     }
     fee = null;
@@ -1100,34 +1132,49 @@ async function onClick(e: Event) {
     if (!allOpen) f.phases.forEach((p) => openPhases.add(p.id));
     rerender(false);
   } else if (t.closest("[data-edit-sum]")) {
-    summaryBefore = f.draft ? JSON.stringify(f.draft) : "";
-    if (!f.draft?.basis && !f.draft?.assumptions.some((a) => a.trim())) {
-      f.draft ??= { basis: "", assumptions: [], costUsd: null, at: Date.now(), source: "notes" };
-      f.draft.assumptions.push(""); // an empty summary starts with a line to type in
-    }
+    summaryEdit = { basis: f.draft?.basis ?? "", assumptions: [...(f.draft?.assumptions ?? [])] };
+    if (!summaryEdit.basis && !summaryEdit.assumptions.some((a) => a.trim())) summaryEdit.assumptions = [""]; // an empty summary starts with a line to type in
     rerender(false);
     document.querySelector<HTMLTextAreaElement>("#fee-page [data-sum]")?.focus();
   } else if (t.closest("[data-add-sum]")) {
-    f.draft ??= { basis: "", assumptions: [], costUsd: null, at: Date.now(), source: "notes" };
-    f.draft.assumptions.push("");
+    summaryEdit?.assumptions.push("");
     rerender(false);
     const boxes = document.querySelectorAll<HTMLTextAreaElement>("#fee-page [data-sum]");
     boxes[boxes.length - 1]?.focus();
-  } else if ((id = attr("data-del-sum")) && f.draft) {
-    if (id === "basis") f.draft.basis = "";
-    else f.draft.assumptions.splice(Number(id.slice(2)), 1);
+  } else if ((id = attr("data-del-sum")) && summaryEdit) {
+    if (id === "basis") summaryEdit.basis = "";
+    else summaryEdit.assumptions.splice(Number(id.slice(2)), 1);
     rerender(false);
   } else if (t.closest("[data-save-sum]")) {
-    if (f.draft) {
-      f.draft.basis = f.draft.basis.trim();
-      f.draft.assumptions = f.draft.assumptions.map((a) => a.trim()).filter(Boolean);
-    }
-    summaryBefore = null;
-    rerender(); // saved, and one Undo step
+    const basis = summaryEdit?.basis.trim() ?? "";
+    const assumptions = (summaryEdit?.assumptions ?? []).map((a) => a.trim()).filter(Boolean);
+    const was = f.draft;
+    const unchanged = basis === (was?.basis ?? "") && JSON.stringify(assumptions) === JSON.stringify((was?.assumptions ?? []).filter((a) => a.trim()));
+    if (summaryEdit && !unchanged) f.draft = { ...(was ?? { costUsd: null, at: Date.now(), source: "notes" as const }), basis, assumptions };
+    summaryEdit = null;
+    rerender(!unchanged); // saved, and one Undo step
   } else if (t.closest("[data-cancel-sum]")) {
     cancelSummaryEdit();
   } else if (t.closest("[data-add-role]")) {
     f.roles.push({ id: crypto.randomUUID(), name: "New role", rate: null });
+    rerender();
+  } else if ((id = attr("data-remove-role"))) {
+    const roleId = id;
+    const role = f.roles.find((r) => r.id === roleId);
+    const hours = totals(f).roleHours[roleId] ?? 0;
+    if (!role) return;
+    if (hours) {
+      const ok = await confirmModal({
+        title: `Remove ${role.name.trim() || "this role"}?`,
+        body: `It has ${hrs(hours)} hours on this fee, which are removed with it. Undo brings them back.`,
+        confirm: "Remove",
+        danger: true,
+      });
+      if (!ok || fee?.id !== f.id) return;
+    }
+    // The fee as it is now (it may have been combined with someone else's while the question was up).
+    fee.roles = fee.roles.filter((r) => r.id !== roleId);
+    for (const p of fee.phases) for (const task of p.tasks) delete task.hours[roleId];
     rerender();
   } else if (t.closest("[data-add-phase]")) {
     const phase = { id: crypto.randomUUID(), name: "New phase", targetShare: 0, tasks: [] };
@@ -1161,6 +1208,7 @@ async function onClick(e: Event) {
     rerender();
   } else if ((id = attr("data-remove-cons"))) {
     f.consultants = f.consultants.filter((c) => c.id !== id);
+    for (const b of f.belowLine ?? []) if (b.by === id) b.by = undefined; // an item they were to provide isn't assigned
     rerender();
   } else if (t.closest("[data-add-below]")) {
     (f.belowLine ??= []).push({ id: crypto.randomUUID(), label: "", basis: "lump", amount: null, note: "" });

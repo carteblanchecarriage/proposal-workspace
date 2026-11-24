@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { UserFacingError } from "./claude.js";
+import { UserFacingError } from "./errors.js";
 import { insertRow, query } from "./db.js";
 
 // "Request access" from the public landing page, while sign-ups are invite-only. Anyone can send one, so it's kept

@@ -1,5 +1,5 @@
 import Stripe from "stripe";
-import { UserFacingError } from "./claude.js";
+import { UserFacingError } from "./errors.js";
 import { query } from "./db.js";
 
 /**
@@ -31,7 +31,7 @@ const capUsd = () => {
 };
 const freeLimitUsd = () => {
   const n = Number(process.env.DEFAULT_ORG_AI_LIMIT_USD ?? 0);
-  return Number.isFinite(n) ? n : 0;
+  return Number.isFinite(n) && n > 0 ? n : 0;
 };
 const q = encodeURIComponent;
 

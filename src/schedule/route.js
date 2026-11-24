@@ -28,6 +28,8 @@ export function parseScheduleHash(hash) {
         showToday: q.get('today') !== '0',
         showLegend: q.get('legend') !== '0',
         title: q.get('title') ?? '',
+        // Today where the person is (the server's PDF browser may be in another time zone).
+        on: q.get('on') ?? '',
       },
     };
   }

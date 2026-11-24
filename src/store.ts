@@ -225,26 +225,33 @@ export function startDemo(seed: Record<Kind, object[]>): void {
 }
 export const isDemo = () => demo !== null;
 
-async function remote<T>(method: string, kind: Kind, opts: { key?: string; body?: unknown; keepalive?: boolean; base?: string; version?: boolean } = {}): Promise<T | undefined> {
+type RemoteOpts = { key?: string; body?: unknown; keepalive?: boolean; base?: string; version?: boolean; create?: boolean };
+async function remote<T>(method: string, kind: Kind, opts: RemoteOpts = {}): Promise<T | undefined> {
+  const q = new URLSearchParams({ table: kind, ...(opts.key ? { key: opts.key } : {}), ...(opts.base ? { base: opts.base } : {}), ...(opts.version ? { version: "1" } : {}), ...(opts.create ? { create: "1" } : {}) });
+  return call<T>(method, `/api/db?${q}`, method === "GET" ? "load" : method === "DELETE" ? "delete" : "save", opts.body, opts.keepalive);
+}
+
+async function call<T>(method: string, url: string, verb: string, body?: unknown, keepalive?: boolean, action?: string): Promise<T | undefined> {
   if (local || demo) return undefined;
-  const q = new URLSearchParams({ table: kind, ...(opts.key ? { key: opts.key } : {}), ...(opts.base ? { base: opts.base } : {}), ...(opts.version ? { version: "1" } : {}) });
-  const verb = method === "GET" ? "load" : method === "DELETE" ? "delete" : "save";
   const send = async () => {
     try {
-      return await fetch(`/api/db?${q}`, {
+      return await fetch(url, {
         method,
-        headers: { ...(opts.keepalive ? authHeadersNow() : await authHeaders()), ...(opts.body ? { "content-type": "application/json" } : {}) },
-        body: opts.body ? JSON.stringify(opts.body) : undefined,
+        headers: { ...(keepalive ? authHeadersNow() : await authHeaders()), ...(body ? { "content-type": "application/json" } : {}), ...(action ? { "x-action": action } : {}) },
+        body: body ? JSON.stringify(body) : undefined,
         // Lets a save started as the page closes finish after it's gone.
-        keepalive: opts.keepalive,
+        keepalive,
       });
     } catch {
       throw new Error(`Couldn't ${verb}: the server can't be reached. Check your connection and try again.`);
     }
   };
   let res = await send();
-  if (res.status === 401 && !opts.keepalive && (await refreshAuth())) res = await send();
-  if (res.status === 401) unauthorized();
+  if (res.status === 401 && !keepalive && (await refreshAuth())) res = await send();
+  if (res.status === 401) {
+    have.clear(); // whoever signs in next starts from nothing
+    unauthorized();
+  }
   const data = await res.json().catch(() => ({}));
   // Only the server's explicit "no database here" (local development) switches to saving in this browser. Any other
   // failure, a 503 from a passing outage included, is an error: saves never quietly go somewhere else.
@@ -256,6 +263,74 @@ async function remote<T>(method: string, kind: Kind, opts: { key?: string; body?
   if (res.status === 409 && (data as { conflict?: boolean }).conflict) return data as T;
   if (!res.ok) throw new Error((data as { error?: string }).error ?? `Couldn't ${verb} (the server returned ${res.status}). Try again in a moment.`);
   return data as T;
+}
+
+// ---------- Loading ----------
+// Every list is asked for again each time a page opens, so it's always current. To keep that quick, lists asked for
+// together make one request, and each asks only for what's changed since this tab last had it: usually nothing.
+
+/** What this tab has of each table, as text (each list gets its own copy to change): key → its version and record. */
+const have = new Map<Kind, Map<string, { v: string; text: string }>>();
+type Synced = { tables: Partial<Record<Kind, { keys: [string, string][]; rows: { key: string; v: string; record: unknown }[] }>>; more?: boolean };
+let asking: { kinds: Set<Kind>; answer: Promise<Map<Kind, unknown[]> | undefined> } | null = null;
+
+/** A table's records as they are on the server now; undefined when records are kept in this browser. */
+async function synced<T>(kind: Kind): Promise<T[] | undefined> {
+  if (local || demo) return undefined;
+  if (!asking) {
+    const kinds = new Set<Kind>();
+    // Whatever else is asked for before the browser gets round to sending goes in the same request.
+    const answer = Promise.resolve().then(() => {
+      asking = null;
+      return syncNow([...kinds]);
+    });
+    asking = { kinds, answer };
+  }
+  asking.kinds.add(kind);
+  return (await asking.answer)?.get(kind) as T[] | undefined;
+}
+
+/** Past this many answers a table isn't being read in parts; something's wrong. */
+const MAX_PARTS = 50;
+/** Tables being read for the first time: anything else that wants one waits, rather than download it twice. */
+const firstReads = new Map<Kind, Promise<unknown>>();
+async function syncNow(kinds: Kind[]): Promise<Map<Kind, unknown[]> | undefined> {
+  await Promise.allSettled(kinds.flatMap((k) => firstReads.get(k) ?? []));
+  const first = kinds.filter((k) => !have.has(k));
+  const reading = readTables(kinds);
+  for (const k of first) firstReads.set(k, reading);
+  try {
+    return await reading;
+  } finally {
+    for (const k of first) if (firstReads.get(k) === reading) firstReads.delete(k);
+  }
+}
+
+async function readTables(kinds: Kind[]): Promise<Map<Kind, unknown[]> | undefined> {
+  let keys = new Map<Kind, [string, string][]>();
+  for (let part = 0; ; part++) {
+    if (part === MAX_PARTS) throw new Error("Couldn't load: there's too much to read at once. Try again in a moment.");
+    const known = Object.fromEntries(kinds.map((k) => [k, Object.fromEntries([...(have.get(k) ?? [])].map(([key, x]) => [key, x.v]))]));
+    const answer = await call<Synced>("POST", "/api/db", "load", { tables: known }, false, "sync");
+    if (!answer) return undefined;
+    keys = new Map(kinds.map((k) => [k, answer.tables[k]?.keys ?? []]));
+    for (const k of kinds) {
+      const mine = have.get(k) ?? new Map<string, { v: string; text: string }>();
+      for (const r of answer.tables[k]?.rows ?? []) mine.set(r.key, { v: r.v, text: JSON.stringify(r.record) });
+      // Deleted since.
+      const there = new Set(keys.get(k)!.map(([key]) => key));
+      for (const key of mine.keys()) if (!there.has(key)) mine.delete(key);
+      have.set(k, mine);
+    }
+    if (!answer.more) break;
+  }
+  return new Map(kinds.map((k) => [k, keys.get(k)!.flatMap(([key]) => { const x = have.get(k)?.get(key); return x ? [JSON.parse(x.text) as unknown] : []; })]));
+}
+
+/** Gets everything a project page shows ready in the background, so opening one only has to check what's changed. */
+export function preload(): void {
+  if (local || demo) return;
+  for (const kind of ["projects", "rfps", "comparisons", "schedules", "fees", "consultants", "settings"] as Kind[]) void synced(kind).catch(() => {});
 }
 
 async function saveRecord(kind: Kind, record: object, keepalive = false): Promise<void> {
@@ -281,7 +356,7 @@ export const setLoadProblemHandler = (fn: (message: string) => void) => (onLoadP
 async function listRecords<T extends { savedAt: number }>(kind: Kind, { strict = false } = {}): Promise<T[]> {
   if (demo) return ([...demo.get(kind)!.values()].map(copy) as T[]).sort((a, b) => b.savedAt - a.savedAt);
   try {
-    const rows = (await remote<T[]>("GET", kind)) ?? (await run<T[]>("readonly", (s) => s.getAll(), LOCAL[kind]));
+    const rows = (await synced<T>(kind)) ?? (await run<T[]>("readonly", (s) => s.getAll(), LOCAL[kind]));
     return rows.sort((a, b) => b.savedAt - a.savedAt);
   } catch (err) {
     console.error(err);
@@ -324,34 +399,47 @@ export const deleteConsultant = (id: string) => deleteRecord("consultants", id);
 export type SavedSchedule = { id: string; savedAt: number; _v?: string; createdAt?: number; title?: string; workspaceProjectId?: string } & Record<string, unknown>;
 /** keepalive: for the last save as the page closes. */
 export const saveSchedule = (s: SavedSchedule, keepalive = false) => saveRecord("schedules", s, keepalive);
-export type SaveResult = { version?: string | null; conflict?: boolean; record?: SavedSchedule | null };
+export type SaveResult<T = SavedSchedule> = { version?: string | null; conflict?: boolean; record?: T | null };
+type Versioned = { id: string; savedAt: number; _v?: string };
 /**
- * Saves a schedule only if it's still the version `base`. If someone else saved it since, nothing is saved and the
- * answer is { conflict, record: theirs (null when deleted) }. Without a base (a new schedule), saves as is.
+ * Saves a record only if it's still the version `base`. If someone else saved it since, nothing is saved and the
+ * answer is { conflict, record: theirs (null when deleted) }. Without a base (a new record), saves as is.
  */
-export async function saveScheduleFrom(s: SavedSchedule, base: string | undefined, keepalive = false): Promise<SaveResult> {
+async function saveFrom<T extends Versioned>(kind: Kind, s: T, base: string | undefined, keepalive: boolean): Promise<SaveResult<T>> {
   if (!demo && !local) {
     const { _v, ...record } = s;
-    const answer = await remote<SaveResult>("POST", "schedules", { body: record, keepalive, base });
+    const answer = await remote<SaveResult<T>>("POST", kind, { body: record, keepalive, base });
     if (answer) return answer;
   }
-  await saveRecord("schedules", s, keepalive); // the demo, or saving in this browser: no one else to collide with
+  await saveRecord(kind, s, keepalive); // the demo, or saving in this browser: no one else to collide with
   return {};
 }
-/** A schedule as it is on the server now; null when it's gone, undefined when schedules are kept in this browser. */
-export const fetchSchedule = (id: string) => remote<SavedSchedule | null>("GET", "schedules", { key: id });
-export const scheduleVersion = async (id: string) => (await remote<{ version: string | null }>("GET", "schedules", { key: id, version: true }))?.version;
-/** Changes a few fields of a schedule as it is now (not as this page loaded it), keeping everyone's other edits. */
-export async function patchSchedule(s: SavedSchedule, patch: Partial<SavedSchedule>): Promise<void> {
-  let current: SavedSchedule | null | undefined = s;
+/** Saves a new record only if there's none with its id yet; otherwise { conflict, record: the one there }. */
+async function createRecord<T extends Versioned>(kind: Kind, record: T): Promise<SaveResult<T>> {
+  const answer = await remote<SaveResult<T>>("POST", kind, { body: record, create: true });
+  if (answer) return answer;
+  await saveRecord(kind, record);
+  return {};
+}
+/** Changes a few fields of a record as it is now (not as this page loaded it), keeping everyone's other edits. */
+async function patchRecord<T extends Versioned>(kind: Kind, s: T, patch: Partial<T>): Promise<void> {
+  let current: T | null | undefined = s;
   for (let i = 0; i < 4; i++) {
-    const saved: SaveResult = await saveScheduleFrom({ ...current, ...patch, savedAt: Date.now(), savedBy: undefined }, current._v);
+    const saved: SaveResult<T> = await saveFrom(kind, { ...current, ...patch, savedAt: Date.now(), savedBy: undefined } as T, current._v, false);
     if (!saved.conflict) return;
     current = saved.record;
     if (!current) return; // deleted meanwhile
   }
-  throw new Error("The schedule is being changed by someone else. Try again in a moment.");
+  throw new Error("This is being changed by someone else. Try again in a moment.");
 }
+/** A record's version on the server: null when it's gone, undefined when records are kept in this browser. */
+const versionOf = async (kind: Kind, id: string) => (await remote<{ version: string | null }>("GET", kind, { key: id, version: true }))?.version;
+
+export const saveScheduleFrom = (s: SavedSchedule, base: string | undefined, keepalive = false) => saveFrom("schedules", s, base, keepalive);
+export const createSchedule = (s: SavedSchedule) => createRecord("schedules", s);
+export const fetchSchedule = (id: string) => remote<SavedSchedule | null>("GET", "schedules", { key: id });
+export const scheduleVersion = (id: string) => versionOf("schedules", id);
+export const patchSchedule = (s: SavedSchedule, patch: Partial<SavedSchedule>) => patchRecord("schedules", s, patch);
 export const listSchedules = () => listRecords<SavedSchedule>("schedules");
 export const deleteSchedule = (id: string) => deleteRecord("schedules", id);
 
@@ -387,7 +475,11 @@ export type FeeConsultant = { id: string; discipline: string; firm: string; /** 
 /** A fee being built for a project: labor by phase and role, consultants with a management markup, and a budget. */
 export type SavedFee = {
   id: string;
+  /** its version on the server, which a save says it started from; never stored */
+  _v?: string;
   savedAt: number;
+  /** when it was made: tells it from another fee made later for the same project */
+  createdAt?: number;
   title: string;
   workspaceProjectId?: string;
   /** Draft until the team marks it final (editing a final fee makes it a draft again). */
@@ -435,6 +527,11 @@ export type SavedFee = {
 };
 
 export const saveFee = (f: SavedFee, keepalive = false) => saveRecord("fees", f, keepalive);
+export const saveFeeFrom = (f: SavedFee, base: string | undefined, keepalive = false) => saveFrom("fees", f, base, keepalive);
+export const createFee = (f: SavedFee) => createRecord("fees", f);
+export const fetchFee = (id: string) => remote<SavedFee | null>("GET", "fees", { key: id });
+export const feeVersion = (id: string) => versionOf("fees", id);
+export const patchFee = (f: SavedFee, patch: Partial<SavedFee>) => patchRecord("fees", f, patch);
 export const listFees = () => listRecords<SavedFee>("fees");
 export const deleteFee = (id: string) => deleteRecord("fees", id);
 export const saveReading = (r: SavedReading) => saveRecord("readings", r).catch(console.error);

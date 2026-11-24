@@ -20,6 +20,9 @@ export const taskCost = (t: FeeTask, roles: FeeRole[]) => roles.reduce((s, r) =>
 export const consultantPhase = (c: FeeConsultant, phaseId: string) => num(c.byPhase?.[phaseId]);
 export const consultantTotal = (c: FeeConsultant, phases: FeePhase[]) => phases.reduce((s, p) => s + consultantPhase(c, p.id), 0);
 
+/** Whether a consultant has a fee in any phase (a credit counts, and so do a fee and a credit that cancel out). */
+export const hasFee = (c: FeeConsultant, phases: FeePhase[]) => phases.some((p) => consultantPhase(c, p.id) !== 0);
+
 /**
  * Scales weights to whole percents that add up to exactly 100: each gets its rounded-down share, and the points left
  * over go to the largest remainders. All null when there's nothing to scale.
@@ -132,7 +135,7 @@ export const UNNAMED_PHASE = "Unnamed phase";
 
 export function proposalTable(f: SavedFee): ProposalTable {
   const markup = num(f.markupPercent) / 100;
-  const consultants = f.consultants.filter((c) => consultantTotal(c, f.phases) > 0);
+  const consultants = f.consultants.filter((c) => hasFee(c, f.phases));
   const rows = f.phases
     .map((p) => {
       const quoted = consultants.map((c) => consultantPhase(c, p.id));
@@ -204,5 +207,28 @@ export function readAmount(text: string): number | null {
 /** Floor area in square feet ("12,000 SF", "12,000 sq ft", "12,000 GSF"). */
 export function readArea(text: string): number | null {
   const m = /(\d[\d,]*(?:\.\d+)?)\s*(?:gsf|nsf|sf|sq\.?\s*ft|square\s+feet|gross\s+square\s+feet)\b/i.exec(text);
-  return m ? parseFloat(m[1].replace(/,/g, "")) : null;
+  if (!m) return null;
+  // A range ("10,000–12,000 SF", "10,000 to 12,000 SF") isn't one area.
+  if (/\d\s*(?:gsf|nsf|sf)?\s*(?:[-–—]|to)\s*$/i.test(text.slice(0, m.index))) return null;
+  if (/^\s*(?:[-–—]|to\b)\s*\d/i.test(text.slice(m.index + m[0].length))) return null;
+  return parseFloat(m[1].replace(/,/g, ""));
+}
+
+const UNIT: Record<string, number> = { k: 1e3, thousand: 1e3, m: 1e6, mil: 1e6, million: 1e6 };
+/**
+ * What was typed or pasted into a number box, as plain digits: the first number only ("4,000,000 - 5,000,000" is
+ * 4000000, not the two run together). In dollar and area boxes a unit counts ("4.5M" is 4500000). A minus is kept
+ * only where a credit makes sense.
+ */
+export function cleanNumber(text: string, o: { units?: boolean; negative?: boolean } = {}): string {
+  const credit = /^\s*\$?\s*\(\s*\$?\s*\d[\d,.]*\s*\)/.test(text); // (500) as accountants write it
+  const t = text.replace(/[$%(]/g, "").trimStart();
+  const m = /^[^\d.-]*(-?)\s*((?:\d[\d,\s]*)?)(?:(\.)(\d*))?/.exec(t)!;
+  const sign = o.negative && (m[1] || credit) ? "-" : "";
+  let int = m[2].replace(/[,\s]/g, "");
+  let out = int + (m[3] ? "." + m[4] : "");
+  const unit = o.units && /\d/.test(out) && /^\s*(million|mil|m|thousand|k)\b/i.exec(t.slice(m[0].length));
+  if (unit) out = String(Math.round(parseFloat(out) * UNIT[unit[1].toLowerCase()]));
+  int = out.split(".")[0].replace(/^0+(?=\d)/, "");
+  return sign + int + (out.includes(".") ? "." + out.split(".")[1] : "");
 }

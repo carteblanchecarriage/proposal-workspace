@@ -1,3 +1,4 @@
+import { isDay } from "../lib/dates";
 import { DISCIPLINES, firmDisciplines, toDisciplines } from "../lib/disciplines";
 import { removeFirms } from "../lib/comparison-edit";
 import { defaultScheduleNotes, setScheduleNotes } from "./org";
@@ -8,10 +9,10 @@ import { SCHEDULE_TEMPLATES } from "./schedule/lib/data/templates.js";
 import { blockedInDemo, post, postJson } from "./api";
 import { type Usage } from "../lib/cost";
 import type { Comparison, Proposal, ScheduleDraft } from "../lib/claude";
-import { consultantTotal, proposalTable, roundedTable, totals } from "./fee-calc";
+import { hasFee, proposalTable, roundedTable, totals } from "./fee-calc";
 import { DEFAULT_FEE_STYLE, roundFee, type FeeRounding } from "./fee-style";
 import { feeStatusHtml, setFeeStatus } from "./fee-status";
-import { deleteProject, isDemo, listFees, saveFee, type SavedFee, projectLabel, listComparisons, listProjects, listSchedules, getScheduleStyle, type ScheduleStyle, savesShared, listRfps, getFeeStyle, saveComparison, saveProject, saveRfp, patchSchedule, saveSchedule, listConsultants, type SavedConsultant, type SavedComparison, type SavedProject, type SavedRfp, type SavedSchedule, type ProjectFirm, type ReceivedProposal } from "./store";
+import { deleteProject, isDemo, listFees, patchFee, saveFee, saveFeeFrom, type SavedFee, projectLabel, listComparisons, listProjects, listSchedules, getScheduleStyle, type ScheduleStyle, savesShared, listRfps, getFeeStyle, saveComparison, saveProject, saveRfp, createSchedule, patchSchedule, saveSchedule, listConsultants, type SavedConsultant, type SavedComparison, type SavedProject, type SavedRfp, type SavedSchedule, type ProjectFirm, type ReceivedProposal } from "./store";
 import { addAddendum, docKindLabel, docTitle, formatWhen, physicalSubmission, printBy, parseDay, projectDisciplines, proposalDue, verdictPill } from "./rfp";
 import { setPendingProject } from "./pending";
 import { markRevealed, type DemoPart } from "./demo/ids";
@@ -68,6 +69,9 @@ export async function openProject(id: string) {
   const nextView = location.hash.split("/")[2] === "consultants" ? "consultants" : "dash";
   const key = `project:${id}:${nextView}`;
   const token = beginView(key);
+  // Asked for together with the project itself: one request, not one after the other.
+  const parts = projectParts();
+  parts.catch(() => {}); // a failure shows where it's waited for, below
   const found = (await listProjects()).find((p) => p.id === id);
   if (token !== viewToken) return;
   if (!found) {
@@ -78,7 +82,7 @@ export async function openProject(id: string) {
   project = found;
   if (!same) matrixEditing = false;
   view = nextView;
-  await load();
+  await load(parts);
   if (token !== viewToken) return; // a later switch is on its way
   render();
   endView(key);
@@ -90,10 +94,9 @@ let scheduleStyle: ScheduleStyle = { colors: {} };
 /** The organization's fee rounding (Organization settings), so the dashboard's fee matches the Proposal table. */
 let feeRounding: FeeRounding = DEFAULT_FEE_STYLE.rounding;
 
-async function load() {
-  if (!project) return;
-  const id = project.id;
-  const [rfps, cmps, scheds, fs, dir, style, feeStyle] = await Promise.all([
+/** Everything a project page shows besides the project itself. */
+const projectParts = () =>
+  Promise.all([
     listRfps(),
     listComparisons(),
     listSchedules(),
@@ -103,6 +106,11 @@ async function load() {
     getScheduleStyle().catch(() => ({ colors: {} }) as ScheduleStyle),
     getFeeStyle().catch(() => DEFAULT_FEE_STYLE),
   ]);
+
+async function load(parts = projectParts()) {
+  if (!project) return;
+  const id = project.id;
+  const [rfps, cmps, scheds, fs, dir, style, feeStyle] = await parts;
   if (project?.id !== id) return; // another project opened meanwhile; its own load fills these in
   directory = dir;
   scheduleStyle = style;
@@ -351,7 +359,7 @@ function feeSummaryHtml(f: SavedFee | undefined): string {
   const cents = feeRounding === 0.01;
   const amount = (n: number) => (cents ? n.toLocaleString("en-US", { style: "currency", currency: "USD" }) : money(n));
   const href = `#fee/${encodeURIComponent(f.id)}`;
-  const firms = f.consultants.filter((c) => consultantTotal(c, f.phases) > 0).length;
+  const firms = f.consultants.filter((c) => hasFee(c, f.phases)).length;
   const consultantsNote = `<p class="proj-fee-note">${
     firms
       ? `Plus ${firms} consultant fee${firms === 1 ? "" : "s"}, in the <a class="link" href="${href}">fee workspace</a>.`
@@ -413,7 +421,6 @@ const KIND_COLOR: Record<string, string> = {
   construction: "#6D245D",
   closeout: "#282829",
 };
-const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
 
 /**
  * Makes the project's schedule (a project has at most one; if it already has one, that opens). Starts from the same
@@ -455,6 +462,8 @@ async function makeSchedule() {
     schedule = withRfpMilestones(tpl.make() as unknown as SavedSchedule);
   }
   Object.assign(schedule, {
+    // A project's schedule has the project's own id in it, so two people making it at once can't make two.
+    id: `schedule-${p.id}`,
     savedAt: Date.now(),
     createdAt: Date.now(),
     workspaceProjectId: p.id,
@@ -464,7 +473,12 @@ async function makeSchedule() {
     colorVersion: 2,
   });
   try {
-    await saveSchedule(schedule);
+    let saved = await createSchedule(schedule);
+    if (saved.conflict && saved.record?.workspaceProjectId !== p.id) {
+      schedule.id = crypto.randomUUID(); // that id is a schedule that's no longer this project's
+      saved = await createSchedule(schedule);
+    }
+    if (saved.conflict) await noticeModal("This project already has a schedule", "Someone else made one just now. It opens instead of making another.");
   } catch (err) {
     return noticeModal("Schedule not saved", (err as Error).message);
   }
@@ -495,8 +509,8 @@ function scheduleFromDraft(d: ScheduleDraft): SavedSchedule {
   const tasks = d.tasks
     .map((t, i) => {
       const id = i + 1;
-      if (t.kind === "milestone") return ISO_DAY.test(t.date) ? { id, name: t.name, type: "milestone", date: t.date } : null;
-      if (!ISO_DAY.test(t.start) || !ISO_DAY.test(t.end)) return null;
+      if (t.kind === "milestone") return isDay(t.date) ? { id, name: t.name, type: "milestone", date: t.date } : null;
+      if (!isDay(t.start) || !isDay(t.end)) return null;
       const [start, end] = t.start <= t.end ? [t.start, t.end] : [t.end, t.start];
       return { id, name: t.name, type: "bar", color: KIND_COLOR[t.kind] ?? "#00914D", start, end };
     })
@@ -527,7 +541,7 @@ function scheduleFromDraft(d: ScheduleDraft): SavedSchedule {
  * permit approval. Only what the draft has a date for.
  */
 function legendFromDraft(d: ScheduleDraft) {
-  const ok = (s: string) => ISO_DAY.test(s);
+  const ok = (s: string) => isDay(s);
   const bars = d.tasks.filter((t) => t.kind !== "milestone" && ok(t.start) && ok(t.end)).map((t) => (t.start <= t.end ? t : { ...t, start: t.end, end: t.start }));
   const lastEnd = (kind: string, name?: RegExp) => bars.filter((t) => t.kind === kind && (!name || name.test(t.name))).map((t) => t.end).sort().pop() ?? "";
   const firstStart = (kind: string) => bars.filter((t) => t.kind === kind).map((t) => t.start).sort()[0] ?? "";
@@ -1162,6 +1176,7 @@ async function rename() {
   const p = project;
   const entered = await askProjectName("Edit project", "Save", p);
   if (!entered || (entered.name === p.name && entered.number === p.number)) return;
+  const oldName = projectLabel(p);
   p.name = entered.name;
   p.number = entered.number;
   const name = projectLabel(p);
@@ -1172,6 +1187,8 @@ async function rename() {
     await Promise.all(comparisons.map((c) => saveComparison({ ...c, projectName: name })));
     // Its schedule is named after it (title and project number), so it follows too.
     await Promise.all(schedules.map((s) => patchSchedule(s, { title: p.name, number: p.number ?? "" })));
+    // So does its fee, unless it was given a title of its own.
+    await Promise.all(fees.filter((f) => f.title === oldName).map((f) => patchFee(f, { title: name })));
   } catch (err) {
     await noticeModal("Not saved", (err as Error).message);
   }
@@ -1216,7 +1233,7 @@ async function remove(id: string) {
       ...rfps.filter((r) => r.projectId === id).map((r) => saveRfp({ ...r, projectId: undefined, project: null })),
       ...cmps.filter((c) => c.projectId === id).map((c) => saveComparison({ ...c, projectId: undefined, projectName: null })),
       ...(await listSchedules()).filter((s) => s.workspaceProjectId === id).map((s) => patchSchedule(s, { workspaceProjectId: undefined })),
-      ...(await listFees()).filter((f) => f.workspaceProjectId === id).map((f) => saveFee({ ...f, workspaceProjectId: undefined })),
+      ...(await listFees()).filter((f) => f.workspaceProjectId === id).map((f) => patchFee(f, { workspaceProjectId: undefined })),
     ]);
     await deleteProject(id);
   } catch (err) {
@@ -1251,8 +1268,13 @@ async function onClick(e: Event) {
     const next = f && (await setFeeStatus(f, t.closest("[data-fee-final]") ? "final" : "draft"));
     if (!next) return;
     try {
-      await saveFee({ ...next, savedAt: Date.now() });
-      fees = fees.map((x) => (x.id === next.id ? next : x));
+      // Only these numbers are being marked: if someone changed the fee since this page loaded, it isn't.
+      const saved = await saveFeeFrom({ ...next, savedAt: Date.now() }, f._v);
+      if (saved.conflict) {
+        await noticeModal("The fee has changed", "Someone changed this fee since you opened this page. Nothing was marked; the page now shows it as it is.");
+        return load();
+      }
+      fees = fees.map((x) => (x.id === next.id ? { ...next, _v: saved.version ?? undefined } : x));
     } catch (err) {
       return noticeModal("Not saved", (err as Error).message);
     }

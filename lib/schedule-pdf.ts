@@ -21,6 +21,7 @@ export async function schedulePdf(opts: {
   schedule: unknown;
   paper: Paper;
   showToday: boolean;
+  today?: string;
   showLegend: boolean;
   /** the organization's schedule colors, by category */
   palette: Record<string, string>;
@@ -54,7 +55,7 @@ export async function schedulePdf(opts: {
       JSON.stringify(opts.palette),
       JSON.stringify({ font: opts.font, showToday: opts.showToday }),
     );
-    const params = new URLSearchParams({ paper: opts.paper, today: opts.showToday ? "1" : "0", legend: opts.showLegend ? "1" : "0", pdf: "1" });
+    const params = new URLSearchParams({ paper: opts.paper, today: opts.showToday ? "1" : "0", legend: opts.showLegend ? "1" : "0", pdf: "1", ...(opts.today ? { on: opts.today } : {}) });
     await page.goto(`${opts.origin}/#schedule-print?${params}`, { waitUntil: "networkidle0", timeout: 30_000 });
     await page.waitForSelector(".preview-pg", { timeout: 15_000 });
     await page.evaluate(() => document.fonts.ready);

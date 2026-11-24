@@ -1,4 +1,4 @@
-import { UserFacingError } from "./claude.js";
+import { UserFacingError } from "./errors.js";
 
 /**
  * The app's own address: where the server's PDF browser may go, and where Stripe sends people back to. On Vercel it

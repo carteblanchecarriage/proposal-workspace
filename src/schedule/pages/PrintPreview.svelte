@@ -3,7 +3,8 @@
   import TaskPanel    from '../lib/components/TaskPanel.svelte';
   import GanttPanel   from '../lib/components/GanttPanel.svelte';
   import LegendFooter from '../lib/components/LegendFooter.svelte';
-  import { parseDate, toISO, timeColumns } from '../lib/utils/dates.js';
+  import { isDate, parseDate, toISO, timeColumns } from '../lib/utils/dates.js';
+  import { normalizeProject } from '../lib/stores/projects.js';
 
   let { data } = $props();
   let markerLanes = $state(1); // stacked marker lanes reported by GanttPanel
@@ -59,6 +60,17 @@
 
   const noop = () => {};
 
+  // To the print panel around the preview (this site only): that it's ready for its options, the scale it printed at,
+  // and Escape, which is pressed here once the preview has been clicked.
+  const tell = (m) => { if (window.parent !== window) window.parent.postMessage({ preview: m }, location.origin); };
+  $effect(() => { if (fitted) tell({ scale: fit }); });
+  onMount(() => {
+    tell({ ready: true });
+    const onKey = (e) => { if (e.key === 'Escape') tell({ escape: true }); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  });
+
   // Option changes from the print panel (this site only); the listener goes when the preview closes.
   onMount(() => {
     const onMessage = (e) => {
@@ -81,7 +93,7 @@
   onMount(async () => {
     const raw = sessionStorage.getItem('schedule_preview');
     if (raw) {
-      try { project = JSON.parse(raw); } catch {}
+      try { project = normalizeProject(JSON.parse(raw)); } catch {}
     }
 
 
@@ -131,7 +143,7 @@
           tasks={project.tasks}
           viewStart={project.viewStart}
           viewEnd={project.viewEnd}
-          todayMark={toISO(new Date())}
+          todayMark={isDate(data.on) ? data.on : toISO(new Date())}
           legend={project.legend}
           dropDate={null}
           highlightTaskId={null}

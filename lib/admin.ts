@@ -1,6 +1,6 @@
 import { query } from "./db.js";
 import { AI_SAFEGUARD_USD, effectiveLimit } from "./ai-limits.js";
-import { UserFacingError } from "./claude.js";
+import { UserFacingError } from "./errors.js";
 import { sortFeatures } from "./admin-usage.js";
 
 // The site owner's activity page (#admin): every organization's plan, members and AI use, the site's activity over

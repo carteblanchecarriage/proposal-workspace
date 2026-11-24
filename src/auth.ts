@@ -1,10 +1,11 @@
-import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+// Only Supabase's sign-in part: records go through this app's own server, so the rest of its library isn't needed.
+import { AuthClient } from "@supabase/auth-js";
 
 // Supabase Auth in the browser. The server tells the page whether login is on and gives it the project's public
 // URL and publishable key (GET /api/auth), so there's one place to configure it. The session lives in localStorage
 // and refreshes itself; every API call sends its access token.
 
-let client: SupabaseClient | null = null;
+let client: { auth: InstanceType<typeof AuthClient> } | null = null;
 /** The current access token, kept in step with the session (read synchronously for saves sent as the page closes). */
 let token = "";
 /** Set when the page was opened from a password-reset email: the person should choose a new password. */
@@ -39,10 +40,19 @@ export async function initAuth(): Promise<boolean> {
     ? { access_token: fragment.get("access_token")!, refresh_token: fragment.get("refresh_token")!, type: fragment.get("type") }
     : null;
   if (linked || fragment.get("error_description")) history.replaceState(null, "", location.pathname + location.search);
-  client = createClient(auth.url, auth.publishableKey, {
-    // PKCE: sign-in links come back as ?code=… (not a #fragment), so they don't collide with the app's #tab routes.
-    auth: { flowType: "pkce", persistSession: true, autoRefreshToken: true, detectSessionInUrl: true },
-  });
+  client = {
+    auth: new AuthClient({
+      url: `${auth.url}/auth/v1`,
+      headers: { apikey: auth.publishableKey, Authorization: `Bearer ${auth.publishableKey}` },
+      // Where Supabase's full library keeps the sign-in, so people stay signed in.
+      storageKey: `sb-${new URL(auth.url).hostname.split(".")[0]}-auth-token`,
+      // PKCE: sign-in links come back as ?code=… (not a #fragment), so they don't collide with the app's #tab routes.
+      flowType: "pkce",
+      persistSession: true,
+      autoRefreshToken: true,
+      detectSessionInUrl: true,
+    }),
+  };
   client.auth.onAuthStateChange((event, session) => {
     token = session?.access_token ?? "";
     if (event === "PASSWORD_RECOVERY") recovering = true;

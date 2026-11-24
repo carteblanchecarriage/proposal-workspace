@@ -1,6 +1,5 @@
 import { type Usage } from "../lib/cost";
 import type { Fit, Rfp, SiteDraft } from "../lib/claude";
-import { FEATURES } from "../lib/prompts";
 import {
   feeCurveAt,
   OUTCOMES,
@@ -14,7 +13,7 @@ import {
   type WorldView,
 } from "../lib/worldview";
 import { postJson } from "./api";
-import { readAmount } from "./fee-calc";
+import { readAmount, cleanNumber } from "./fee-calc";
 import { confirmDelete, confirmModal, noticeModal } from "./modal";
 import { servicesMatrix, uploadRfpPdf } from "./rfp";
 import { deletePursuit, getWorldView, listPursuits, listRfps, savePursuit, saveWorldView, savesShared, type SavedRfp } from "./store";
@@ -232,9 +231,19 @@ function phasesHtml(): string {
 
 let sectionsDraft: string | null = null;
 
+let features: typeof import("../lib/prompts").FEATURES | null = null;
 /** Each tool's built-in instructions, read-only: what the app adds to every request (a view of the code). */
 function toolsHtml(): string {
-  return FEATURES.map(
+  if (!features) {
+    // Large, and shown only here, so loaded once the page is open.
+    void import("../lib/prompts").then((m) => {
+      features = m.FEATURES;
+      const el = document.getElementById("wv-tools");
+      if (el) el.innerHTML = toolsHtml();
+    });
+    return `<p class="none">Loading…</p>`;
+  }
+  return features.map(
     (f) => `<details class="wv-prompt"><summary>${esc(f.name)} <span class="note">${f.usesWorldView ? "with the world view" : "reads documents as written, without the world view"}</span></summary><pre>${esc(f.prompt)}</pre></details>`,
   ).join("");
 }
@@ -407,7 +416,7 @@ function render() {
     <div class="block">
       <h2 class="label">How each tool works</h2>
       <p class="wv-intro">Each tool's built-in instructions: what it does and the format the app reads. They're part of the app and can't be changed here; the world view above is added after them, and the schedule tools also get your schedule colors and conventions from the <a class="link" href="#org">Organization page</a>.</p>
-      ${toolsHtml()}
+      <div id="wv-tools">${toolsHtml()}</div>
     </div>`;
   drawChart();
 }
@@ -439,10 +448,12 @@ async function save(keepalive = false) {
   }
 }
 
-const parseNum = (s: string) => {
-  const n = parseFloat(s.replace(/[$,%\s]/g, ""));
+/** A number as typed or pasted: the first one only, with its unit in dollar boxes ("4.5M"); null when there's none. */
+const parseNum = (s: string, units = false) => {
+  const n = parseFloat(cleanNumber(s, { units }));
   return Number.isFinite(n) ? n : null;
 };
+const parsePercent = (s: string) => Math.min(100, parseNum(s) ?? 0);
 
 function onInput(e: Event) {
   const el = e.target as HTMLInputElement | HTMLTextAreaElement;
@@ -450,14 +461,13 @@ function onInput(e: Event) {
   if (el.dataset.point != null && curveDraft) {
     const p = curveDraft[Number(el.dataset.point)];
     if (!p) return;
-    const n = parseNum(el.value);
-    if (el.dataset.f === "budget") p.budget = n ?? 0;
-    else p.percent = n ?? 0;
+    if (el.dataset.f === "budget") p.budget = parseNum(el.value, true) ?? 0;
+    else p.percent = parsePercent(el.value);
   } else if (el.dataset.phaseRow != null && phasesDraft) {
     const p = phasesDraft[Number(el.dataset.phaseRow)];
     if (!p) return;
     if (el.dataset.f === "name") p.name = el.value;
-    else p.percent = parseNum(el.value) ?? 0;
+    else p.percent = parsePercent(el.value);
     const total = document.getElementById("wv-phase-total");
     if (total) total.textContent = `${phaseTotal(phasesDraft)}%`;
   }
@@ -474,7 +484,9 @@ function onChange(e: Event) {
   }
 
   if (el.dataset.point != null) {
-    if (el.dataset.f === "budget" && parseNum(el.value) != null) el.value = parseNum(el.value)!.toLocaleString("en-US");
+    const p = curveDraft?.[Number(el.dataset.point)];
+    // Shown as it was read.
+    if (p) el.value = el.dataset.f === "budget" ? (p.budget ? p.budget.toLocaleString("en-US") : "") : String(p.percent);
     drawChart();
   }
 }
@@ -508,22 +520,25 @@ function drawChart() {
       const pct = (p.ourFee! / p.budget!) * 100;
       return { x: 0, y: 0, name: rfpOf(p, rfps)?.project_name ?? "Past pursuit", outcome: p.outcome, pct, budget: p.budget! };
     });
-  yMax = Math.max(12, Math.ceil(Math.max(0, ...pts.map((p) => p.percent), ...dots.map((d) => d.pct)) / 2) * 2 + 2);
+  // To 100% at most: one mistyped budget or fee mustn't stretch the chart (and draw a line every 2% on the way).
+  const top = Math.max(0, ...[...pts.map((p) => p.percent), ...dots.map((d) => d.pct)].filter(Number.isFinite));
+  const step = [2, 5, 10].find((n) => top / n <= 12) ?? 20;
+  yMax = Math.min(100, Math.max(12, (Math.ceil(top / step) + 1) * step));
   for (const d of dots) {
     d.x = sx(Math.min(X1, Math.max(X0, d.budget)));
-    d.y = sy(d.pct);
+    d.y = sy(Math.min(yMax, d.pct));
   }
   const xTicks = [500_000, 1_000_000, 2_000_000, 5_000_000, 10_000_000, 20_000_000, 50_000_000, 100_000_000];
-  const yTicks = Array.from({ length: yMax / 2 + 1 }, (_, i) => i * 2);
+  const yTicks = Array.from({ length: Math.floor(yMax / step) + 1 }, (_, i) => i * step);
   // The line runs across the whole chart, flat beyond the first and last points, like feeCurveAt.
   const samples = pts.length ? Array.from({ length: 61 }, (_, i) => X0 * Math.pow(X1 / X0, i / 60)) : [];
-  const path = samples.map((b, i) => `${i ? "L" : "M"}${sx(b).toFixed(1)},${sy(feeCurveAt(pts, b)!).toFixed(1)}`).join("");
+  const path = samples.map((b, i) => `${i ? "L" : "M"}${sx(b).toFixed(1)},${sy(Math.min(yMax, feeCurveAt(pts, b)!)).toFixed(1)}`).join("");
   el.innerHTML = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Expected architectural fee as a percent of construction, by construction budget">
     ${yTicks.map((t) => `<line class="grid" x1="${PAD.l}" x2="${W - PAD.r}" y1="${sy(t)}" y2="${sy(t)}"/><text class="tick" x="${PAD.l - 8}" y="${sy(t) + 4}" text-anchor="end">${t}%</text>`).join("")}
     ${xTicks.map((t) => `<text class="tick" x="${sx(t)}" y="${H - PAD.b + 18}" text-anchor="middle">${short(t)}</text>`).join("")}
     <text class="axis" x="${(PAD.l + W - PAD.r) / 2}" y="${H - 4}" text-anchor="middle">Construction budget</text>
     <path class="curve" d="${path}"/>
-    ${pts.map((p) => `<circle class="point" cx="${sx(Math.min(X1, Math.max(X0, p.budget)))}" cy="${sy(p.percent)}" r="4"/>`).join("")}
+    ${pts.map((p) => `<circle class="point" cx="${sx(Math.min(X1, Math.max(X0, p.budget)))}" cy="${sy(Math.min(yMax, p.percent))}" r="4"/>`).join("")}
     ${dots
       .map(
         (d, i) =>
@@ -694,8 +709,8 @@ async function onSubmit(e: Event) {
     outcome: (form.querySelector<HTMLInputElement>('[name="outcome"]:checked')?.value as Outcome) ?? "won",
     ourProposal: val("ourProposal"),
     debrief: val("debrief"),
-    budget: parseNum(val("budget")),
-    ourFee: parseNum(val("ourFee")),
+    budget: parseNum(val("budget"), true),
+    ourFee: parseNum(val("ourFee"), true),
   };
   const chosen = !before ? rfps.find((r) => r.id === val("rfpId")) : undefined;
   if (chosen) {

@@ -1,13 +1,14 @@
 ﻿<script>
   import { onMount } from 'svelte';
   import { projectStore, historyDepth, notice, saveError, viewAround, watchSchedule } from '../lib/stores/projects.js';
-  import { generateId, parseDate, toISO, MONTHS_SHORT, monthList, totalDays, ZOOM_COL_W, projectDateRange, isView, pxToDateMonth, pxToDatePeriod, toWeekday } from '../lib/utils/dates.js';
+  import { generateId, monthStart, timeColumns, parseDate, toISO, MONTHS_SHORT, monthList, totalDays, ZOOM_COL_W, projectDateRange, isView, pxToDateMonth, pxToDatePeriod, toWeekday } from '../lib/utils/dates.js';
   import TaskPanel    from '../lib/components/TaskPanel.svelte';
   import GanttPanel   from '../lib/components/GanttPanel.svelte';
   import LegendFooter from '../lib/components/LegendFooter.svelte';
   import PrintPanel   from '../lib/components/PrintPanel.svelte';
   import { goto } from '../lib/nav.js';
-  import { confirmDelete } from '../../modal';
+  import { confirmDelete, noticeModal } from '../../modal';
+  import { readReply } from '../../schedule-reply';
   import { authHeaders } from '../../auth';
   import { blockedInDemo, postJson } from '../../api';
   import { setAssistantPage } from '../../assistant';
@@ -32,7 +33,11 @@
     if (!project) return;
     const back = project.workspaceProjectId ? `#project/${encodeURIComponent(project.workspaceProjectId)}` : '#schedule';
     if (!(await confirmDelete('schedule'))) return;
-    projectStore.deleteProject(project.id);
+    try {
+      await projectStore.deleteProject(project.id);
+    } catch (err) {
+      return noticeModal("Couldn't delete the schedule", err.message);
+    }
     location.hash = back;
   }
 
@@ -81,17 +86,13 @@
           { type: 'text', text: last.content },
         ]
       : last.content;
-    const res = await postJson('/api/schedule-ai', { project, digest, messages: [...turns.slice(0, -1), { role: 'user', content }] });
+    const sent = project; // what its ids and legend places refer to, however the schedule changes meanwhile
+    const res = await postJson('/api/schedule-ai', { project: sent, digest, messages: [...turns.slice(0, -1), { role: 'user', content }] });
     const raw = res.text ?? '';
     const base = { source: 'data', costUsd: res.usage?.cost_usd ?? null };
-    // An edit comes back as JSON ({ message, changes }); anything else is a plain answer.
-    const json = raw.match(/\{[\s\S]*\}/);
-    let parsed = null;
-    try { parsed = json ? JSON.parse(json[0]) : null; } catch { parsed = null; }
-    if (!parsed) return { ...base, text: raw };
-    const changes = Array.isArray(parsed.changes) ? parsed.changes : [];
-    const result = changes.length ? handleAiChanges(changes) : null;
-    const text = parsed.message ?? 'Done.';
+    const { message: text, changes } = readReply(raw);
+    if (!changes) return { ...base, text };
+    const result = changes.length ? handleAiChanges(changes, sent) : null;
     // Say plainly when a change didn't take, rather than leave the reply claiming it did.
     const meta = [
       result?.applied ? `Schedule updated (${result.applied} change${result.applied === 1 ? '' : 's'})` : '',
@@ -122,8 +123,9 @@
     printColW !== null ? printColW :
     zoom === 'fit' ? fitColW : (ZOOM_COL_W[zoom] ?? 72)
   );
-  let ganttWidth  = $derived(ganttMonths.length * effectiveColW);
   let displayZoom = $derived(zoom === 'fit' ? 'month' : zoom);
+  // As wide as the columns drawn, so the task names stay beside them all the way across.
+  let ganttWidth  = $derived(project ? timeColumns(parseDate(project.viewStart), parseDate(project.viewEnd), displayZoom).length * effectiveColW : 0);
 
   // Drop targets snap off weekends so the indicator shows the date that will be saved
   function xToDate(clientX) {
@@ -135,7 +137,7 @@
     if (!schScrollEl || !project) return null;
     const rect = schScrollEl.getBoundingClientRect();
     const relX  = clientX - rect.left - TASK_COL_W + schScrollEl.scrollLeft;
-    const vs    = parseDate(project.viewStart);
+    const vs    = monthStart(parseDate(project.viewStart));
     if (displayZoom === 'month')  return pxToDateMonth(relX, vs, effectiveColW);
     if (displayZoom === 'biweek') return pxToDatePeriod(relX, vs, effectiveColW, 14);
     if (displayZoom === 'week')   return pxToDatePeriod(relX, vs, effectiveColW, 7);
@@ -285,21 +287,21 @@
   function startMilestoneDrag(ms, e) {
     draggingLegendMs = ms;
     startLegendDrag(makeMilestoneGhost(ms), e, (date) => {
-      const idx = project.legend.milestones.findIndex(m => m.code === ms.code);
+      const idx = project.legend.milestones.findIndex(m => m.uid === ms.uid);
       if (idx >= 0) projectStore.updateLegendItem(data.id, 'milestones', idx, { date });
     });
   }
 
   function startApprovalDrag(a, e) {
     startLegendDrag(makeApprovalGhost(a), e, (date) => {
-      const idx = project.legend.approvals.findIndex(ap => ap.text === a.text);
+      const idx = project.legend.approvals.findIndex(ap => ap.uid === a.uid);
       if (idx >= 0) projectStore.updateLegendItem(data.id, 'approvals', idx, { date });
     });
   }
 
   function startEstimateDrag(est, e) {
     startLegendDrag(makeEstimateGhost(est), e, (date) => {
-      const idx = project.legend.estimates.findIndex(e => e.code === est.code);
+      const idx = project.legend.estimates.findIndex(e => e.uid === est.uid);
       if (idx >= 0) projectStore.updateLegendItem(data.id, 'estimates', idx, { date });
     });
   }
@@ -398,9 +400,6 @@
   function updateMeta(field, val) {
     projectStore.updateProject(data.id, { [field]: val });
   }
-  let titleEl    = $state(null);
-  // Only push store value to DOM when element isn't focused — prevents double-render on blur.
-  $effect(() => { if (titleEl    && document.activeElement !== titleEl)    titleEl.textContent    = project?.title    ?? ''; });
 
   function updateTitle(val) {
     projectStore.updateProject(data.id, { title: val });
@@ -466,8 +465,9 @@
     if (!project) return;
     const vs = parseDate(project.viewStart);
     const ve = parseDate(project.viewEnd);
-    vs.setMonth(vs.getMonth() + startDelta);
-    ve.setMonth(ve.getMonth() + endDelta);
+    // From the first of the month: Dec 31 less a month would be "Nov 31", which is December again.
+    if (startDelta) { vs.setDate(1); vs.setMonth(vs.getMonth() + startDelta); }
+    if (endDelta) { ve.setDate(1); ve.setMonth(ve.getMonth() + endDelta); }
     const monthSpan = (ve.getFullYear() - vs.getFullYear()) * 12 + ve.getMonth() - vs.getMonth();
     if (monthSpan < 2 || !isView(toISO(vs), toISO(ve))) return;
     projectStore.updateProject(data.id, { viewStart: toISO(vs), viewEnd: toISO(ve) });
@@ -494,8 +494,8 @@
   }
 
   // The assistant's whole reply is checked and applied as one edit, so one Undo reverses it.
-  function handleAiChanges(changes) {
-    return projectStore.applyChanges(data.id, changes);
+  function handleAiChanges(changes, sent) {
+    return projectStore.applyChanges(data.id, changes, sent);
   }
 
   function openPrintPanel() {
@@ -512,7 +512,7 @@
     const res = await fetch('/api/schedule-pdf', {
       method: 'POST',
       headers: { 'content-type': 'application/json', ...(await authHeaders()) },
-      body: JSON.stringify({ schedule: project, paper, showToday, showLegend, filename, palette: $palette, font: $options.font }),
+      body: JSON.stringify({ schedule: project, today: toISO(new Date()), paper, showToday, showLegend, filename, palette: $palette, font: $options.font }),
     });
     if (!res.ok) throw new Error((await res.json().catch(() => null))?.error ?? `Couldn't make the PDF (${res.status}).`);
     const url = URL.createObjectURL(await res.blob());
@@ -540,12 +540,11 @@
       <div class="hdr-left">
         <div class="hdr-titles">
           <div
-            bind:this={titleEl}
             class="hdr-title"
             contenteditable={linked ? 'false' : 'true'}
             title={linked ? "Named after its project. Rename it on the project page." : undefined}
             spellcheck="false"
-            onblur={(e) => updateTitle(e.target.textContent.trim() || project.title)}
+            use:editable={{ value: project.title, onCommit: (text) => text && updateTitle(text) }}
             onkeydown={(e) => { if (e.key === 'Enter') { e.preventDefault(); e.target.blur(); } }}
           ></div>
           <div class="hdr-meta">
@@ -715,7 +714,6 @@
     <PrintPanel
       open={printPanelOpen}
       projectId={data.id}
-      contentWidth={TASK_COL_W + ganttWidth}
       monthCount={ganttMonths.length}
       showTodayDefault={showTodayLine}
       onDownload={downloadPdf}

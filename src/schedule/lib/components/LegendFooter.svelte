@@ -43,18 +43,28 @@
   function saveNotes(items) {
     onNotesUpdate?.(items.map(n => n.trim()).filter(Boolean).join('\n'));
   }
-  function onNoteBlur(e, idx) {
-    const items = [...noteItems];
-    items[idx] = e.target.textContent;
-    saveNotes(items);
-  }
+  const note = (n, idx) => ({
+    value: n,
+    onCommit: (v) => {
+      const items = [...noteItems];
+      const at = items[idx] === n ? idx : items.indexOf(n); // the list may have changed meanwhile
+      if (at < 0) return;
+      items[at] = v;
+      saveNotes(items);
+    },
+  });
   function onDraftBlur(e) {
-    saveNotes([...noteItems, e.target.textContent]);
+    const text = e.target.textContent.trim();
     e.target.textContent = '';
     draftNote = false;
+    if (text) saveNotes([...noteItems, text]);
   }
   // Enter commits the note; on the last note it also starts a new one
   function onNoteKey(e, isLast) {
+    if (e.key === 'Escape' && e.target.classList.contains('note-draft')) {
+      e.target.textContent = ''; // a new note is dropped; an existing one is put back by its field
+      e.target.blur();
+    }
     if (e.key !== 'Enter') return;
     e.preventDefault();
     const hasText = !!e.target.textContent.trim();
@@ -267,9 +277,9 @@
             tabindex="0"
             contenteditable={!!onNotesUpdate}
             spellcheck="false"
-            onblur={(e) => onNoteBlur(e, i)}
+            use:editable={note(n, i)}
             onkeydown={(e) => onNoteKey(e, i === noteItems.length - 1)}
-          >{n}</span>
+          ></span>
           {#if onNotesUpdate}
             <button class="leg-del" onclick={() => removeNote(i)}>✕</button>
           {/if}

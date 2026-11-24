@@ -41,10 +41,15 @@
           <span class="label">Email</span>
           <input id="gate-email" type="email" autocomplete="username" autofocus />
         </label>
-        <label class="field" data-show="signin signup reset">
-          <span class="label" id="gate-password-label">Password</span>
-          <input id="gate-password" type="password" autocomplete="current-password" minlength="8" />
-        </label>
+        <div class="field" data-show="signin signup reset">
+          <label class="label" id="gate-password-label" for="gate-password">Password</label>
+          <span class="gate-password">
+            <input id="gate-password" type="password" autocomplete="current-password" minlength="8" spellcheck="false" autocapitalize="off" />
+            <button type="button" id="gate-eye" aria-label="Show password" aria-pressed="false" title="Show password">
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7-10-7-10-7z" /><circle cx="12" cy="12" r="3" /><path class="gate-eye-off" d="M4 4l16 16" /></svg>
+            </button>
+          </span>
+        </div>
         <button class="btn primary" type="submit" id="gate-submit">Sign in</button>
         <div class="gate-links">
           <button class="link" type="button" data-show="signin signup forgot" data-go="landing">← Back</button>

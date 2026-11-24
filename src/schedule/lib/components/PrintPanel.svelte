@@ -2,7 +2,6 @@
   let {
     open             = false,
     projectId        = '',
-    contentWidth     = 0,
     monthCount       = 0,
     showTodayDefault = true,
     onDownload,
@@ -46,6 +45,7 @@
       showToday  = showTodayDefault;
       showLegend = true;
       paper      = 'tabloid';
+      scale      = null;
     }
   });
 
@@ -61,11 +61,21 @@
   let iframeScale = $derived(Math.min(PREVIEW_W / pg.w, maxPreviewH / pg.h));
   let previewH    = $derived(Math.round(pg.h * iframeScale));
   let sheetW      = $derived(Math.round(pg.w * iframeScale));
-  let scale       = $derived(contentWidth > 0 ? Math.min(1, pg.usableW / contentWidth) : 1);
-  let scalePct    = $derived(Math.round(scale * 100));
+  // The scale the preview fitted the sheet at; null until it has.
+  let scale       = $state(null);
+  let scalePct    = $derived(Math.round((scale ?? 1) * 100));
   let fits        = $derived(scale >= 1);
   let iframeSrc   = $derived(projectId ? `${location.pathname}#schedule-print?paper=${paper}` : '');
 
+
+  // From the preview (PrintPreview.svelte). It's made again when the paper changes, so it asks for the options again.
+  function onMessage(e) {
+    if (e.origin !== location.origin || !iframeEl || e.source !== iframeEl.contentWindow) return;
+    const m = e.data?.preview;
+    if (m?.ready) onIframeLoad();
+    if (typeof m?.scale === 'number') scale = m.scale;
+    if (m?.escape) onClose?.();
+  }
 
   function onIframeLoad() {
     // Re-send current options once the iframe finishes loading.
@@ -73,7 +83,7 @@
   }
 </script>
 
-<svelte:window bind:innerWidth={innerW} bind:innerHeight={innerH} onkeydown={(e) => { if (open && e.key === 'Escape') onClose?.(); }} />
+<svelte:window bind:innerWidth={innerW} bind:innerHeight={innerH} onmessage={onMessage} onkeydown={(e) => { if (open && e.key === 'Escape') onClose?.(); }} />
 
 {#if open}
   <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -125,7 +135,7 @@
                 <button
                   class="paper-btn"
                   class:paper-active={paper === key}
-                  onclick={() => paper = key}
+                  onclick={() => { if (paper !== key) { paper = key; scale = null; } }}
                 >{p.label}</button>
               {/each}
             </div>
@@ -142,8 +152,8 @@
             </div>
             <div class="info-row">
               <span class="info-key">Scale</span>
-              <span class="info-val" class:scale-full={fits} class:scale-down={!fits}>
-                {fits ? 'Full size' : `${scalePct}%`}
+              <span class="info-val" class:scale-full={fits} class:scale-down={scale !== null && !fits}>
+                {scale === null ? '…' : fits ? 'Full size' : `${scalePct}%`}
               </span>
             </div>
           </div>

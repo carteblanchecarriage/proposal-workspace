@@ -1,5 +1,6 @@
 // A read-only snapshot of a schedule for the project page: task names, bars in the schedule's own colours, milestones
 // as diamonds, month marks and today. Drawn from the saved schedule, so it matches the schedule maker without loading it.
+import { isDay, MAX_VIEW_YEARS } from "../lib/dates";
 import type { SavedSchedule, ScheduleStyle } from "./store";
 import { esc } from "./table";
 import { buildColorMap, fontStack, loadFont, paint } from "./schedule/lib/palette.js";
@@ -8,8 +9,7 @@ type Task = { id?: number; name?: string; type?: string; start?: string; end?: s
 /** A milestone row's marks: its date, then any more on the same line. */
 const marks = (t: Task) => [t.date, ...(Array.isArray(t.extraDates) ? t.extraDates : [])].map(day).filter((d): d is number => d != null);
 
-const ISO = /^\d{4}-\d{2}-\d{2}$/;
-const day = (s: unknown) => (typeof s === "string" && ISO.test(s) ? Date.UTC(+s.slice(0, 4), +s.slice(5, 7) - 1, +s.slice(8, 10)) : null);
+const day = (s: unknown) => (isDay(s) ? Date.UTC(+s.slice(0, 4), +s.slice(5, 7) - 1, +s.slice(8, 10)) : null);
 const colour = (c: unknown) => (typeof c === "string" && /^#[0-9a-f]{3,8}$/i.test(c) ? c : "#00914D");
 const MILESTONE = "#20ABE2"; // the schedule maker's milestone colour
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -40,7 +40,7 @@ export function scheduleSnapshotHtml(s: SavedSchedule, style: ScheduleStyle = { 
   let from = day(s.viewStart) ?? Math.min(...times);
   let to = day(s.viewEnd) ?? Math.max(...times);
   from = Math.min(from, ...times);
-  to = Math.max(to, ...times);
+  to = Math.min(Math.max(to, ...times), from + MAX_VIEW_YEARS * 366 * 86_400_000);
   if (to <= from) to = from + 30 * 86_400_000;
   const x = (t: number) => NAME_W + ((t - from) / (to - from)) * (W - NAME_W - 8);
   const H = HEAD + tasks.length * ROW + 6;

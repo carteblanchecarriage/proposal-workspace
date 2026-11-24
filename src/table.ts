@@ -1,6 +1,6 @@
 import type { Comparison, Proposal } from "../lib/claude";
 import { toDisciplines } from "../lib/disciplines";
-import { dateText, money, plural } from "../lib/format";
+import { dateText, exactMoney, money, plural } from "../lib/format";
 
 type FeeItem = Proposal["fee_items"][number];
 /** A proposal plus the uploaded file it came from and its Anthropic file id (both added client-side). */
@@ -68,7 +68,7 @@ function head(proposals: Sourced[]) {
 
 /** Renders a fee line exactly as stated: dollars, or a percentage of construction. Nothing is computed. */
 function feeValue(f: FeeItem): string {
-  if (f.amount != null) return money(f.amount);
+  if (f.amount != null) return exactMoney(f.amount);
   if (f.percent != null) return `${esc(f.percent)}%${f.basis === "percent_of_construction" ? " of construction" : ""}`;
   return "Not stated";
 }
@@ -76,7 +76,7 @@ function feeValue(f: FeeItem): string {
 const BASIS: Partial<Record<FeeItem["basis"], string>> = { not_to_exceed: "NTE", hourly: "hourly", allowance: "allowance" };
 
 // Model notes are words only; drop any that carry figures so no unstated number is shown.
-const cleanNote = (n: string | null) => (n && !/[$%]|d/.test(n) ? n : null);
+const cleanNote = (n: string | null) => (n && !/[$%]|\d/.test(n) ? n : null);
 
 type Cell = { items: FeeItem[]; note: string | null };
 type FeeRow = { section: string; label: string; cells: Cell[] };
@@ -177,7 +177,7 @@ export function feeTable(proposals: Sourced[], cmp: Comparison): string {
         (p) =>
           `<td>${list(
             p.additional_services.map((a) =>
-              [a.description, a.amount != null ? money(a.amount) : a.basis].filter(Boolean).join(" — "),
+              [a.description, a.amount != null ? exactMoney(a.amount) : a.basis].filter(Boolean).join(" — "),
             ),
           )}</td>`,
       ),
@@ -188,7 +188,7 @@ export function feeTable(proposals: Sourced[], cmp: Comparison): string {
     row(
       "Hourly rates",
       proposals.map(
-        (p) => `<td>${list(p.hourly_rates.map((r) => `${r.role}: ${r.rate != null ? money(r.rate) + "/hr" : "—"}`))}</td>`,
+        (p) => `<td>${list(p.hourly_rates.map((r) => `${r.role}: ${r.rate != null ? exactMoney(r.rate) + "/hr" : "—"}`))}</td>`,
       ),
     ),
   );

@@ -2,6 +2,8 @@ import Anthropic, { toFile } from "@anthropic-ai/sdk";
 import { betaZodOutputFormat } from "@anthropic-ai/sdk/helpers/beta/zod";
 import { z } from "zod";
 import { costOf, type Usage } from "./cost.js";
+import { RFP_FACTS, type RfpFactKey } from "./rfp-facts.js";
+import { UserFacingError } from "./errors.js";
 import { ATTEMPT_TIMEOUT_MS, withFallback } from "./ai-fallback.js";
 import { recordFile, recordUsage } from "./usage-hook.js";
 import { DISCIPLINES, toDisciplines } from "./disciplines.js";
@@ -114,20 +116,7 @@ export const ComparisonSchema = z.object({
 });
 export type Comparison = z.infer<typeof ComparisonSchema>;
 
-export const RFP_FACTS = {
-  location: "Location",
-  building_size: "Building size",
-  construction_budget: "Construction budget",
-  delivery_method: "Delivery method",
-  phases: "Phases",
-  fee_format: "Fee format",
-  contract: "Contract",
-  insurance: "Insurance",
-  page_limit: "Page limit",
-  submission: "Submission format",
-  contact: "Contact",
-} as const;
-export type RfpFactKey = keyof typeof RFP_FACTS;
+export { RFP_FACTS, type RfpFactKey };
 
 // An RFP (plus any addenda) read for an architecture firm deciding whether and how to respond.
 export const FitSchema = z.object({ verdict: z.enum(["pursue", "consider", "pass"]), reasons: z.array(z.string()) });
@@ -271,11 +260,7 @@ function aiStream<P extends StreamParams>(params: P) {
   };
 }
 
-export class UserFacingError extends Error {
-  constructor(message: string, public status = 400) {
-    super(message);
-  }
-}
+export { UserFacingError };
 
 // Shared request settings: Opus 5.5 at high effort (default is medium), with the
 // server-side refusal fallback so a classifier decline is retried on another model.

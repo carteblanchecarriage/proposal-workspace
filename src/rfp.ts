@@ -1,4 +1,6 @@
-import { RFP_FACTS, type Fit, type Rfp, type RfpFactKey } from "../lib/claude";
+import { isDay } from "../lib/dates";
+import type { Fit, Rfp } from "../lib/claude";
+import { RFP_FACTS, type RfpFactKey } from "../lib/rfp-facts";
 import { showPdfPage } from "./pdf-page";
 import { reviewContext } from "./worldview";
 import { DISCIPLINES, toDisciplines, type Discipline } from "../lib/disciplines";
@@ -303,11 +305,8 @@ async function deleteCurrentRfp() {
 
 // ---------- Results ----------
 
-/** Local-midnight date for "YYYY-MM-DD", or null. */
-export const parseDay = (s: string) => {
-  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
-  return m ? new Date(+m[1], +m[2] - 1, +m[3]) : null;
-};
+/** Local-midnight date for "YYYY-MM-DD", or null when it isn't a real day (the AI can write "2027-00-00"). */
+export const parseDay = (s: string) => (isDay(s) ? new Date(+s.slice(0, 4), +s.slice(5, 7) - 1, +s.slice(8, 10)) : null);
 /** Whether a date's day is before today (the due day itself still counts as upcoming). False when it has no specific day. */
 export const isPast = (d: { date: string }) => {
   const day = parseDay(d.date);

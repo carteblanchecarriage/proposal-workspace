@@ -1,4 +1,4 @@
-import { UserFacingError } from "./claude.js";
+import { UserFacingError } from "./errors.js";
 import { rowAad, seal, unseal } from "./crypt.js";
 
 // Talks to Supabase's REST API with the secret key. Server-side only; the browser never sees the key.
@@ -37,9 +37,9 @@ const q = encodeURIComponent;
 type StoredRow = Record<string, unknown> & { data: unknown };
 const opened = (org: string, t: Table, r: StoredRow) => unseal(org, rowAad(TABLES[t], String(r[keyCol(t)])), r.data);
 
-// Schedules carry their version (when the row was last saved) to the browser as _v, and a save says which version it
+// Schedules and fees carry their version (when the row was last saved) to the browser as _v, and a save says which version it
 // started from, so it can't replace someone else's newer one (putIfUnchanged). Never stored in the record itself.
-const VERSIONED = new Set<Table>(["schedules"]);
+const VERSIONED = new Set<Table>(["schedules", "fees"]);
 const columns = (t: Table) => `${keyCol(t)},data${VERSIONED.has(t) ? ",saved_at" : ""}`;
 const withVersion = (t: Table, r: StoredRow, record: unknown) =>
   VERSIONED.has(t) && record && typeof record === "object" ? { ...record, _v: r.saved_at } : record;
@@ -52,6 +52,34 @@ export async function list(org: string, t: Table): Promise<unknown[]> {
 export async function get(org: string, t: Table, key: string): Promise<unknown | null> {
   const rows: StoredRow[] = await (await sb(`${TABLES[t]}?select=${columns(t)}&org_id=eq.${q(org)}&${keyCol(t)}=eq.${q(key)}`)).json();
   return rows[0] ? withVersion(t, rows[0], opened(org, t, rows[0])) : null;
+}
+
+/** What the browser already has of a table: record key → the version it has. */
+export type Known = Record<string, string>;
+/** Every key of a table with its version, newest first, and the records the browser doesn't have (or has an older one of). */
+export type Synced = { keys: [string, string][]; rows: { key: string; v: string; record: unknown }[] };
+
+/**
+ * A table as it is now, sending only what's changed. Most loads find nothing has, and cost one small query instead of
+ * reading, decrypting and sending every record.
+ */
+export async function sync(org: string, t: Table, known: Known): Promise<Synced> {
+  const k = keyCol(t);
+  const from = `${TABLES[t]}?org_id=eq.${q(org)}&order=saved_at.desc&limit=500`;
+  const open = (rows: StoredRow[]) => rows.map((r) => ({ key: String(r[k]), v: String(r.saved_at), record: withVersion(t, r, opened(org, t, r)) }));
+  if (!Object.keys(known).length) {
+    const rows = open(await (await sb(`${from}&select=${k},data,saved_at`)).json());
+    return { keys: rows.map((r) => [r.key, r.v]), rows };
+  }
+  const keys = ((await (await sb(`${from}&select=${k},saved_at`)).json()) as StoredRow[]).map((r): [string, string] => [String(r[k]), String(r.saved_at)]);
+  const changed = keys.filter(([key, v]) => known[key] !== v).map(([key]) => key);
+  if (!changed.length) return { keys, rows: [] };
+  // A few by name; many, by reading the table again.
+  const few = changed.length <= 40;
+  const only = few ? `&${k}=in.(${changed.map((x) => q(`"${x.replace(/["\\]/g, "\\$&")}"`)).join(",")})` : "";
+  const want = new Set(changed);
+  const rows: StoredRow[] = await (await sb(`${from}&select=${k},data,saved_at${only}`)).json();
+  return { keys, rows: open(rows.filter((r) => want.has(String(r[k])))) };
 }
 
 /** When a record was last saved, without opening it; null when it's gone. */
@@ -68,6 +96,18 @@ function sealedRow(org: string, t: Table, input: Record<string, unknown>): { key
   // empty: they'd be readable.)
   const row: Record<string, unknown> = { org_id: org, [keyCol(t)]: key, data: seal(org, rowAad(TABLES[t], key), record), saved_at: new Date().toISOString() };
   return { key, row };
+}
+
+/** Saves a new record only if there's none with its key yet, in one step. Returns its version, or null when there is one. */
+export async function putNew(org: string, t: Table, record: Record<string, unknown>): Promise<string | null> {
+  const { row } = sealedRow(org, t, record);
+  const res = await sb(`${TABLES[t]}?on_conflict=org_id,${keyCol(t)}&select=saved_at`, {
+    method: "POST",
+    headers: { Prefer: "resolution=ignore-duplicates,return=representation" },
+    body: JSON.stringify(row),
+  });
+  const rows: { saved_at: string }[] = await res.json();
+  return rows[0]?.saved_at ?? null;
 }
 
 /** Saves a record, replacing any there. Returns its new version. */

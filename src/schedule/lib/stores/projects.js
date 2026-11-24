@@ -1,6 +1,6 @@
 import { writable } from 'svelte/store';
 import { deleteSchedule, fetchSchedule, listSchedules, saveScheduleFrom, scheduleVersion } from '../../../store';
-import { askConflicts, askDeleted } from '../conflict.js';
+import { askConflicts, askDeleted, tellReplaced } from '../conflict.js';
 import { mergeSchedules, newUid, withUids } from '../utils/merge.js';
 import { addDays, hasDates, isDate, isView, projectDateRange, toISO, parseDate, toWeekday, MAX_VIEW_YEARS } from '../utils/dates.js';
 import { isScheduleCode } from '../../../../lib/schedule-style';
@@ -63,7 +63,7 @@ async function _send(id, keepalive = false) {
   // Wait for the previous save of this schedule, then send whatever is newest by then.
   while (_inFlight.has(id)) await _inFlight.get(id);
   const project = _pending.get(id);
-  if (!project) return;
+  if (!project || _deleted.has(id)) return;
   _pending.delete(id);
   _sending.set(id, project);
   const base = _base.get(id);
@@ -72,7 +72,15 @@ async function _send(id, keepalive = false) {
   _sentAt.set(id, savedAt);
   const p = saveScheduleFrom({ ...project, savedAt, savedBy: TAB }, base?.version, keepalive)
     .then(res => {
-      if (res.conflict) return _reconcile(id, base, project, res.record, lastSent);
+      if (res.conflict) {
+        _refused.set(id, (_refused.get(id) ?? 0) + 1);
+        if (_refused.get(id) > TOO_MANY || !base) {
+          _refused.delete(id);
+          throw new Error('the schedule keeps changing. Reload the page to see it as it is now.');
+        }
+        return _reconcile(id, base, project, res.record, lastSent);
+      }
+      _refused.delete(id);
       if (res.version) _base.set(id, { version: res.version, project });
       saveError.set('');
     })
@@ -92,7 +100,9 @@ async function _send(id, keepalive = false) {
 const TAB = newUid();        // this tab, in what it saves
 const _base = new Map();     // id → { version, project }: what's on the server, as this tab last knew it
 const _sentAt = new Map();   // id → savedAt of this tab's last save, whether or not its answer arrived
-const _deleted = new Set();  // deleted in this tab
+const _refused = new Map();  // id → saves in a row refused because someone else had saved
+const TOO_MANY = 6;          // past this it isn't people taking turns: stop, rather than be refused forever
+const _deleted = new Map();  // deleted in this tab: id → when the deleted one was made
 const _unresolved = new Set(); // conflicts closed without choosing
 
 /** Someone else's changes just came in. */
@@ -109,6 +119,8 @@ let _pressed = false;
 if (typeof window !== 'undefined') {
   addEventListener('pointerdown', () => { _pressed = true; }, true);
   for (const e of ['pointerup', 'pointercancel']) addEventListener(e, () => { _pressed = false; }, true);
+  // Released outside the window, where no "up" is heard: the next move says no button is down.
+  addEventListener('pointermove', e => { if (!e.buttons) _pressed = false; }, true);
   addEventListener('blur', e => { if (e.target === window) _pressed = false; });
   // A conflict left undecided isn't saved anywhere yet.
   addEventListener('beforeunload', e => { if (_unresolved.size) e.preventDefault(); });
@@ -119,7 +131,7 @@ const _typing = () => {
   return !!el && (el.isContentEditable || (el.tagName === 'INPUT' && el.type === 'date'));
 };
 async function _released() {
-  while (_pressed) await new Promise(r => setTimeout(r, 100));
+  for (let i = 0; _pressed && i < 300; i++) await new Promise(r => setTimeout(r, 100));
 }
 
 let _all = [];
@@ -144,6 +156,17 @@ async function _reconcile(id, base, sent, record, lastSent) {
   }
   const theirs = normalizeProject(record);
   const version = record._v;
+  // The schedule being edited was deleted, and another made for the project since: they're not to be combined.
+  if (record.createdAt !== base.project.createdAt) {
+    _pending.delete(id);
+    _unresolved.delete(id);
+    clearHistory(id);
+    _base.set(id, { version, project: theirs });
+    update(ps => ps.map(p => (p.id === id ? theirs : p)));
+    saveError.set('');
+    await tellReplaced(sent.title);
+    return;
+  }
   // This tab's own last save, whose answer never arrived: nothing to combine.
   if (record.savedBy === TAB && record.savedAt === lastSent) {
     _base.set(id, { version, project: theirs });
@@ -181,7 +204,7 @@ async function _refresh(id) {
     if (version === undefined || version === base.version) return;
     const row = version && (await fetchSchedule(id));
     if (_deleted.has(id) || busy() || _base.get(id) !== base) return;
-    if (!row) { saveError.set('Someone else deleted this schedule.'); return; }
+    if (!row || row.createdAt !== base.project.createdAt) { saveError.set('Someone else deleted this schedule.'); return; }
     const theirs = normalizeProject(row);
     _adopt(id, base.project, theirs, theirs, new Map());
     _base.set(id, { version: row._v, project: theirs });
@@ -208,16 +231,25 @@ export function flushSaves(keepalive = false) {
   return Promise.all([..._pending.keys()].map(id => _send(id, keepalive)));
 }
 
+/** Deletes a schedule; it stays in the list until it's really gone. A failed delete leaves it as it was, and throws. */
 async function _deleteProject(id) {
-  _deleted.add(id);
-  _base.delete(id);
+  const waiting = _pending.get(id);
+  _deleted.set(id, _current(id)?.createdAt);
   _pending.delete(id);
   clearTimeout(_timers.get(id));
   try {
     await deleteSchedule(id);
   } catch (err) {
     console.error('[schedules] delete failed:', err.message);
+    _deleted.delete(id);
+    const unsaved = _pending.get(id) ?? waiting;
+    if (unsaved) _saveProject(unsaved);
+    throw err;
   }
+  _base.delete(id);
+  _pending.delete(id);
+  _unresolved.delete(id);
+  update(ps => ps.filter(p => p.id !== id));
 }
 
 // Point-in-time markers (milestones, deliverables, approvals, estimates) can't land on weekends.
@@ -258,6 +290,28 @@ function _weekdayDate(obj) {
   return out;
 }
 
+/** Parts missing or of the wrong kind (an older or half-written schedule): set right, so every screen can rely on them. */
+function _fixShape(p) {
+  p.tasks = (Array.isArray(p.tasks) ? p.tasks : []).filter(t => t && typeof t === 'object');
+  const used = new Set();
+  let next = Math.max(0, ...p.tasks.map(t => t.id).filter(Number.isSafeInteger)) + 1;
+  for (const t of p.tasks) {
+    // Every task its own number (two with the same one can't be drawn).
+    if (!Number.isSafeInteger(t.id) || used.has(t.id)) t.id = next++;
+    used.add(t.id);
+    t.name = String(t.name ?? '');
+    if ('extraDates' in t) t.extraDates = (Array.isArray(t.extraDates) ? t.extraDates : []).filter(isDate);
+  }
+  const legend = p.legend && typeof p.legend === 'object' ? p.legend : {};
+  p.legend = { ...legend };
+  for (const k of LEGEND_SECTIONS) {
+    p.legend[k] = (Array.isArray(legend[k]) ? legend[k] : [])
+      .filter(x => x && typeof x === 'object')
+      .map(x => (x.date == null || isDate(x.date) ? x : { ...x, date: null }));
+  }
+  for (const k of ['title', 'date', 'number', 'client', 'notes']) if (p[k] != null && typeof p[k] !== 'string') p[k] = String(p[k]);
+}
+
 /** A timeline that can't be drawn (reversed, or centuries long) is set from the tasks' dates. */
 function _fixView(p) {
   if (isView(p.viewStart, p.viewEnd)) return p;
@@ -283,6 +337,7 @@ const isReviewBar = t =>
   /^#(20ABE2|90D5F1)$/i.test(t.color ?? '');
 export function normalizeProject(project) {
   const p = JSON.parse(JSON.stringify(project).replace(/#8B9A3A/gi, '#00914D'));
+  _fixShape(p);
   if ((p.colorVersion ?? 1) < 2) {
     p.tasks = (p.tasks ?? []).map(t => isReviewBar(t) ? { ...t, color: '#949494' } : t);
     p.colorVersion = 2;
@@ -337,6 +392,8 @@ export const projectStore = {
       const sorted = [...rows].sort((a, b) => (a.createdAt ?? a.savedAt ?? 0) - (b.createdAt ?? b.savedAt ?? 0));
       // Keep any in-memory edits that haven't been saved yet, or were being saved meanwhile.
       set(sorted.map(r => {
+        // Made again for the project after this tab deleted the one before it (a project's schedule keeps its id).
+        if (_deleted.has(r.id) && _deleted.get(r.id) !== r.createdAt) _deleted.delete(r.id);
         const kept = _pending.get(r.id) ?? _sending.get(r.id) ?? saving.get(r.id);
         if (kept) return kept;
         const project = normalizeProject(r);
@@ -355,8 +412,7 @@ export const projectStore = {
   },
 
   deleteProject(id) {
-    update(ps => ps.filter(p => p.id !== id));
-    _deleteProject(id);
+    return _deleteProject(id);
   },
 
   updateProject(id, patch) {
@@ -370,12 +426,20 @@ export const projectStore = {
    * can only move its date range, tasks keep their ids, new tasks always get an unused id, and legend changes must
    * name a real section and item. Anything else in a change is ignored.
    */
-  /** Applies the assistant's changes; returns how many applied and how many were skipped (bad ids, fields, dates). */
-  applyChanges(projectId, changes) {
+  /**
+   * Applies the assistant's changes; returns how many applied and how many were skipped (bad ids, fields, dates).
+   * Its legend indexes are places in the legend as it was sent (`sent`): each item is found by its own id, wherever
+   * it is now (the legend may have been edited while it answered, and re-sorts as this reply's own changes are made).
+   */
+  applyChanges(projectId, changes, sent = _current(projectId)) {
     const result = { applied: 0, skipped: 0 };
     if (!Array.isArray(changes) || !changes.length) return result;
     _updateAndSave(projectId, p => {
       let next = { ...p, tasks: [...(p.tasks ?? [])], legend: { ...(p.legend ?? {}) } };
+      const legendAt = (section, index) => {
+        const uid = Number.isInteger(index) ? sent?.legend?.[section]?.[index]?.uid : undefined;
+        return uid === undefined ? -1 : (next.legend[section] ?? []).findIndex(x => x.uid === uid);
+      };
       const pick = (obj, keys) => Object.fromEntries(Object.entries(obj ?? {}).filter(([k]) => keys.includes(k)));
       for (const c of changes) {
         const before = JSON.stringify(next);
@@ -404,13 +468,14 @@ export const projectStore = {
           next.tasks = next.tasks.filter(t => t.id !== c.taskId);
         } else if (c?.type === 'updateLegendItem' && LEGEND_SECTIONS.includes(c.section)) {
           const items = next.legend[c.section] ?? [];
-          if (!Number.isInteger(c.index) || !items[c.index]) { result.skipped++; continue; }
+          const at = legendAt(c.section, c.index);
+          if (at < 0) { result.skipped++; continue; }
           const raw = pick(c.patch, LEGEND_FIELDS);
           if (raw.date === '') raw.date = null;
           if (raw.date != null && !isDate(raw.date)) { result.skipped++; continue; }
           const patch = _weekdayDate(raw);
           if ('color' in patch && !isScheduleCode(patch.color)) delete patch.color;
-          next.legend[c.section] = _byDate(items.map((it, i) => (i === c.index ? { ...it, ...patch } : it)));
+          next.legend[c.section] = _byDate(items.map((it, i) => (i === at ? { ...it, ...patch } : it)));
         } else if (c?.type === 'addLegendItem' && LEGEND_SECTIONS.includes(c.section) && c.item && typeof c.item === 'object') {
           const raw = pick(c.item, LEGEND_FIELDS);
           if (!isDate(raw.date)) delete raw.date;
@@ -420,8 +485,9 @@ export const projectStore = {
           next.legend[c.section] = _byDate([...(next.legend[c.section] ?? []), item]);
         } else if (c?.type === 'deleteLegendItem' && LEGEND_SECTIONS.includes(c.section)) {
           const items = next.legend[c.section] ?? [];
-          if (!Number.isInteger(c.index) || !items[c.index]) { result.skipped++; continue; }
-          next.legend[c.section] = items.filter((_, i) => i !== c.index);
+          const at = legendAt(c.section, c.index);
+          if (at < 0) { result.skipped++; continue; }
+          next.legend[c.section] = items.filter((_, i) => i !== at);
         }
         if (JSON.stringify(next) === before) result.skipped++;
         else result.applied++;

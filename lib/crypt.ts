@@ -1,5 +1,5 @@
 import { createCipheriv, createDecipheriv, hkdfSync, randomBytes } from "node:crypto";
-import { UserFacingError } from "./claude.js";
+import { UserFacingError } from "./errors.js";
 
 /**
  * Encryption of saved records. Every record's contents are encrypted on the server before they go to Supabase, so

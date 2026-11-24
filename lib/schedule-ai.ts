@@ -5,9 +5,10 @@ import { SCHEDULE_PROMPT } from "./schedule-prompt.js";
 import { US_ENGLISH } from "./prompts.js";
 import type { Usage } from "./cost.js";
 
-// The Schedule Assistant, moved from the schedule maker. Same model and limits as before so its answers don't change.
+// The Schedule Assistant, moved from the schedule maker. Same model as before so its answers don't change.
 export const SCHEDULE_MODEL = "claude-sonnet-4-6";
-const MAX_TOKENS = 2048;
+// Room for an edit that touches every task (only what's written is billed).
+const MAX_TOKENS = 8_000;
 
 /** Sends the conversation plus the current schedule; returns the assistant's raw text (the editor parses it). */
 export async function askScheduleAssistant(

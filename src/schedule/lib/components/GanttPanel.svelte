@@ -1,7 +1,7 @@
 <script>
   import { untrack } from 'svelte';
   import { palette, colorMap, paint, badge, look } from '../palette.js';
-  import { parseDate, toISO, timeColumns, ZOOM_COL_W, totalDays, dateToPx, dateToPxMonth, pxToDateMonth, dateToPxPeriod, pxToDatePeriod, dateToPxQuarter, pxToDateQuarter, isLightColor, MONTHS_SHORT, toWeekday, addDays, hasDates, isDate } from '../utils/dates.js';
+  import { parseDate, toISO, timeColumns, ZOOM_COL_W, dateToPx, dateToPxMonth, pxToDateMonth, dateToPxPeriod, pxToDatePeriod, dateToPxQuarter, pxToDateQuarter, isLightColor, MONTHS_SHORT, toWeekday, daysDragged, monthStart, addDays, hasDates, isDate } from '../utils/dates.js';
   import { pointerDrag } from '../utils/pointer.js';
   import { dateField } from '../utils/fields.js';
 
@@ -49,7 +49,7 @@
     BAR_COLORS.map(c => ({ hex: c.half, label: c.halfLabel ?? `${c.label} (lighter)` })),
   ];
 
-  let viewStart  = $derived(parseDate(vsStr));
+  let viewStart  = $derived(monthStart(parseDate(vsStr)));
   let viewEnd    = $derived(parseDate(veStr));
   let colW       = $derived(colWOverride !== null ? colWOverride : (ZOOM_COL_W[zoom] ?? 72));
   let columns    = $derived(timeColumns(viewStart, viewEnd, zoom));
@@ -212,7 +212,6 @@
   function startDrag(e, task, mode, which = -1) {
     e.stopPropagation();
 
-    const pxPerDay  = ganttWidth / totalDays(viewStart, viewEnd);
     const startX    = e.clientX;
     const origStart = task.start;
     const origEnd   = task.end;
@@ -226,7 +225,9 @@
         onDraggingChange?.(task.id);
       },
       onMove(ev) {
-        const dd    = Math.round((ev.clientX - startX) / pxPerDay);
+        // From the edge being dragged (a whole bar moves by its start).
+        const from  = task.type === 'milestone' ? origDate : mode === 'right' ? origEnd : origStart;
+        const dd    = daysDragged(from, ev.clientX - startX, viewStart, colW, zoom);
         const draft = { ...draggingTask };
 
         if (task.type === 'milestone') {

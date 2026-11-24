@@ -100,6 +100,13 @@ body > main section { padding-top: 40px; }
 .gate-checking .gate form { visibility: hidden; }
 .gate form { width: 100%; max-width: 320px; display: flex; flex-direction: column; gap: 20px; }
 .gate .field { margin: 0; }
+.gate .gate-password { position: relative; display: block; }
+.gate .gate-password input { width: 100%; padding-right: 44px; }
+/* Edge's own eye, which would sit beside this one */
+.gate .gate-password input::-ms-reveal { display: none; }
+#gate-eye { position: absolute; right: 0; top: 0; bottom: 0; width: 44px; display: flex; align-items: center; justify-content: center; padding: 0; border: 0; background: none; color: var(--ink); cursor: pointer; }
+/* A line through the eye while the password shows */
+#gate-eye[aria-pressed="false"] .gate-eye-off { display: none; }
 .gate .gate-title { margin: 0; font-size: 18px; font-weight: 600; }
 .gate .gate-links { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
 .gate [data-show][hidden] { display: none; }

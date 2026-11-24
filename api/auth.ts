@@ -1,15 +1,17 @@
 import { adminInbox, adminOverview, inviteRequest, isAdmin, resendInvite, setOrgAllowance, setRequestStatus } from "../lib/admin.js";
 import { forgetOrgs, inviteOnly, publicAuthConfig, route, whoAmI } from "../lib/auth.js";
-import { errorResponse, UserFacingError } from "../lib/claude.js";
+import { errorResponse, UserFacingError } from "../lib/errors.js";
 import { requestContext } from "../lib/context.js";
-import { deleteOrg, exportOrg, orgInfo, renameOrg, roleOf } from "../lib/org.js";
-import { checkoutUrl, handleWebhook, portalUrl } from "../lib/billing.js";
 import { appOrigin } from "../lib/origin.js";
-import { requestAccess } from "../lib/access-requests.js";
+
+// Loaded only for the requests that use them: every page load checks its sign-in here, and needs none of these.
+const orgLib = () => import("../lib/org.js");
+const billingLib = () => import("../lib/billing.js");
 
 // GET: what the browser needs to sign in ({ auth: null } when login is off, e.g. local dev without Supabase Auth).
+// The same for everyone, and public: kept at the edge for an hour (a deploy clears it), so opening the site doesn't wait.
 export async function GET(): Promise<Response> {
-  return Response.json({ auth: publicAuthConfig(), inviteOnly: inviteOnly() }, { headers: { "cache-control": "no-store" } });
+  return Response.json({ auth: publicAuthConfig(), inviteOnly: inviteOnly() }, { headers: { "cache-control": "public, max-age=0, s-maxage=3600" } });
 }
 
 // The organization page (x-action: org-info | org-rename | org-export | org-delete | billing-checkout | billing-portal), and the
@@ -23,18 +25,18 @@ const orgAction = route(async (request) => {
   const name = typeof body.name === "string" ? body.name : "";
   switch (request.headers.get("x-action")) {
     case "org-info":
-      return Response.json(await orgInfo(ctx.orgId, ctx.userId));
+      return Response.json(await (await orgLib()).orgInfo(ctx.orgId, ctx.userId));
     case "org-rename":
-      await renameOrg(ctx.orgId, ctx.userId, name);
+      await (await orgLib()).renameOrg(ctx.orgId, ctx.userId, name);
       forgetOrgs();
       return Response.json({ ok: true });
     case "org-export":
-      return Response.json(await exportOrg(ctx.orgId, ctx.userId), { headers: { "cache-control": "no-store" } });
+      return Response.json(await (await orgLib()).exportOrg(ctx.orgId, ctx.userId), { headers: { "cache-control": "no-store" } });
     case "billing-checkout":
     case "billing-portal": {
-      if ((await roleOf(ctx.orgId, ctx.userId)) !== "owner") throw new UserFacingError("Only the organization's owner can manage billing.", 403);
+      if ((await (await orgLib()).roleOf(ctx.orgId, ctx.userId)) !== "owner") throw new UserFacingError("Only the organization's owner can manage billing.", 403);
       const origin = appOrigin(request);
-      const url = request.headers.get("x-action") === "billing-checkout" ? await checkoutUrl(ctx.orgId, ctx.email, origin) : await portalUrl(ctx.orgId, origin);
+      const url = request.headers.get("x-action") === "billing-checkout" ? await (await billingLib()).checkoutUrl(ctx.orgId, ctx.email, origin) : await (await billingLib()).portalUrl(ctx.orgId, origin);
       forgetOrgs();
       return Response.json({ url });
     }
@@ -60,7 +62,7 @@ const orgAction = route(async (request) => {
       return Response.json(await inviteRequest(body.id, appOrigin(request)));
     }
     case "org-delete":
-      await deleteOrg(ctx.orgId, ctx.userId, name);
+      await (await orgLib()).deleteOrg(ctx.orgId, ctx.userId, name);
       forgetOrgs();
       return Response.json({ ok: true });
     default:
@@ -72,11 +74,11 @@ const orgAction = route(async (request) => {
 // whether to show the app or the sign-in form. With x-action, the organization page's actions.
 // Stripe's webhook also lands here (it signs every request with a Stripe-Signature header).
 export async function POST(request: Request): Promise<Response> {
-  if (request.headers.get("stripe-signature")) return handleWebhook(request);
+  if (request.headers.get("stripe-signature")) return (await billingLib()).handleWebhook(request);
   // "Request access" from the public landing page: no sign-in.
   if (request.headers.get("x-action") === "request-access") {
     try {
-      await requestAccess(request);
+      await (await import("../lib/access-requests.js")).requestAccess(request);
       return Response.json({ ok: true });
     } catch (err) {
       return errorResponse(err);

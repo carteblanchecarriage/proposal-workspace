@@ -1,14 +1,19 @@
 <script>
   // The Schedule tab: every schedule, in the site's own list style (the editor keeps the schedule maker's look).
   import { projectStore } from '../lib/stores/projects.js';
-  import { confirmDelete } from '../../modal';
+  import { confirmDelete, noticeModal } from '../../modal';
 
   let projects = $state([]);
   projectStore.subscribe(v => { projects = v; });
 
 
   async function deleteSchedule(id) {
-    if (await confirmDelete('schedule')) projectStore.deleteProject(id);
+    if (!(await confirmDelete('schedule'))) return;
+    try {
+      await projectStore.deleteProject(id);
+    } catch (err) {
+      await noticeModal("Couldn't delete the schedule", err.message);
+    }
   }
 
   function fmtDate(str) {

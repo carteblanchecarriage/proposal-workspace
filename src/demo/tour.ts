@@ -148,7 +148,8 @@ const KEY = "demo_tour_step";
 const read = () => {
   try {
     const v = sessionStorage.getItem(KEY);
-    return v == null ? 0 : Number(v);
+    const n = Number(v ?? 0);
+    return Number.isInteger(n) && n >= 0 ? n : 0;
   } catch {
     return 0;
   }
@@ -345,6 +346,11 @@ addEventListener("scrollend", () => {
   if (settling) (settling.scrolled = true), schedule();
 }, true);
 
+/** Only when it changes: setting it again would count as a change to the page, which brings the tour back here. */
+function setHidden(el: HTMLElement, hidden: boolean) {
+  if (el.hidden !== hidden) el.hidden = hidden;
+}
+
 function place() {
   if (!spot || !tip || step < 0) return;
   const s = STEPS[step];
@@ -352,7 +358,8 @@ function place() {
   const target = here && s.target ? find(s.target) : null;
   // Off its page, or its target isn't there yet (still loading): show nothing.
   if (!here || (s.target && !target)) {
-    spot.hidden = tip.hidden = true;
+    setHidden(spot, true);
+    setHidden(tip, true);
     return;
   }
   // The visitor filled in what this step asked for: on to the next one.
@@ -365,7 +372,7 @@ function place() {
     side = null;
     settling = target ? { scrolled: !scrollToTarget(target), until: performance.now() + 1200, last: "", still: 0 } : null;
   }
-  spot.hidden = false;
+  setHidden(spot, false);
   if (settling && target) {
     // Settled: the part's position and size have held still for several frames (the scroll, and any re-layout the
     // page does as it arrives, are over), so the note shows once, in its final place.
@@ -374,9 +381,10 @@ function place() {
     settling.still = now === settling.last ? settling.still + 1 : 0;
     settling.last = now;
     const scrollDone = settling.scrolled || performance.now() > settling.until;
-    if (!scrollDone || settling.still < 3) {
-      tip.hidden = true;
-      requestAnimationFrame(place); // keep following until the scroll has stopped
+    // (A part that never holds still, such as one that's animated, is waited for a second at most.)
+    if ((!scrollDone || settling.still < 3) && performance.now() < settling.until + 1000) {
+      setHidden(tip, true);
+      schedule(); // keep following until the scroll has stopped
     } else {
       settling = null;
       tip.hidden = false;

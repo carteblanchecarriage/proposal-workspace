@@ -1,4 +1,4 @@
-import { UserFacingError } from "./claude.js";
+import { UserFacingError } from "./errors.js";
 
 // Large PDFs (over Vercel's 4.5 MB request limit) go from the browser straight into a private Supabase Storage
 // bucket through a one-time signed upload link; the server then reads them from there, passes them to Anthropic and

@@ -90,7 +90,7 @@ export function feeTimeHtml(f: SavedFee): string {
     ["Average per week", `${hrs(avg)} hours · about ${people(avg)} full time`],
     ["Peak per week", `${hrs(peak)} hours · about ${people(peak)} full time${peakPhase ? ` <span class="note">in ${esc(peakPhase)}</span>` : ""}`],
     ["Our labor per month", money(t.labor / months)],
-    ["Total fee per month", `${money(t.total / months)} <span class="note">with consultants and expenses</span>`],
+    ["Total fee per month", `${money(t.total / months)} <span class="note">with consultants and markup</span>`],
   ];
   return `
     <table class="grid facts fee-time-facts">${rows.map(([k, v]) => `<tr><th scope="row">${k}</th><td>${v}</td></tr>`).join("")}</table>

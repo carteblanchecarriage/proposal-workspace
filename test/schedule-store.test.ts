@@ -2,7 +2,7 @@
 // repairs made on loading, and edits that survive leaving and coming back while they're being saved.
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const db = vi.hoisted(() => ({ rows: [] as Record<string, unknown>[], land: null as null | (() => void), hold: false, n: 0, loseAnswer: false, ask: null as any, asked: [] as any[], askDeleted: false }));
+const db = vi.hoisted(() => ({ rows: [] as Record<string, unknown>[], land: null as null | (() => void), hold: false, n: 0, loseAnswer: false, ask: null as any, asked: [] as any[], askDeleted: false, told: false, failDelete: false }));
 vi.mock("../src/store", () => ({
   listSchedules: async () => structuredClone(db.rows),
   // As the server does it: refused when the row isn't the version the edit started from.
@@ -16,11 +16,15 @@ vi.mock("../src/store", () => ({
   },
   scheduleVersion: async () => (db.rows[0]?._v as string) ?? null,
   fetchSchedule: async () => structuredClone(db.rows[0] ?? null),
-  deleteSchedule: async () => {},
+  deleteSchedule: async () => {
+    if (db.failDelete) throw new Error("offline");
+    db.rows = [];
+  },
 }));
 vi.mock("../src/schedule/lib/conflict.js", () => ({
   askConflicts: async (_: string, c: any[]) => (db.asked.push(c), db.ask && Object.fromEntries(c.map((x) => [x.key, db.ask]))),
   askDeleted: async () => db.askDeleted,
+  tellReplaced: async () => void (db.told = true),
 }));
 import { clearHistory, flushSaves, projectStore } from "../src/schedule/lib/stores/projects.js";
 
@@ -252,5 +256,97 @@ describe("someone else saving the same schedule", () => {
   it("the server's version is never stored in the schedule", async () => {
     store.updateTask("s", 1, { name: "Mine" });
     expect("_v" in now).toBe(false);
+  });
+});
+
+describe("the assistant's legend edits", () => {
+  const legend = { deliverables: ["A", "B", "C"].map((text, i) => ({ text, date: `2027-0${i + 2}-03` })), milestones: [], estimates: [], approvals: [] };
+  const edit = (index: number, patch: object) => ({ type: "updateLegendItem", section: "deliverables", index, patch });
+  const texts = () => now.legend.deliverables.map((d: any) => d.text);
+
+  it("reach the item meant, after someone removes one and re-sorts the rest meanwhile", async () => {
+    await load({ legend });
+    const sent = now;
+    store.updateLegendSection("s", "deliverables", now.legend.deliverables.filter((d: any) => d.text !== "A"));
+    store.updateLegendItem("s", "deliverables", 0, { date: "2027-09-01" }); // B goes last
+    expect(store.applyChanges("s", [edit(1, { text: "B2" }), edit(0, { text: "gone" })], sent)).toEqual({ applied: 1, skipped: 1 });
+    expect(texts()).toEqual(["C", "B2"]);
+  });
+
+  it("reach the items meant when the reply's own first edit re-sorts the legend", async () => {
+    await load({ legend });
+    store.applyChanges("s", [edit(0, { date: "2027-09-01" }), edit(1, { text: "B2" }), { type: "deleteLegendItem", section: "deliverables", index: 2 }]);
+    expect(texts()).toEqual(["B2", "A"]);
+  });
+});
+
+describe("a malformed schedule", () => {
+  it("is repaired on loading, so it can't stop the others from opening", async () => {
+    db.rows = [
+      {
+        ...schedule(),
+        title: 5,
+        tasks: [null, { id: 1, name: "A", type: "milestone", date: "2027-02-03", extraDates: 7 }, { id: 1, name: null, type: "bar" }, { id: "x", name: "C", type: "bar" }],
+        legend: { deliverables: [null, { text: "D", date: 5 }], milestones: "no" },
+        _v: "m",
+      } as any,
+      { ...schedule(), id: "bare", tasks: undefined, legend: undefined, _v: "n" } as any,
+    ];
+    let all: any[] = [];
+    const stop = store.subscribe((v: any[]) => (all = v));
+    await store.init(true);
+    stop();
+    const [a, b] = all;
+    expect(a.title).toBe("5");
+    expect(new Set(a.tasks.map((t: any) => t.id)).size).toBe(3);
+    expect(a.tasks[0].extraDates).toEqual([]);
+    expect(a.legend).toMatchObject({ deliverables: [{ text: "D", date: null }], milestones: [], estimates: [], approvals: [] });
+    expect(b.tasks).toEqual([]);
+    expect(b.legend.deliverables).toEqual([]);
+  });
+});
+
+it("a server that refuses every save is given up on, not asked forever", async () => {
+  const log = vi.spyOn(console, "error").mockImplementation(() => {});
+  await load();
+  store.updateTask("s", 1, { name: "Mine" });
+  for (let i = 0; i < 20; i++) {
+    db.rows[0] = { ...db.rows[0], _v: `x${i}`, savedBy: "another tab" };
+    await flushSaves();
+  }
+  expect(log.mock.calls.some((c) => /keeps changing/.test(String(c[1])))).toBe(true);
+  expect(now.tasks[0].name).toBe("Mine"); // still here to save
+});
+
+describe("deleting", () => {
+  it("a delete that fails says so, and the schedule is still there with its edits", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    await load();
+    store.updateTask("s", 1, { name: "Mine" });
+    db.failDelete = true;
+    await expect(store.deleteProject("s")).rejects.toThrow("offline");
+    db.failDelete = false;
+    expect(now.tasks[0].name).toBe("Mine");
+    await flushSaves();
+    expect((db.rows[0] as any).tasks[0].name).toBe("Mine");
+  });
+  it("one made again for the project opens, and saves", async () => {
+    await load({ createdAt: 1 });
+    await store.deleteProject("s");
+    expect(now).toBeUndefined();
+    await load({ createdAt: 2 });
+    store.updateTask("s", 1, { name: "New" });
+    await flushSaves();
+    expect((db.rows[0] as any).tasks[0].name).toBe("New");
+  });
+  it("an edit to one since deleted and made again isn't put into the new one", async () => {
+    await load({ createdAt: 1 });
+    store.updateTask("s", 1, { name: "Old edit" });
+    db.rows = [{ ...schedule({ createdAt: 2 }), _v: "again" }];
+    await flushSaves();
+    await flushSaves();
+    expect((db.rows[0] as any).tasks[0].name).toBe("Bar");
+    expect(db.told).toBe(true);
+    expect(now.createdAt).toBe(2);
   });
 });

@@ -12,6 +12,7 @@ import {
   setLoadProblemHandler,
   startDemo,
   saveComparison,
+  preload,
   saveFee,
   saveProject,
   saveReading,
@@ -36,7 +37,7 @@ import { confirmDelete, confirmModal, formModal, noticeModal } from "./modal";
 import { getCurrentRfp, initRfp, openRfp, rfpBusy, showRfpIntakeProject, showRfpStart } from "./rfp";
 import { showCalls } from "./calls";
 import { showConsultants } from "./consultants";
-import { flushFee, showFee } from "./fee";
+import { leaveFee, showFee } from "./fee";
 import { assistantBusy, setAssistantPage, type AssistantPage, type Reply, type Turn } from "./assistant";
 import { showWorldView } from "./worldview";
 import { showOrg } from "./org-page";
@@ -486,7 +487,22 @@ const gateForm = $<HTMLFormElement>("gate-form");
 const gateTitle = $<HTMLHeadingElement>("gate-title");
 const gateEmail = $<HTMLInputElement>("gate-email");
 const gatePassword = $<HTMLInputElement>("gate-password");
-const gatePasswordLabel = $<HTMLSpanElement>("gate-password-label");
+const gatePasswordLabel = $<HTMLLabelElement>("gate-password-label");
+const gateEye = $<HTMLButtonElement>("gate-eye");
+/** Shows the password as typed, or hides it again (always hidden on opening the form and on sending it). */
+function showPassword(show: boolean) {
+  gatePassword.type = show ? "text" : "password";
+  gateEye.setAttribute("aria-pressed", String(show));
+  gateEye.title = show ? "Hide password" : "Show password";
+}
+// The press doesn't take the focus, so the cursor stays where it was in the password.
+gateEye.addEventListener("mousedown", (e) => e.preventDefault());
+gateEye.addEventListener("click", () => {
+  const { selectionStart: from, selectionEnd: to } = gatePassword;
+  showPassword(gatePassword.type === "password");
+  // The browser moves the cursor to the start when the field's type changes: put it back once it has.
+  if (document.activeElement === gatePassword && from != null) requestAnimationFrame(() => setTimeout(() => gatePassword.setSelectionRange(from, to)));
+});
 const gateSubmit = $<HTMLButtonElement>("gate-submit");
 const gateLink = $<HTMLButtonElement>("gate-link");
 const gateError = $<HTMLSpanElement>("gate-error");
@@ -514,6 +530,7 @@ const adminEntry = () => location.hash.startsWith("#admin");
 
 function setGateMode(mode: GateMode) {
   gateMode = mode;
+  showPassword(false);
   const m = GATE[mode];
   const admin = adminEntry() && mode === "signin";
   gate.classList.toggle("admin-gate", admin);
@@ -541,7 +558,8 @@ function showGate(mode: GateMode = gateMode) {
   setGateMode(mode);
   (mode === "reset" || gateEmail.value ? gatePassword : gateEmail).focus();
 }
-setUnauthorizedHandler(() => showGate("signin"));
+// Once: saving in the background goes on being refused until they sign in, and mustn't keep resetting the form.
+setUnauthorizedHandler(() => gate.hidden && showGate("signin"));
 
 // ---------- Landing page and demo (signed-out visitors) ----------
 // Signed-out visitors see the landing page. "Try the demo" opens the real app on sample data kept in memory (see
@@ -586,7 +604,7 @@ async function enterDemo(page?: string) {
   setOrgName("Demo Architects");
   // A reload starts the demo fresh, but the tour remembers its step: past the sample review (or reloading on the
   // review itself), start with the review already done, so the tour and the data agree.
-  const tourStep = Number(session.get("demo_tour_step") ?? 0);
+  const tourStep = Number(session.get("demo_tour_step") ?? 0) || 0;
   startDemo(demoSeed({ reviewed: tourStep >= 2 || location.hash.startsWith(`#rfp/${DEMO_RFP_ID}`), revealed: demoRevealed() }));
   session.set(DEMO_FLAG, "1");
   gate.hidden = true;
@@ -778,6 +796,7 @@ gateForm.addEventListener("submit", async (e) => {
   e.preventDefault();
   const email = gateEmail.value.trim();
   const password = gatePassword.value;
+  showPassword(false); // so the browser offers to save it as a password, and it isn't left on screen
   setGateMessage("");
   if (gateMode !== "reset" && !gateEmail.reportValidity()) return;
   if (!email && gateMode !== "reset") return setGateMessage("Enter your email.");
@@ -910,6 +929,8 @@ function start() {
   initRfp();
   initProject();
   showTab();
+  // Once the first page has asked for what it needs: the rest of what a project shows.
+  if (!onPrintPage()) setTimeout(preload, 300);
 }
 
 // ---------- Tabs ----------
@@ -932,7 +953,7 @@ function showTab() {
     // Schedules belong to projects: the Projects tab stays highlighted.
     document.querySelectorAll("nav.tabs a, a.worldview-link, a.org-name").forEach((a) => a.classList.toggle("on", a.getAttribute("data-tab") === "project"));
     setAssistantPage(null); // the schedule editor sets its own
-    flushFee();
+    leaveFee();
     import("./schedule/mount").then((m) => {
       schedule = m;
       if (onSchedule()) m.showSchedule(location.hash);
@@ -971,7 +992,7 @@ function showTab() {
   if (tab === "org" && started) showOrg();
   if (tab === "admin" && started) void showAdmin();
   if (tab === "fee" && started) showFee(id);
-  else flushFee();
+  else leaveFee();
 }
 
 /**

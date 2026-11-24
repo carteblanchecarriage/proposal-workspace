@@ -26,7 +26,13 @@ export const FEE_ROUNDINGS = [
 export type FeeRounding = (typeof FEE_ROUNDINGS)[number]["value"];
 
 /** An amount rounded to the setting (cents are rounded as cents, so no float dust like 0.30000000000000004). */
-export const roundFee = (n: number, to: FeeRounding) => (to === 0.01 ? Math.round(n * 100) / 100 : Math.round(n / to) * to);
+export const roundFee = (n: number, to: FeeRounding) => {
+  // Half rounds away from zero, as Excel does (so a credit rounds as the same charge would), and float dust is dropped
+  // first (1.005 is stored as 1.00499…).
+  const steps = Number(Math.abs(to === 0.01 ? n * 100 : n / to).toPrecision(12));
+  const r = Math.round(steps);
+  return (Math.sign(n) * (to === 0.01 ? r / 100 : r * to)) || 0;
+};
 
 export const FEE_FONTS = {
   helvetica: { label: "Helvetica (standard)", stack: "'Helvetica Neue', Helvetica, Arial, sans-serif" },
@@ -108,5 +114,5 @@ export function feeMoney(n: number, to: FeeRounding = 1): string {
   const v = roundFee(n, to);
   if (!v) return "-";
   const cents = to === 0.01;
-  return `$ ${v.toLocaleString("en-US", { minimumFractionDigits: cents ? 2 : 0, maximumFractionDigits: cents ? 2 : 0 })}`;
+  return `${v < 0 ? "-" : ""}$ ${Math.abs(v).toLocaleString("en-US", { minimumFractionDigits: cents ? 2 : 0, maximumFractionDigits: cents ? 2 : 0 })}`;
 }
