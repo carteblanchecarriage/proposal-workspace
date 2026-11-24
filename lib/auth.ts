@@ -1,3 +1,4 @@
+import { aiBlocked } from "./ai-limits.js";
 import { errorResponse, UserFacingError } from "./claude.js";
 import { requestContext, runWithContext, setFileSink, setUsageSink, type RequestContext } from "./context.js";
 import { dbConfigured, get, insertRow, query, rpc } from "./db.js";
@@ -169,9 +170,11 @@ export function route(handler: Handler, opts: { ai?: boolean } = {}): Handler {
     let ctx: RequestContext;
     try {
       const { user, org } = await authenticate(request, !!opts.ai);
-      if (opts.ai && org && org.limitUsd != null && org.spentUsd >= org.limitUsd) {
+      // Every AI request checks the organization's allowance, never above the $100 a month safeguard (lib/ai-limits.ts).
+      const blocked = opts.ai && org ? aiBlocked(org.limitUsd, org.spentUsd) : null;
+      if (blocked) {
         throw new UserFacingError(
-          org.limitUsd === 0
+          blocked === "no allowance"
             ? "AI features need a subscription. The owner can subscribe on the Organization page (click your organization's name at the top)."
             : "Your organization has used all of this billing period's AI allowance. It resets on your billing date.",
           402,

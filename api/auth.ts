@@ -1,4 +1,4 @@
-import { adminOverview, isAdmin } from "../lib/admin.js";
+import { adminInbox, adminOverview, inviteRequest, isAdmin, resendInvite, setOrgAllowance, setRequestStatus } from "../lib/admin.js";
 import { forgetOrgs, inviteOnly, publicAuthConfig, route, whoAmI } from "../lib/auth.js";
 import { errorResponse, UserFacingError } from "../lib/claude.js";
 import { requestContext } from "../lib/context.js";
@@ -13,12 +13,13 @@ export async function GET(): Promise<Response> {
 }
 
 // The organization page (x-action: org-info | org-rename | org-export | org-delete | billing-checkout | billing-portal), and the
-// site owner's activity page (admin-overview, ADMIN_EMAILS only). Kept in this function because
+// site owner's activity page and inbox (admin-overview | admin-inbox | admin-request-status | admin-invite | admin-allowance |
+// admin-resend-invite; ADMIN_EMAILS only). Kept in this function because
 // the Vercel Hobby plan allows 12 per deployment.
 const orgAction = route(async (request) => {
   const ctx = requestContext();
   if (!ctx?.orgId) throw new UserFacingError("Organizations need sign-in to be set up.", 503);
-  const body = ((await request.json().catch(() => null)) ?? {}) as { name?: unknown };
+  const body = ((await request.json().catch(() => null)) ?? {}) as { name?: unknown; id?: unknown; status?: unknown; usd?: unknown; email?: unknown };
   const name = typeof body.name === "string" ? body.name : "";
   switch (request.headers.get("x-action")) {
     case "org-info":
@@ -38,8 +39,26 @@ const orgAction = route(async (request) => {
       return Response.json({ url });
     }
     case "admin-overview":
+    case "admin-inbox":
+    case "admin-request-status":
+    case "admin-invite":
+    case "admin-allowance":
+    case "admin-resend-invite": {
+      // The site owner's activity page and inbox: only for ADMIN_EMAILS, checked on every request.
       if (!isAdmin(ctx.email)) throw new UserFacingError("Not available.", 403);
-      return Response.json(await adminOverview(new Date(), ctx.orgId), { headers: { "cache-control": "no-store" } });
+      const noStore = { headers: { "cache-control": "no-store" } };
+      const action = request.headers.get("x-action");
+      if (action === "admin-overview") return Response.json(await adminOverview(new Date(), ctx.orgId), noStore);
+      if (action === "admin-inbox") return Response.json(await adminInbox(), noStore);
+      if (action === "admin-request-status") return (await setRequestStatus(body.id, body.status), Response.json({ ok: true }));
+      if (action === "admin-allowance") {
+        const usd = await setOrgAllowance(body.id, body.usd);
+        forgetOrgs(); // this server's cached copy of the organization, so the new allowance applies at once
+        return Response.json({ usd });
+      }
+      if (action === "admin-resend-invite") return (await resendInvite(body.email, appOrigin(request)), Response.json({ ok: true }));
+      return Response.json(await inviteRequest(body.id, appOrigin(request)));
+    }
     case "org-delete":
       await deleteOrg(ctx.orgId, ctx.userId, name);
       forgetOrgs();

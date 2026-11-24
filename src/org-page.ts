@@ -16,7 +16,7 @@ type Info = {
   plan: string;
   createdAt: string;
   /** AI use as a share of the allowance (lib/org.ts); never dollars */
-  ai: { state: "off" } | { state: "unlimited" } | { state: "limited"; percent: number };
+  ai: { state: "off" } | { state: "limited"; percent: number };
   subscriptionStatus: string | null;
   renewsAt: string | null;
   /** null when billing isn't set up on the server */
@@ -71,18 +71,13 @@ function render() {
   const owner = info.you === "owner";
   const period = info.plan === "pro" ? "this billing period" : "this month";
   const ai = info.ai;
-  const usage =
-    ai.state === "unlimited"
-      ? "No limit on AI use."
-      : ai.state === "off"
-        ? "AI features aren't turned on for this organization yet."
-        : `${pct(ai.percent)} of ${period}'s AI allowance used.`;
+  const usage = ai.state === "off" ? "AI features aren't turned on for this organization yet." : `${pct(ai.percent)} of ${period}'s AI allowance used.`;
   const day = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" }) : "");
   const b = info.billing;
   const price = b?.price ? ` · ${esc(b.price)}` : "";
   const plan =
     info.plan === "owner"
-      ? `<p>Internal plan: no subscription.${info.ai.state === "limited" ? " AI has a monthly allowance, which resets on the 1st." : " No AI limit."}</p>`
+      ? `<p>Internal plan: no subscription. AI has a monthly allowance, which resets on the 1st.</p>`
       : info.plan === "pro"
         ? `<p><b>Pro</b>${price}${info.renewsAt ? `. Renews ${esc(day(info.renewsAt))}.` : ""}</p>
            ${info.subscriptionStatus === "past_due" ? `<p class="status error">The last payment didn't go through. Update the card under Manage billing; AI stays on while Stripe retries.</p>` : ""}

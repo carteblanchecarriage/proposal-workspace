@@ -71,7 +71,7 @@ describe("adminOverview", () => {
     expect(byId.firm.percent).toBeCloseTo(85, 10);
     expect(byId.paid).toMatchObject({ calls: 1, costUsd: 6, percent: 15 });
     expect(byId.new).toMatchObject({ calls: 0, costUsd: 0, percent: null, lastActive: null });
-    expect(byId.old).toMatchObject({ limitUsd: null, percent: null });
+    expect(byId.old).toMatchObject({ limitUsd: null, percent: 0 }); // no limit: a percent of the $100 safeguard
   });
 
   it("flags what needs attention", async () => {
@@ -120,5 +120,22 @@ describe("adminOverview", () => {
     const firm = usageFor(o, (id) => id === "firm");
     expect(firm.features.map((f) => f.endpoint)).toEqual(["/api/rfp", "/api/chat"]);
     expect(firm.days.find((d) => d.date === "2026-11-20")).toMatchObject({ calls: 1, costUsd: 10 });
+  });
+
+  it("counts what each organization has made, without opening any of it", async () => {
+    rows.projects = [{ org_id: "firm" }, { org_id: "firm" }, { org_id: "paid" }];
+    rows.rfp_reviews = [{ org_id: "firm" }];
+    rows.fees = [{ org_id: "paid" }];
+    const byId = Object.fromEntries((await adminOverview(NOW)).orgs.map((x) => [x.id, x.made]));
+    expect(byId.firm).toEqual({ projects: 2, reviews: 1, fees: 0, schedules: 0, comparisons: 0 });
+    expect(byId.paid).toEqual({ projects: 1, reviews: 0, fees: 1, schedules: 0, comparisons: 0 });
+    expect(byId.new).toEqual({ projects: 0, reviews: 0, fees: 0, schedules: 0, comparisons: 0 });
+    const { query } = await import("../lib/db.js");
+    // Only each record's organization is asked for: never its (encrypted) data.
+    for (const [path] of (query as unknown as { mock: { calls: [string][] } }).mock.calls)
+      if (/^(projects|rfp_reviews|fees|schedules|comparisons)\?/.test(path)) expect(path).toMatch(/select=org_id&/);
+    delete rows.projects;
+    delete rows.rfp_reviews;
+    delete rows.fees;
   });
 });

@@ -1,3 +1,4 @@
+import { effectiveLimit } from "./ai-limits.js";
 import { getClient, UserFacingError } from "./claude.js";
 import { listAll, query, TABLES, type Table } from "./db.js";
 import { remove as removeStored, RFP_PATH } from "./storage.js";
@@ -39,12 +40,13 @@ async function emailOf(user: string): Promise<string | null> {
   return ((await res.json()) as { email?: string }).email ?? null;
 }
 
-/** How much of its AI allowance an organization has used: off (no allowance), unlimited, or a percent (0–100). */
-export type AiUse = { state: "off" } | { state: "unlimited" } | { state: "limited"; percent: number };
-function aiUse(limit: number | null, spent: number): AiUse {
-  if (limit == null) return { state: "unlimited" };
-  if (limit <= 0) return { state: "off" };
-  return { state: "limited", percent: Math.min(100, (spent / limit) * 100) };
+/** How much of its AI allowance an organization has used: off (no allowance), or a percent (0–100) of what applies. */
+export type AiUse = { state: "off" } | { state: "limited"; percent: number };
+export function aiUse(limit: number | null, spent: number): AiUse {
+  // No limit and every allowance are capped by the safeguard, so there's always a percent to show.
+  const applies = effectiveLimit(limit);
+  if (applies <= 0) return { state: "off" };
+  return { state: "limited", percent: Math.min(100, (spent / applies) * 100) };
 }
 
 export async function orgInfo(org: string, user: string | null) {
