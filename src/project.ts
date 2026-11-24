@@ -11,7 +11,7 @@ import type { Comparison, Proposal, ScheduleDraft } from "../lib/claude";
 import { consultantTotal, proposalTable, roundedTable, totals } from "./fee-calc";
 import { DEFAULT_FEE_STYLE, roundFee, type FeeRounding } from "./fee-style";
 import { feeStatusHtml, setFeeStatus } from "./fee-status";
-import { deleteProject, isDemo, listFees, saveFee, type SavedFee, projectLabel, listComparisons, listProjects, listSchedules, getScheduleStyle, type ScheduleStyle, savesShared, listRfps, getFeeStyle, saveComparison, saveProject, saveRfp, saveSchedule, listConsultants, type SavedConsultant, type SavedComparison, type SavedProject, type SavedRfp, type SavedSchedule, type ProjectFirm, type ReceivedProposal } from "./store";
+import { deleteProject, isDemo, listFees, saveFee, type SavedFee, projectLabel, listComparisons, listProjects, listSchedules, getScheduleStyle, type ScheduleStyle, savesShared, listRfps, getFeeStyle, saveComparison, saveProject, saveRfp, patchSchedule, saveSchedule, listConsultants, type SavedConsultant, type SavedComparison, type SavedProject, type SavedRfp, type SavedSchedule, type ProjectFirm, type ReceivedProposal } from "./store";
 import { addAddendum, docKindLabel, docTitle, formatWhen, physicalSubmission, printBy, parseDay, projectDisciplines, proposalDue, verdictPill } from "./rfp";
 import { setPendingProject } from "./pending";
 import { markRevealed, type DemoPart } from "./demo/ids";
@@ -1171,7 +1171,7 @@ async function rename() {
     if (rfp) await saveRfp({ ...rfp, project: name });
     await Promise.all(comparisons.map((c) => saveComparison({ ...c, projectName: name })));
     // Its schedule is named after it (title and project number), so it follows too.
-    await Promise.all(schedules.map((s) => saveSchedule({ ...s, title: p.name, number: p.number ?? "" })));
+    await Promise.all(schedules.map((s) => patchSchedule(s, { title: p.name, number: p.number ?? "" })));
   } catch (err) {
     await noticeModal("Not saved", (err as Error).message);
   }
@@ -1215,7 +1215,7 @@ async function remove(id: string) {
     await Promise.all([
       ...rfps.filter((r) => r.projectId === id).map((r) => saveRfp({ ...r, projectId: undefined, project: null })),
       ...cmps.filter((c) => c.projectId === id).map((c) => saveComparison({ ...c, projectId: undefined, projectName: null })),
-      ...(await listSchedules()).filter((s) => s.workspaceProjectId === id).map((s) => saveSchedule({ ...s, workspaceProjectId: undefined })),
+      ...(await listSchedules()).filter((s) => s.workspaceProjectId === id).map((s) => patchSchedule(s, { workspaceProjectId: undefined })),
       ...(await listFees()).filter((f) => f.workspaceProjectId === id).map((f) => saveFee({ ...f, workspaceProjectId: undefined })),
     ]);
     await deleteProject(id);

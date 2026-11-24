@@ -225,9 +225,9 @@ export function startDemo(seed: Record<Kind, object[]>): void {
 }
 export const isDemo = () => demo !== null;
 
-async function remote<T>(method: string, kind: Kind, opts: { key?: string; body?: unknown; keepalive?: boolean } = {}): Promise<T | undefined> {
+async function remote<T>(method: string, kind: Kind, opts: { key?: string; body?: unknown; keepalive?: boolean; base?: string; version?: boolean } = {}): Promise<T | undefined> {
   if (local || demo) return undefined;
-  const q = new URLSearchParams({ table: kind, ...(opts.key ? { key: opts.key } : {}) });
+  const q = new URLSearchParams({ table: kind, ...(opts.key ? { key: opts.key } : {}), ...(opts.base ? { base: opts.base } : {}), ...(opts.version ? { version: "1" } : {}) });
   const verb = method === "GET" ? "load" : method === "DELETE" ? "delete" : "save";
   const send = async () => {
     try {
@@ -252,6 +252,8 @@ async function remote<T>(method: string, kind: Kind, opts: { key?: string; body?
     local = true;
     return undefined;
   }
+  // Someone else saved since: the answer holds their version (saveScheduleFrom).
+  if (res.status === 409 && (data as { conflict?: boolean }).conflict) return data as T;
   if (!res.ok) throw new Error((data as { error?: string }).error ?? `Couldn't ${verb} (the server returned ${res.status}). Try again in a moment.`);
   return data as T;
 }
@@ -318,9 +320,38 @@ export const listConsultants = () => listRecords<SavedConsultant>("consultants")
 export const deleteConsultant = (id: string) => deleteRecord("consultants", id);
 
 /** A schedule, as the schedule editor keeps it (title, tasks, legend, view…); linked to a project by workspaceProjectId. */
-export type SavedSchedule = { id: string; savedAt: number; createdAt?: number; title?: string; workspaceProjectId?: string } & Record<string, unknown>;
+/** _v: its version on the server, which a save says it started from; never stored. */
+export type SavedSchedule = { id: string; savedAt: number; _v?: string; createdAt?: number; title?: string; workspaceProjectId?: string } & Record<string, unknown>;
 /** keepalive: for the last save as the page closes. */
 export const saveSchedule = (s: SavedSchedule, keepalive = false) => saveRecord("schedules", s, keepalive);
+export type SaveResult = { version?: string | null; conflict?: boolean; record?: SavedSchedule | null };
+/**
+ * Saves a schedule only if it's still the version `base`. If someone else saved it since, nothing is saved and the
+ * answer is { conflict, record: theirs (null when deleted) }. Without a base (a new schedule), saves as is.
+ */
+export async function saveScheduleFrom(s: SavedSchedule, base: string | undefined, keepalive = false): Promise<SaveResult> {
+  if (!demo && !local) {
+    const { _v, ...record } = s;
+    const answer = await remote<SaveResult>("POST", "schedules", { body: record, keepalive, base });
+    if (answer) return answer;
+  }
+  await saveRecord("schedules", s, keepalive); // the demo, or saving in this browser: no one else to collide with
+  return {};
+}
+/** A schedule as it is on the server now; null when it's gone, undefined when schedules are kept in this browser. */
+export const fetchSchedule = (id: string) => remote<SavedSchedule | null>("GET", "schedules", { key: id });
+export const scheduleVersion = async (id: string) => (await remote<{ version: string | null }>("GET", "schedules", { key: id, version: true }))?.version;
+/** Changes a few fields of a schedule as it is now (not as this page loaded it), keeping everyone's other edits. */
+export async function patchSchedule(s: SavedSchedule, patch: Partial<SavedSchedule>): Promise<void> {
+  let current: SavedSchedule | null | undefined = s;
+  for (let i = 0; i < 4; i++) {
+    const saved: SaveResult = await saveScheduleFrom({ ...current, ...patch, savedAt: Date.now(), savedBy: undefined }, current._v);
+    if (!saved.conflict) return;
+    current = saved.record;
+    if (!current) return; // deleted meanwhile
+  }
+  throw new Error("The schedule is being changed by someone else. Try again in a moment.");
+}
 export const listSchedules = () => listRecords<SavedSchedule>("schedules");
 export const deleteSchedule = (id: string) => deleteRecord("schedules", id);
 

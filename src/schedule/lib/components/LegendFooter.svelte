@@ -1,7 +1,8 @@
 <script>
   import { palette, colorMap, badge, look } from '../palette.js';
   import { tick } from 'svelte';
-  import { toWeekday } from '../utils/dates.js';
+  import { isDate, toWeekday } from '../utils/dates.js';
+  import { dateField, editable } from '../utils/fields.js';
 
   let { legend, tasks = [], onUpdate, onMilestoneDrag, onApprovalDrag, onEstimateDrag, onAddMilestone, onAddDeliverable, onAddApproval, onAddEstimate, onLinkClick, notes = '', onNotesUpdate = null, readonly = false } = $props();
 
@@ -9,25 +10,30 @@
     onUpdate(section, items);
   }
 
-  function updateField(section, idx, field, val) {
-    emit(section, legend[section].map((item, i) => i === idx ? { ...item, [field]: val } : item));
+  // By the item, not its place: the list may have been re-sorted (or changed by someone else) since the edit began.
+  function updateField(section, item, field, val) {
+    emit(section, legend[section].map((it) => (it === item || (item.uid && it.uid === item.uid) ? { ...it, [field]: val } : it)));
   }
 
   function removeItem(section, idx) {
     emit(section, legend[section].filter((_, i) => i !== idx));
   }
 
-  function onText(e, section, idx, field) {
-    updateField(section, idx, field, e.target.textContent.trim());
-  }
-  function onColor(e, section, idx) {
-    updateField(section, idx, 'color', e.target.value);
-  }
-  function onDate(e, section, idx) {
-    const date = toWeekday(e.target.value) || null;
-    if (date) e.target.value = date;
-    updateField(section, idx, 'date', date);
-  }
+  const text = (section, item, field) => ({
+    value: item[field],
+    onCommit: (v) => updateField(section, item, field, v),
+  });
+  const dated = (section, item) => ({
+    value: item.date,
+    defer: true,
+    onCommit: (v) => {
+      if (v && !isDate(v)) return false;
+      updateField(section, item, 'date', toWeekday(v) || null);
+    },
+  });
+  // Removing a row while a date is being typed: leaving the date field would save and re-sort the list under the
+  // pointer, and remove the wrong row. So the press doesn't take the focus.
+  const keepFocus = (e) => { if (document.activeElement?.type === 'date') e.preventDefault(); };
 
   // Notes are stored as one string, one note per line, and shown as a numbered list.
   let noteItems = $derived(notes.split('\n').map(n => n.trim()).filter(Boolean));
@@ -78,7 +84,7 @@
   <div class="leg-col">
     <div class="leg-hdr">Deliverables</div>
     <div class="leg-items">
-      {#each legend.deliverables as d, i}
+      {#each legend.deliverables as d, i (d.uid ?? i)}
         {@const num = i + 1}
         <div class="leg-row">
           <div class="leg-bdg" style:background="var(--sched-deliverable, #D4804A)">{num}</div>
@@ -88,21 +94,20 @@
                 class="leg-field leg-name"
                 contenteditable={!readonly}
                 spellcheck="false"
-                onblur={(e) => onText(e, 'deliverables', i, 'text')}
+                use:editable={text('deliverables', d, 'text')}
                 onkeydown={(e) => e.key === 'Enter' && (e.preventDefault(), e.target.blur())}
-              >{d.text}</span>
+              ></span>
             </div>
             <div class="leg-sub">
               <input
                 type="date"
                 class="date-inp no-print"
-                value={d.date ?? ''}
-                onchange={(e) => onDate(e, 'deliverables', i)}
+                use:dateField={dated('deliverables', d)}
               >
               <span class="date-print print-only">{fmtDate(d.date)}</span>
             </div>
           </div>
-          <button class="leg-del" onclick={() => removeItem('deliverables', i)}>✕</button>
+          <button class="leg-del" onmousedown={keepFocus} onclick={() => removeItem('deliverables', i)}>✕</button>
         </div>
       {/each}
       <button type="button" class="leg-add site-ui"
@@ -115,7 +120,7 @@
   <div class="leg-col">
     <div class="leg-hdr">Milestones</div>
     <div class="leg-items">
-      {#each legend.milestones as m, i}
+      {#each legend.milestones as m, i (m.uid ?? i)}
         <div class="leg-row">
           <!-- svelte-ignore a11y_no_static_element_interactions -->
           <div
@@ -127,10 +132,10 @@
             <span
               contenteditable={!readonly}
               spellcheck="false"
-              onblur={(e) => onText(e, 'milestones', i, 'code')}
+              use:editable={text('milestones', m, 'code')}
               onkeydown={(e) => e.key === 'Enter' && (e.preventDefault(), e.target.blur())}
               onpointerdown={(e) => e.stopPropagation()}
-            >{m.code}</span>
+            ></span>
           </div>
           <div class="leg-body">
             <div class="leg-line">
@@ -138,21 +143,20 @@
                 class="leg-field leg-name"
                 contenteditable={!readonly}
                 spellcheck="false"
-                onblur={(e) => onText(e, 'milestones', i, 'text')}
+                use:editable={text('milestones', m, 'text')}
                 onkeydown={(e) => e.key === 'Enter' && (e.preventDefault(), e.target.blur())}
-              >{m.text}</span>
+              ></span>
             </div>
             <div class="leg-sub">
               <input
                 type="date"
                 class="date-inp no-print"
-                value={m.date ?? ''}
-                onchange={(e) => onDate(e, 'milestones', i)}
+                use:dateField={dated('milestones', m)}
               >
               <span class="date-print print-only">{fmtDate(m.date)}</span>
             </div>
           </div>
-          <button class="leg-del" onclick={() => removeItem('milestones', i)}>✕</button>
+          <button class="leg-del" onmousedown={keepFocus} onclick={() => removeItem('milestones', i)}>✕</button>
         </div>
       {/each}
       <button type="button" class="leg-add site-ui"
@@ -165,7 +169,7 @@
   <div class="leg-col">
     <div class="leg-hdr">Estimates</div>
     <div class="leg-items">
-      {#each legend.estimates as e, i}
+      {#each legend.estimates as e, i (e.uid ?? i)}
         <div class="leg-row">
           <!-- svelte-ignore a11y_no_static_element_interactions -->
           <div
@@ -177,10 +181,10 @@
             <span
               contenteditable={!readonly}
               spellcheck="false"
-              onblur={(ev) => onText(ev, 'estimates', i, 'code')}
+              use:editable={text('estimates', e, 'code')}
               onkeydown={(ev) => ev.key === 'Enter' && (ev.preventDefault(), ev.target.blur())}
               onpointerdown={(ev) => ev.stopPropagation()}
-            >{e.code}</span>
+            ></span>
           </div>
           <div class="leg-body">
             <div class="leg-line">
@@ -188,21 +192,20 @@
                 class="leg-field leg-name"
                 contenteditable={!readonly}
                 spellcheck="false"
-                onblur={(ev) => onText(ev, 'estimates', i, 'text')}
+                use:editable={text('estimates', e, 'text')}
                 onkeydown={(ev) => ev.key === 'Enter' && (ev.preventDefault(), ev.target.blur())}
-              >{e.text}</span>
+              ></span>
             </div>
             <div class="leg-sub">
               <input
                 type="date"
                 class="date-inp no-print"
-                value={e.date ?? ''}
-                onchange={(ev) => onDate(ev, 'estimates', i)}
+                use:dateField={dated('estimates', e)}
               >
               <span class="date-print print-only">{fmtDate(e.date)}</span>
             </div>
           </div>
-          <button class="leg-del" onclick={() => removeItem('estimates', i)}>✕</button>
+          <button class="leg-del" onmousedown={keepFocus} onclick={() => removeItem('estimates', i)}>✕</button>
         </div>
       {/each}
       <button type="button" class="leg-add site-ui"
@@ -215,7 +218,7 @@
   <div class="leg-col">
     <div class="leg-hdr">Approvals</div>
     <div class="leg-items">
-      {#each legend.approvals as a, i}
+      {#each legend.approvals as a, i (a.uid ?? i)}
         <div class="leg-row">
           <!-- svelte-ignore a11y_no_static_element_interactions -->
           <div
@@ -229,21 +232,20 @@
                 class="leg-field leg-name"
                 contenteditable={!readonly}
                 spellcheck="false"
-                onblur={(e) => onText(e, 'approvals', i, 'text')}
+                use:editable={text('approvals', a, 'text')}
                 onkeydown={(e) => e.key === 'Enter' && (e.preventDefault(), e.target.blur())}
-              >{a.text}</span>
+              ></span>
             </div>
             <div class="leg-sub">
               <input
                 type="date"
                 class="date-inp no-print"
-                value={a.date ?? ''}
-                onchange={(e) => onDate(e, 'approvals', i)}
+                use:dateField={dated('approvals', a)}
               >
               <span class="date-print print-only">{fmtDate(a.date)}</span>
             </div>
           </div>
-          <button class="leg-del" onclick={() => removeItem('approvals', i)}>✕</button>
+          <button class="leg-del" onmousedown={keepFocus} onclick={() => removeItem('approvals', i)}>✕</button>
         </div>
       {/each}
       <button type="button" class="leg-add site-ui"

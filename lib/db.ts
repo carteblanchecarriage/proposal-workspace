@@ -37,24 +37,69 @@ const q = encodeURIComponent;
 type StoredRow = Record<string, unknown> & { data: unknown };
 const opened = (org: string, t: Table, r: StoredRow) => unseal(org, rowAad(TABLES[t], String(r[keyCol(t)])), r.data);
 
+// Schedules carry their version (when the row was last saved) to the browser as _v, and a save says which version it
+// started from, so it can't replace someone else's newer one (putIfUnchanged). Never stored in the record itself.
+const VERSIONED = new Set<Table>(["schedules"]);
+const columns = (t: Table) => `${keyCol(t)},data${VERSIONED.has(t) ? ",saved_at" : ""}`;
+const withVersion = (t: Table, r: StoredRow, record: unknown) =>
+  VERSIONED.has(t) && record && typeof record === "object" ? { ...record, _v: r.saved_at } : record;
+
 export async function list(org: string, t: Table): Promise<unknown[]> {
-  const rows: StoredRow[] = await (await sb(`${TABLES[t]}?select=${keyCol(t)},data&org_id=eq.${q(org)}&order=saved_at.desc&limit=500`)).json();
-  return rows.map((r) => opened(org, t, r));
+  const rows: StoredRow[] = await (await sb(`${TABLES[t]}?select=${columns(t)}&org_id=eq.${q(org)}&order=saved_at.desc&limit=500`)).json();
+  return rows.map((r) => withVersion(t, r, opened(org, t, r)));
 }
 
 export async function get(org: string, t: Table, key: string): Promise<unknown | null> {
-  const rows: StoredRow[] = await (await sb(`${TABLES[t]}?select=${keyCol(t)},data&org_id=eq.${q(org)}&${keyCol(t)}=eq.${q(key)}`)).json();
-  return rows[0] ? opened(org, t, rows[0]) : null;
+  const rows: StoredRow[] = await (await sb(`${TABLES[t]}?select=${columns(t)}&org_id=eq.${q(org)}&${keyCol(t)}=eq.${q(key)}`)).json();
+  return rows[0] ? withVersion(t, rows[0], opened(org, t, rows[0])) : null;
 }
 
-export async function put(org: string, t: Table, record: Record<string, unknown>): Promise<void> {
+/** When a record was last saved, without opening it; null when it's gone. */
+export async function version(org: string, t: Table, key: string): Promise<string | null> {
+  const rows: { saved_at: string }[] = await (await sb(`${TABLES[t]}?select=saved_at&org_id=eq.${q(org)}&${keyCol(t)}=eq.${q(key)}`)).json();
+  return rows[0]?.saved_at ?? null;
+}
+
+function sealedRow(org: string, t: Table, input: Record<string, unknown>): { key: string; row: Record<string, unknown> } {
+  const { _v, ...record } = input;
   const key = record[keyCol(t)];
   if (typeof key !== "string" || !key) throw new UserFacingError("Missing record key.");
   // Only the encrypted record is stored. (The tables' older side columns, such as name, title and project, stay
   // empty: they'd be readable.)
   const row: Record<string, unknown> = { org_id: org, [keyCol(t)]: key, data: seal(org, rowAad(TABLES[t], key), record), saved_at: new Date().toISOString() };
+  return { key, row };
+}
+
+/** Saves a record, replacing any there. Returns its new version. */
+export async function put(org: string, t: Table, record: Record<string, unknown>): Promise<string | null> {
+  const { row } = sealedRow(org, t, record);
   // The key is (org_id, id), so a save can only ever replace this organization's own record.
-  await sb(`${TABLES[t]}?on_conflict=org_id,${keyCol(t)}`, { method: "POST", headers: { Prefer: "resolution=merge-duplicates" }, body: JSON.stringify(row) });
+  const res = await sb(`${TABLES[t]}?on_conflict=org_id,${keyCol(t)}&select=saved_at`, {
+    method: "POST",
+    headers: { Prefer: "resolution=merge-duplicates,return=representation" },
+    body: JSON.stringify(row),
+  });
+  const rows: { saved_at: string }[] = await res.json();
+  return rows[0]?.saved_at ?? null;
+}
+
+/**
+ * Saves a record only if it's still the version the edit started from: checked and saved in one step by the database,
+ * so two saves at once can't both succeed. Returns the new version, or null when someone else saved (or deleted) it.
+ */
+export async function putIfUnchanged(org: string, t: Table, record: Record<string, unknown>, base: string): Promise<string | null> {
+  const { key, row } = sealedRow(org, t, record);
+  // Always later than the version it replaces, whatever the servers' clocks say: a version is never reused.
+  const after = Date.parse(base) + 1;
+  if (!Number.isFinite(after)) throw new UserFacingError("Invalid version.");
+  const saved_at = new Date(Math.max(Date.now(), after)).toISOString();
+  const res = await sb(`${TABLES[t]}?org_id=eq.${q(org)}&${keyCol(t)}=eq.${q(key)}&saved_at=eq.${q(base)}&select=saved_at`, {
+    method: "PATCH",
+    headers: { Prefer: "return=representation" },
+    body: JSON.stringify({ data: row.data, saved_at }),
+  });
+  const rows: { saved_at: string }[] = await res.json();
+  return rows[0]?.saved_at ?? null;
 }
 
 export async function remove(org: string, t: Table, key: string): Promise<void> {

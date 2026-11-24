@@ -1,6 +1,7 @@
 ﻿<script>
-  import { projectStore, historyDepth, saveError } from '../lib/stores/projects.js';
-  import { generateId, parseDate, toISO, MONTHS_SHORT, monthList, totalDays, ZOOM_COL_W, projectDateRange, pxToDateMonth, pxToDatePeriod, toWeekday } from '../lib/utils/dates.js';
+  import { onMount } from 'svelte';
+  import { projectStore, historyDepth, notice, saveError, viewAround, watchSchedule } from '../lib/stores/projects.js';
+  import { generateId, parseDate, toISO, MONTHS_SHORT, monthList, totalDays, ZOOM_COL_W, projectDateRange, isView, pxToDateMonth, pxToDatePeriod, toWeekday } from '../lib/utils/dates.js';
   import TaskPanel    from '../lib/components/TaskPanel.svelte';
   import GanttPanel   from '../lib/components/GanttPanel.svelte';
   import LegendFooter from '../lib/components/LegendFooter.svelte';
@@ -14,8 +15,10 @@
   import { orgName } from '../../org';
   import { listProjects } from '../../store';
   import { pointerDrag } from '../lib/utils/pointer.js';
+  import { editable } from '../lib/utils/fields.js';
 
   let { data } = $props();
+  onMount(() => watchSchedule(data.id)); // keeps it current with other people's changes
   // Back goes to the project this schedule belongs to, or to the schedule list.
   let markerLanes = $state(1); // stacked marker lanes reported by GanttPanel
 
@@ -466,7 +469,7 @@
     vs.setMonth(vs.getMonth() + startDelta);
     ve.setMonth(ve.getMonth() + endDelta);
     const monthSpan = (ve.getFullYear() - vs.getFullYear()) * 12 + ve.getMonth() - vs.getMonth();
-    if (monthSpan < 2) return;
+    if (monthSpan < 2 || !isView(toISO(vs), toISO(ve))) return;
     projectStore.updateProject(data.id, { viewStart: toISO(vs), viewEnd: toISO(ve) });
   }
 
@@ -486,12 +489,8 @@
 
   function fitView() {
     if (!project || !trueStart || !trueEnd) return;
-    const s  = parseDate(trueStart);
-    const e  = parseDate(trueEnd);
     // One month of breathing room before the first task and after the last, so nothing sits on the edge.
-    const vs = new Date(s.getFullYear(), s.getMonth() - 1, 1);
-    const ve = new Date(e.getFullYear(), e.getMonth() + 1, 1);
-    projectStore.updateProject(data.id, { viewStart: toISO(vs), viewEnd: toISO(ve) });
+    projectStore.updateProject(data.id, viewAround(trueStart, trueEnd));
   }
 
   // The assistant's whole reply is checked and applied as one edit, so one Undo reverses it.
@@ -554,23 +553,26 @@
               class="meta-field"
               contenteditable="true"
               spellcheck="false"
-              onblur={(e) => updateMeta('date', e.target.textContent.trim())}
-            >{project.date || 'Date'}</div>
+              data-hint="Date"
+              use:editable={{ value: project.date, onCommit: (text) => updateMeta('date', text) }}
+            ></div>
             <span class="meta-sep">·</span>
             <div
               class="meta-field"
               contenteditable={linked ? 'false' : 'true'}
               title={linked ? "The project's number. Change it on the project page." : undefined}
               spellcheck="false"
-              onblur={(e) => updateMeta('number', e.target.textContent.trim())}
-            >{project.number || 'Project Number'}</div>
+              data-hint="Project Number"
+              use:editable={{ value: project.number, onCommit: (text) => updateMeta('number', text) }}
+            ></div>
             <span class="meta-sep">·</span>
             <div
               class="meta-field"
               contenteditable="true"
               spellcheck="false"
-              onblur={(e) => updateMeta('client', e.target.textContent.trim())}
-            >{project.client || 'Client'}</div>
+              data-hint="Client"
+              use:editable={{ value: project.client, onCommit: (text) => updateMeta('client', text) }}
+            ></div>
           </div>
         </div>
       </div>
@@ -579,6 +581,7 @@
         <!-- A failed save stays on screen until the next save works, so edits are never lost silently. -->
         <p class="save-error no-print" role="alert">{$saveError}</p>
       {/if}
+      {#if $notice && !$saveError}<p class="notice no-print" role="status">{$notice}</p>{/if}
       <div class="hdr-actions no-print site-ui">
         <button class="action-btn action-btn-undo" onclick={handleUndo} disabled={!canUndo} title="Undo (Ctrl+Z)">
           Undo
@@ -796,6 +799,8 @@
     outline: none;
     cursor: text;
   }
+  /* What an empty field is for: shown by CSS, so it can't be saved as the field's text. */
+  .meta-field:empty::before { content: attr(data-hint); }
   .meta-field:focus { background: rgba(32,171,226,.06); border-radius: 2px; padding: 0 4px; }
   /* The editor's controls (not printed) look like the rest of the site: its font, sentence case, square buttons with a
      black rule, a light gray hover, black for the main action. */
@@ -820,6 +825,7 @@
   .action-btn-ai { background: var(--ink); color: var(--bg); }
   .action-btn-ai:hover:not(:disabled) { background: #333; }
   .action-btn-delete:hover:not(:disabled) { color: var(--bad); border-color: var(--bad); background: var(--bg); }
+  .notice { margin: 0 12px 0 auto; align-self: center; color: var(--black); font-size: 12px; }
   .save-error { margin: 0 12px 0 auto; align-self: center; color: #b3261e; font-size: 12px; font-weight: 600; }
 
   /* Timeline control strip */

@@ -8,6 +8,32 @@ export function parseDate(s) {
   return new Date(y, m - 1, d);
 }
 
+/** A real calendar day, YYYY-MM-DD, in a year a schedule could use (a mistyped year would draw thousands of columns). */
+export function isDate(s) {
+  if (typeof s !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(s)) return false;
+  const y = Number(s.slice(0, 4));
+  return y >= 1990 && y <= 2100 && toISO(parseDate(s)) === s;
+}
+
+/** Whether a task can be drawn: a milestone with its date, or a bar that doesn't end before it starts. */
+export function hasDates(t) {
+  return t.type === 'milestone' ? isDate(t.date) : isDate(t.start) && isDate(t.end) && t.end >= t.start;
+}
+
+/** The longest timeline shown, in years. */
+export const MAX_VIEW_YEARS = 30;
+/** A timeline that can be drawn: it ends after it starts, within MAX_VIEW_YEARS. */
+export function isView(start, end) {
+  return isDate(start) && isDate(end) && end > start && Number(end.slice(0, 4)) - Number(start.slice(0, 4)) <= MAX_VIEW_YEARS;
+}
+
+/** iso moved by a number of days. */
+export function addDays(iso, days) {
+  const d = parseDate(iso);
+  d.setDate(d.getDate() + days);
+  return toISO(d);
+}
+
 /** Format a Date as YYYY-MM-DD */
 export function toISO(d) {
   if (!d) return '';
@@ -136,7 +162,7 @@ export function isLightColor(hex) {
 export function projectDateRange(tasks) {
   const dates = tasks.flatMap(t =>
     t.type === 'milestone' ? [t.date, ...(t.extraDates ?? [])] : [t.start, t.end]
-  ).filter(Boolean);
+  ).filter(isDate);
   if (!dates.length) return { start: null, end: null };
   return {
     start: dates.reduce((a, b) => a < b ? a : b),

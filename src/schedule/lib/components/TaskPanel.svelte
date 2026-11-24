@@ -1,5 +1,6 @@
 <script>
   import { pointerDrag } from '../utils/pointer.js';
+  import { editable } from '../utils/fields.js';
 
   const ROW_H = 26;
 
@@ -109,9 +110,9 @@
           class="t-name"
           contenteditable={!readonly}
           spellcheck="false"
-          onblur={(e) => onRename(task.id, e.target.textContent.trim() || task.name)}
+          use:editable={{ value: task.name, onCommit: (text) => text && onRename(task.id, text) }}
           onkeydown={(e) => { if (e.key === 'Enter') { e.preventDefault(); e.target.blur(); } }}
-        >{task.name}</div>
+        ></div>
         {#if !readonly}
           <div class="t-del no-print" title="Remove" onclick={() => onDelete(task.id)}>✕</div>
         {/if}

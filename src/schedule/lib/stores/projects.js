@@ -1,6 +1,8 @@
 import { writable } from 'svelte/store';
-import { listSchedules, saveSchedule, deleteSchedule } from '../../../store';
-import { toWeekday } from '../utils/dates.js';
+import { deleteSchedule, fetchSchedule, listSchedules, saveScheduleFrom, scheduleVersion } from '../../../store';
+import { askConflicts, askDeleted } from '../conflict.js';
+import { mergeSchedules, newUid, withUids } from '../utils/merge.js';
+import { addDays, hasDates, isDate, isView, projectDateRange, toISO, parseDate, toWeekday, MAX_VIEW_YEARS } from '../utils/dates.js';
 import { isScheduleCode } from '../../../../lib/schedule-style';
 
 // The schedule editor's store (a "project" here is one schedule). Same interface as in the schedule maker;
@@ -45,6 +47,7 @@ const DEBOUNCE_MS = 800;
 const _timers = new Map();   // id → timeout
 const _pending = new Map();  // id → latest unsaved version
 const _inFlight = new Map(); // id → promise of the save in progress
+const _sending = new Map();  // id → the version being saved
 
 export const saveError = writable('');
 
@@ -62,16 +65,142 @@ async function _send(id, keepalive = false) {
   const project = _pending.get(id);
   if (!project) return;
   _pending.delete(id);
-  const p = saveSchedule({ ...project, savedAt: Date.now() }, keepalive)
-    .then(() => saveError.set(''))
+  _sending.set(id, project);
+  const base = _base.get(id);
+  const savedAt = Date.now();
+  const lastSent = _sentAt.get(id);
+  _sentAt.set(id, savedAt);
+  const p = saveScheduleFrom({ ...project, savedAt, savedBy: TAB }, base?.version, keepalive)
+    .then(res => {
+      if (res.conflict) return _reconcile(id, base, project, res.record, lastSent);
+      if (res.version) _base.set(id, { version: res.version, project });
+      saveError.set('');
+    })
     .catch(err => {
       console.error('[schedules] save failed:', err.message);
       saveError.set(`Not saved: ${err.message}`);
       if (!_pending.has(id)) _pending.set(id, project); // keep it for the next try
     })
-    .finally(() => _inFlight.delete(id));
+    .finally(() => { _inFlight.delete(id); _sending.delete(id); });
   _inFlight.set(id, p);
   await p;
+}
+
+// ── Other people's saves ──
+// A save says which version it started from. When someone else (or another tab, even with the same sign-in) has saved
+// since, the server saves nothing and answers with theirs; both sets of changes are combined and saved again.
+const TAB = newUid();        // this tab, in what it saves
+const _base = new Map();     // id → { version, project }: what's on the server, as this tab last knew it
+const _sentAt = new Map();   // id → savedAt of this tab's last save, whether or not its answer arrived
+const _deleted = new Set();  // deleted in this tab
+const _unresolved = new Set(); // conflicts closed without choosing
+
+/** Someone else's changes just came in. */
+export const notice = writable('');
+let _noticeTimer;
+function _tell(text) {
+  notice.set(text);
+  clearTimeout(_noticeTimer);
+  _noticeTimer = setTimeout(() => notice.set(''), 6000);
+}
+
+// Nothing is replaced under the pointer in the middle of a drag.
+let _pressed = false;
+if (typeof window !== 'undefined') {
+  addEventListener('pointerdown', () => { _pressed = true; }, true);
+  for (const e of ['pointerup', 'pointercancel']) addEventListener(e, () => { _pressed = false; }, true);
+  addEventListener('blur', e => { if (e.target === window) _pressed = false; });
+  // A conflict left undecided isn't saved anywhere yet.
+  addEventListener('beforeunload', e => { if (_unresolved.size) e.preventDefault(); });
+}
+/** Typing in one of the schedule's fields. */
+const _typing = () => {
+  const el = document.activeElement;
+  return !!el && (el.isContentEditable || (el.tagName === 'INPUT' && el.type === 'date'));
+};
+async function _released() {
+  while (_pressed) await new Promise(r => setTimeout(r, 100));
+}
+
+let _all = [];
+subscribe(ps => { _all = ps; });
+const _current = id => _all.find(p => p.id === id);
+
+/** Shows a schedule combined with someone else's, and carries their changes into the undo steps (Undo reverses only mine). */
+function _adopt(id, base, theirs, merged, ids) {
+  const stack = _history.get(id);
+  if (stack) _history.set(id, stack.map(snap => mergeSchedules(base, snap, theirs, {}, ids).merged));
+  update(ps => ps.map(p => (p.id === id ? merged : p)));
+}
+
+async function _reconcile(id, base, sent, record, lastSent) {
+  if (_deleted.has(id)) return;
+  const mine = () => _pending.get(id) ?? _current(id) ?? sent;
+  if (!record) {
+    if (await askDeleted(sent.title)) { _base.delete(id); _saveProject(mine()); }
+    else { _pending.delete(id); _base.delete(id); update(ps => ps.filter(p => p.id !== id)); }
+    saveError.set('');
+    return;
+  }
+  const theirs = normalizeProject(record);
+  const version = record._v;
+  // This tab's own last save, whose answer never arrived: nothing to combine.
+  if (record.savedBy === TAB && record.savedAt === lastSent) {
+    _base.set(id, { version, project: theirs });
+    _saveProject(mine());
+    return;
+  }
+  await _released();
+  const ids = new Map();
+  let { merged, conflicts } = mergeSchedules(base.project, mine(), theirs, {}, ids);
+  if (conflicts.length) {
+    const choices = await askConflicts(sent.title, conflicts);
+    if (!choices) {
+      _unresolved.add(id);
+      throw new Error('someone else changed the same thing. Your next change will ask again.');
+    }
+    ({ merged } = mergeSchedules(base.project, mine(), theirs, choices, ids)); // with anything edited meanwhile
+  }
+  _unresolved.delete(id);
+  if (_deleted.has(id)) return;
+  merged.legend = _sortLegend(merged.legend);
+  _adopt(id, base.project, theirs, merged, ids);
+  _base.set(id, { version, project: theirs });
+  _saveProject(merged);
+  saveError.set('');
+  _tell('Combined with someone else’s changes');
+}
+
+/** Brings in someone else's save of an open schedule, unless this tab has changes of its own waiting (its save combines them). */
+async function _refresh(id) {
+  const busy = () => _pending.has(id) || _inFlight.has(id) || _pressed || _typing();
+  const base = _base.get(id);
+  if (!base || busy()) return;
+  try {
+    const version = await scheduleVersion(id);
+    if (version === undefined || version === base.version) return;
+    const row = version && (await fetchSchedule(id));
+    if (_deleted.has(id) || busy() || _base.get(id) !== base) return;
+    if (!row) { saveError.set('Someone else deleted this schedule.'); return; }
+    const theirs = normalizeProject(row);
+    _adopt(id, base.project, theirs, theirs, new Map());
+    _base.set(id, { version: row._v, project: theirs });
+    _tell('Updated with someone else’s changes');
+  } catch { /* a missed check: the next one, or the save itself, catches it */ }
+}
+
+const WATCH_MS = 20_000;
+/** Keeps an open schedule current: checks every 20 seconds while the tab is showing, and on coming back to it. */
+export function watchSchedule(id) {
+  const check = () => { if (document.visibilityState === 'visible') _refresh(id); };
+  const timer = setInterval(check, WATCH_MS);
+  document.addEventListener('visibilitychange', check);
+  window.addEventListener('focus', check);
+  return () => {
+    clearInterval(timer);
+    document.removeEventListener('visibilitychange', check);
+    window.removeEventListener('focus', check);
+  };
 }
 
 /** Sends every unsaved change now. keepalive lets the requests finish if the page is closing. */
@@ -80,6 +209,8 @@ export function flushSaves(keepalive = false) {
 }
 
 async function _deleteProject(id) {
+  _deleted.add(id);
+  _base.delete(id);
   _pending.delete(id);
   clearTimeout(_timers.get(id));
   try {
@@ -96,12 +227,20 @@ async function _deleteProject(id) {
  * that ends after it starts, within fifteen years. Returns the cleaned fields, or null when the task makes no sense.
  */
 const MAX_SPAN_DAYS = 15 * 366;
-function _cleanAiTask(fields, before = {}) {
+function _cleanAiTask(fields, before = null) {
   const out = { ...fields };
+  for (const k of ['start', 'end', 'date']) {
+    if (out[k] == null || out[k] === '') delete out[k]; // a date is never cleared, only changed
+    else if (!isDate(out[k])) return null;
+  }
   if ('type' in out && out.type !== 'bar' && out.type !== 'milestone') delete out.type;
   if ('color' in out && !isScheduleCode(out.color)) delete out.color;
   const t = { ...before, ...out };
-  if ((t.type ?? 'bar') === 'bar' && ISO.test(t.start ?? '') && ISO.test(t.end ?? '')) {
+  // A bar made a milestone without a date goes at the bar's end.
+  if (t.type === 'milestone' && !isDate(t.date) && isDate(t.end)) t.date = out.date = t.end;
+  // A new task, or one whose dates or shape change, has to be one that can be drawn.
+  if ((!before || ['type', 'start', 'end', 'date'].some((k) => k in out)) && !hasDates(t)) return null;
+  if ((t.type ?? 'bar') === 'bar' && isDate(t.start) && isDate(t.end)) {
     const days = (Date.parse(t.end) - Date.parse(t.start)) / 86_400_000;
     if (days < 0 || days > MAX_SPAN_DAYS) return null;
   }
@@ -114,9 +253,25 @@ function _weekdayDate(obj) {
   // A milestone's extra marks on its row: valid days only, on weekdays, at most 30.
   if ('extraDates' in out) {
     const list = Array.isArray(out.extraDates) ? out.extraDates : [];
-    out = { ...out, extraDates: list.filter(d => typeof d === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d)).slice(0, 30).map(toWeekday) };
+    out = { ...out, extraDates: list.filter(isDate).slice(0, 30).map(toWeekday) };
   }
   return out;
+}
+
+/** A timeline that can't be drawn (reversed, or centuries long) is set from the tasks' dates. */
+function _fixView(p) {
+  if (isView(p.viewStart, p.viewEnd)) return p;
+  const { start, end } = projectDateRange(p.tasks ?? []);
+  return { ...p, ...viewAround(start ?? toISO(new Date()), end ?? addDays(start ?? toISO(new Date()), 365)) };
+}
+
+/** The timeline covering two dates, with a month to spare at each end (within MAX_VIEW_YEARS). */
+export function viewAround(start, end) {
+  const s = parseDate(start), e = parseDate(end);
+  const vs = new Date(s.getFullYear(), s.getMonth() - 1, 1);
+  const ve = new Date(e.getFullYear(), e.getMonth() + 1, 1);
+  const last = new Date(vs.getFullYear() + MAX_VIEW_YEARS, vs.getMonth(), 1);
+  return { viewStart: toISO(vs), viewEnd: toISO(ve > last ? last : ve) };
 }
 
 // Brings previously saved projects up to the current color conventions:
@@ -132,14 +287,16 @@ export function normalizeProject(project) {
     p.tasks = (p.tasks ?? []).map(t => isReviewBar(t) ? { ...t, color: '#949494' } : t);
     p.colorVersion = 2;
   }
-  p.legend = _sortLegend(p.legend);
-  return p;
+  delete p._v; // kept apart from the schedule (_base)
+  p.legend = _sortLegend(withUids(p.legend));
+  // Empty fields used to be saved as the hint they showed.
+  for (const [k, hint] of [['date', 'Date'], ['number', 'Project Number'], ['client', 'Client']]) if (p[k] === hint) p[k] = '';
+  return _fixView(p);
 }
 
 // What the assistant may change on a task or legend item (never ids or links).
 const TASK_FIELDS = ['name', 'type', 'color', 'start', 'end', 'date', 'extraDates', 'msRef', 'note'];
 const LEGEND_FIELDS = ['text', 'label', 'date', 'color', 'code'];
-const ISO = /^\d{4}-\d{2}-\d{2}$/;
 
 // Legend sections are always kept in ascending date order (undated items last).
 const LEGEND_SECTIONS = ['deliverables', 'milestones', 'estimates', 'approvals'];
@@ -174,16 +331,24 @@ export const projectStore = {
   /** Loads every schedule once per visit (oldest first, as before). Unlike the old app, never inserts a sample. */
   init(force = false) {
     if (_loaded && !force) return _loaded;
+    // Saves under way as the load starts: the rows may have been read before they landed.
+    const saving = new Map(_sending);
     _loaded = listSchedules().then(rows => {
       const sorted = [...rows].sort((a, b) => (a.createdAt ?? a.savedAt ?? 0) - (b.createdAt ?? b.savedAt ?? 0));
-      // Keep any in-memory edits that haven't been saved yet.
-      set(sorted.map(r => _pending.get(r.id) ?? normalizeProject(r)));
+      // Keep any in-memory edits that haven't been saved yet, or were being saved meanwhile.
+      set(sorted.map(r => {
+        const kept = _pending.get(r.id) ?? _sending.get(r.id) ?? saving.get(r.id);
+        if (kept) return kept;
+        const project = normalizeProject(r);
+        if (r._v) _base.set(r.id, { version: r._v, project });
+        return project;
+      }));
     });
     return _loaded;
   },
 
   addProject(project) {
-    project = { ...project, colorVersion: 2, legend: _sortLegend(project.legend), createdAt: Date.now() };
+    project = { ...project, colorVersion: 2, legend: _sortLegend(withUids(project.legend)), createdAt: Date.now() };
     update(ps => [...ps, project]);
     _saveProject(project);
     return project;
@@ -216,11 +381,11 @@ export const projectStore = {
         const before = JSON.stringify(next);
         if (c?.type === 'updateView') {
           const v = pick(c.patch, ['viewStart', 'viewEnd']);
-          for (const k of Object.keys(v)) if (!ISO.test(v[k])) delete v[k];
+          if (!isView(v.viewStart ?? next.viewStart, v.viewEnd ?? next.viewEnd)) { result.skipped++; continue; }
           next = { ...next, ...v };
         } else if (c?.type === 'updateTask') {
           const current = next.tasks.find(t => t.id === c.taskId);
-          const patch = current && _cleanAiTask(_weekdayDate(pick(c.patch, TASK_FIELDS)), current);
+          const patch = current && _weekdayDate(_cleanAiTask(pick(c.patch, TASK_FIELDS), current));
           if (!patch) { result.skipped++; continue; }
           next.tasks = next.tasks.map(t => (t.id === c.taskId ? { ...t, ...patch } : t));
         } else if (c?.type === 'addTask' && c.task) {
@@ -240,12 +405,16 @@ export const projectStore = {
         } else if (c?.type === 'updateLegendItem' && LEGEND_SECTIONS.includes(c.section)) {
           const items = next.legend[c.section] ?? [];
           if (!Number.isInteger(c.index) || !items[c.index]) { result.skipped++; continue; }
-          const patch = _weekdayDate(pick(c.patch, LEGEND_FIELDS));
+          const raw = pick(c.patch, LEGEND_FIELDS);
+          if (raw.date === '') raw.date = null;
+          if (raw.date != null && !isDate(raw.date)) { result.skipped++; continue; }
+          const patch = _weekdayDate(raw);
           if ('color' in patch && !isScheduleCode(patch.color)) delete patch.color;
           next.legend[c.section] = _byDate(items.map((it, i) => (i === c.index ? { ...it, ...patch } : it)));
         } else if (c?.type === 'addLegendItem' && LEGEND_SECTIONS.includes(c.section) && c.item && typeof c.item === 'object') {
-          const item = _weekdayDate(pick(c.item, LEGEND_FIELDS));
-          if (item.date && !ISO.test(item.date)) delete item.date;
+          const raw = pick(c.item, LEGEND_FIELDS);
+          if (!isDate(raw.date)) delete raw.date;
+          const item = { ..._weekdayDate(raw), uid: newUid() };
           if (item.color && !isScheduleCode(item.color)) delete item.color;
           if (!String(item.text ?? '').trim()) { result.skipped++; continue; }
           next.legend[c.section] = _byDate([...(next.legend[c.section] ?? []), item]);
@@ -316,7 +485,7 @@ export const projectStore = {
   },
 
   updateLegendSection(projectId, section, items) {
-    items = _byDate(items.map(_weekdayDate));
+    items = _byDate(items.map(it => ({ uid: newUid(), ..._weekdayDate(it) })));
     _updateAndSave(projectId, p => {
       let tasks = p.tasks;
       if (section === 'milestones') {

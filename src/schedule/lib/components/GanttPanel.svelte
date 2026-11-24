@@ -1,7 +1,9 @@
 <script>
+  import { untrack } from 'svelte';
   import { palette, colorMap, paint, badge, look } from '../palette.js';
-  import { parseDate, toISO, timeColumns, ZOOM_COL_W, totalDays, dateToPx, dateToPxMonth, pxToDateMonth, dateToPxPeriod, pxToDatePeriod, dateToPxQuarter, pxToDateQuarter, isLightColor, MONTHS_SHORT, toWeekday } from '../utils/dates.js';
+  import { parseDate, toISO, timeColumns, ZOOM_COL_W, totalDays, dateToPx, dateToPxMonth, pxToDateMonth, dateToPxPeriod, pxToDatePeriod, dateToPxQuarter, pxToDateQuarter, isLightColor, MONTHS_SHORT, toWeekday, addDays, hasDates, isDate } from '../utils/dates.js';
   import { pointerDrag } from '../utils/pointer.js';
+  import { dateField } from '../utils/fields.js';
 
   const ROW_H = 26;
 
@@ -100,6 +102,7 @@
 
   // Date popup
   let popupTask = $state(null);
+  let popupNote = $state(''); // why a date wasn't accepted
   let popupX    = $state(0);
   let popupY    = $state(0);
 
@@ -134,12 +137,54 @@
 
   function openPopup(task, cx, cy) {
     popupTask = { ...task };
+    popupNote = '';
     const vw = window.innerWidth, vh = window.innerHeight;
     const pw = 240, ph = 260;
     popupX = Math.max(8, Math.min(cx + 10 + pw > vw ? cx - pw : cx + 10, vw - pw - 8));
     popupY = Math.max(8, Math.min(cy + 8 + ph > vh ? cy - ph : cy + 8, vh - ph - 8));
   }
-  function closePopup() { popupTask = null; }
+  // The task changed elsewhere (undo, the assistant, someone else): the popup shows it as it is now.
+  $effect(() => {
+    const list = tasks;
+    untrack(() => {
+      if (!popupTask) return;
+      const t = list.find(x => x.id === popupTask.id);
+      popupTask = t ? { ...t } : null;
+    });
+  });
+  function closePopup() {
+    // A date still being typed is saved as the field is left.
+    if (document.activeElement?.closest?.('.dp')) document.activeElement.blur();
+    popupTask = null;
+  }
+  /** A date from the popup. Refuses one that can't be drawn; returns whether it was accepted. */
+  function setDate(field, val) {
+    if (!popupTask) return false;
+    popupNote = '';
+    if (!isDate(val)) { popupNote = val ? 'Check the year.' : 'A date is needed.'; return false; }
+    if (field === 'date') { onPopupChange('date', toWeekday(val)); return true; }
+    const { start, end } = popupTask;
+    const patch = { [field]: val };
+    if (field === 'start' && (!isDate(end) || val > end)) {
+      // The bar moves, keeping its length.
+      const days = isDate(start) && isDate(end) && end > start ? Math.round((parseDate(end) - parseDate(start)) / 864e5) : 14;
+      patch.end = addDays(val, days);
+    } else if (field === 'end' && !isDate(start)) {
+      patch.start = addDays(val, -14);
+    } else if (field === 'end' && val < start) {
+      popupNote = 'The end is before the start.';
+      return false;
+    }
+    popupTask = { ...popupTask, ...patch };
+    onTaskUpdate(popupTask.id, patch);
+    return true;
+  }
+  function setExtraDate(k, val) {
+    popupNote = '';
+    if (!isDate(val)) { popupNote = val ? 'Check the year.' : 'A date is needed (✕ removes it).'; return false; }
+    onPopupChange('extraDates', popupTask.extraDates.map((x, i) => (i === k ? toWeekday(val) : x)));
+    return true;
+  }
   function onPopupChange(field, val) {
     if (!popupTask) return;
     popupTask = { ...popupTask, [field]: val };
@@ -151,11 +196,12 @@
     if (!popupTask || popupTask.type === type) return;
     let patch;
     if (type === 'milestone') {
-      patch = { type, date: toWeekday(popupTask.end ?? popupTask.start) };
+      const date = [popupTask.end, popupTask.start].find(isDate) ?? toISO(new Date());
+      patch = { type, date: toWeekday(date) };
     } else {
-      const start = popupTask.start ?? popupTask.date;
+      const start = [popupTask.start, popupTask.date].find(isDate) ?? toISO(new Date());
       let end = popupTask.end;
-      if (!end || end <= start) { const d = parseDate(start); d.setDate(d.getDate() + 14); end = toISO(d); }
+      if (!isDate(end) || end <= start) end = addDays(start, 14);
       patch = { type, start, end, color: popupTask.color ?? '#20ABE2' };
     }
     popupTask = { ...popupTask, ...patch };
@@ -474,7 +520,12 @@
             class:row-reorder-hidden={task.id === reorderDraggingId && reorderInsertIdx !== null}
           >
 
-            {#if task.type === 'milestone'}
+            {#if !hasDates(task)}
+              <!-- No dates, or an end before the start: nothing to draw, so a way to set them. -->
+              {#if onColorChange}
+                <button type="button" class="no-dates no-print" onclick={(e) => openPopup(task, e.clientX, e.clientY)}>Set dates</button>
+              {/if}
+            {:else if task.type === 'milestone'}
               {@const mpx = px(task.date)}
               {#if mpx >= 0 && mpx <= ganttWidth}
                 {#if task.label}
@@ -529,7 +580,7 @@
           <div class="g-row g-reorder-gap"></div>
         {/if}
 
-        {#if ghostTask && ghostY !== null && ghostTask.type === 'bar'}
+        {#if ghostTask && ghostY !== null && ghostTask.type === 'bar' && hasDates(ghostTask)}
           {@const rawLeft  = px(ghostTask.start)}
           {@const rawRight = px(ghostTask.end)}
           {@const left     = Math.max(0, rawLeft)}
@@ -549,6 +600,8 @@
   </div>
 </div>
 
+<svelte:window onkeydown={(e) => { if (popupTask && e.key === 'Escape') closePopup(); }} />
+
 <!-- Date popup -->
 {#if popupTask}
   <!-- Closes on press, not click: the click that follows a touch tap would otherwise close it at once -->
@@ -558,6 +611,7 @@
   <div class="dp" style:left="{popupX}px" style:top="{popupY}px">
     <div class="dp-close" onclick={closePopup}>✕</div>
     <div class="dp-task-name">{popupTask.name}</div>
+    {#if popupNote}<div class="dp-note" role="alert">{popupNote}</div>{/if}
     <div class="dp-lbl">Shape</div>
     <div class="dp-shape">
       <button class:active={popupTask.type !== 'milestone'} onclick={() => setShape('bar')}>
@@ -569,20 +623,20 @@
     </div>
     {#if popupTask.type === 'milestone'}
       <div class="dp-lbl">Date</div>
-      <input type="date" value={popupTask.date} oninput={(e) => { const v = toWeekday(e.target.value); e.target.value = v; onPopupChange('date', v); }}>
+      <input type="date" use:dateField={{ value: popupTask.date, onCommit: (v) => setDate('date', v) }}>
       {#if (popupTask.extraDates ?? []).length}<div class="dp-lbl">More dates on this line</div>{/if}
       {#each popupTask.extraDates ?? [] as xd, k}
         <div class="dp-extra">
-          <input type="date" value={xd} oninput={(e) => { const v = toWeekday(e.target.value); e.target.value = v; if (v) onPopupChange('extraDates', popupTask.extraDates.map((x, i) => (i === k ? v : x))); }}>
+          <input type="date" use:dateField={{ value: xd, onCommit: (v) => setExtraDate(k, v) }}>
           <button type="button" class="dp-x" title="Remove this date" aria-label="Remove this date" onclick={() => onPopupChange('extraDates', popupTask.extraDates.filter((_, i) => i !== k))}>✕</button>
         </div>
       {/each}
-      <button type="button" class="dp-add" onclick={() => { const last = [popupTask.date, ...(popupTask.extraDates ?? [])].filter(Boolean).sort().pop(); const d = parseDate(last ?? toISO(new Date())); d.setDate(d.getDate() + 14); onPopupChange('extraDates', [...(popupTask.extraDates ?? []), toWeekday(toISO(d))]); }}>+ Add another date</button>
+      <button type="button" class="dp-add" onclick={() => { const last = [popupTask.date, ...(popupTask.extraDates ?? [])].filter(isDate).sort().pop() ?? toISO(new Date()); onPopupChange('extraDates', [...(popupTask.extraDates ?? []), toWeekday(addDays(last, 14))]); }}>+ Add another date</button>
     {:else}
       <div class="dp-lbl">Start</div>
-      <input type="date" value={popupTask.start} oninput={(e) => onPopupChange('start', e.target.value)}>
+      <input type="date" use:dateField={{ value: popupTask.start, onCommit: (v) => setDate('start', v) }}>
       <div class="dp-lbl">End</div>
-      <input type="date" value={popupTask.end} oninput={(e) => onPopupChange('end', e.target.value)}>
+      <input type="date" use:dateField={{ value: popupTask.end, onCommit: (v) => setDate('end', v) }}>
       <div class="dp-lbl">Color</div>
       {#each SWATCH_ROWS as row}
         <div class="dp-colors">
@@ -801,6 +855,8 @@
   }
   .dp-close:hover { color: var(--black); }
   .dp-task-name { font-weight: 700; font-size: 12px; margin-bottom: 10px; max-width: 190px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .dp-note { font-size: 12px; color: #b00020; }
+  .no-dates { position: absolute; left: 4px; top: 3px; border: 1px dashed var(--black); background: #fff; color: var(--black); font: 11px/1 'Barlow', sans-serif; padding: 3px 8px; cursor: pointer; }
   .dp-extra { display: flex; gap: 4px; align-items: center; margin-bottom: 4px; }
   .dp-extra input { flex: 1; }
   .dp-x { border: 0; background: none; cursor: pointer; font-size: 12px; color: var(--black); padding: 2px 4px; }
